@@ -232,7 +232,7 @@ class ModelParser:
         node_list = self.get_node_list()
         found_root = False
         for node in node_list:
-            if self.if_root_nodes(node_name=node):
+            if self.if_root_node(node_name=node):
                 found_root = True
                 root_node = node
                 break
