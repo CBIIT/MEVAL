@@ -1,4 +1,3 @@
-from bento_meta.model import Model
 from bento_mdf import MDFReader
 from typing import TypeVar
 
@@ -8,7 +7,7 @@ DataFrame = TypeVar("DataFrame")
 class ModelParser:
     """A higher level wrapper of MDFReader class from bento-mdf that offers direct and easy access to model features"""
 
-    def __init__(self, model_file: str, props_file: str, handle: str | None = None):
+    def __init__(self, model_file: str, props_file: str, handle: str = None):
         """Create a class of ModelParser
 
         Args:
@@ -297,3 +296,27 @@ class ModelParser:
                 f"Edge from '{edge_src}' to '{edge_dst}' not found in the model."
             )
 
+    def get_edge_handle(self, edge_src: str, edge_dst: str) -> str:
+        """Get the handle of a given edge src node to dst node
+
+        Args:
+            edge_src (str): source node of the edge
+            edge_dst (str): destination node of the edge
+        Returns:
+            str: handle of the edge
+        """
+        all_triplets = self.get_all_edge_triplets()
+        if_found = False
+        for triplet in all_triplets:
+            if triplet[1] == edge_src and triplet[2] == edge_dst:
+                if_found = True
+                edge_handle = self.model.edges[triplet].handle
+                break
+            else:
+                continue
+        if if_found:
+            return edge_handle
+        else:
+            raise KeyError(
+                f"Edge from '{edge_src}' to '{edge_dst}' not found in the model."
+            )

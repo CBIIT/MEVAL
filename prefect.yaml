@@ -1,0 +1,44 @@
+# Welcome to your prefect.yaml file! You can use this file for storing and managing
+# configuration for deploying your flows. We recommend committing this file to source
+# control along with your flow code.
+
+# Generic metadata about this project
+name: s3-Prefect-Workflow
+prefect-version: 3.14.19
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push: null
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+  - name: TEST-universal-dataloader
+    version: null
+    tags: ["TEST","Qiong"]
+    description: "Prefect test deployment for universal data loader upsert workflow"
+    entrypoint: workflows/prefect/upsert_workflow.py:upsert_files
+
+    parameters:
+      id_field: "id"
+
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+      - prefect.deployments.steps.git_clone:
+          id: sub_repo_clone_step
+          repository: https://github.com/CBIIT/ChildhoodCancerDataInitiative-Prefect_Pipeline.git
+          branch: main      
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: False
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
