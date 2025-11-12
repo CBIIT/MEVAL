@@ -2,22 +2,97 @@ from prefect import flow, task
 from src.loader import Loader
 from src.parser import ModelParser
 from neo4j import GraphDatabase
+import boto3
+from botocore.exceptions import ClientError
 import os
-import sys
 import json
-from datetime import date
-
-sys.path.insert(0, os.path.abspath("../ChildhoodCancerDataInitiative-Prefect_Pipeline/src/"))
-from utils import file_dl, folder_dl, parse_file_url
+from urllib.parse import urlparse
 
 
-driver = GraphDatabase.driver("bolt+ssc://mdb.ctos-data-team.org:9667/")
-myloader = Loader(driver=driver)
-ccdi_parser = ModelParser(
-    "/Users/liuq14/CTOS_DATATEAM/DATATEAM-280_universal_data_loader_spike/ccdi-model-3.1.0/model-desc/ccdi-model.yml",
-    "/Users/liuq14/CTOS_DATATEAM/DATATEAM-280_universal_data_loader_spike/ccdi-model-3.1.0/model-desc/ccdi-model-props.yml",
-    handle="ccdi",
+def set_s3_resource():
+    """This method sets the s3_resource object to either use localstack
+    for local development if the LOCALSTACK_ENDPOINT_URL variable is
+    defined and returns the object
+    """
+    localstack_endpoint = os.environ.get("LOCALSTACK_ENDPOINT_URL")
+    if localstack_endpoint != None:
+        AWS_REGION = "us-east-1"
+        AWS_PROFILE = "localstack"
+        ENDPOINT_URL = localstack_endpoint
+        boto3.setup_default_session(profile_name=AWS_PROFILE)
+        s3_resource = boto3.resource(
+            "s3", region_name=AWS_REGION, endpoint_url=ENDPOINT_URL
+        )
+    else:
+        s3_resource = boto3.resource("s3")
+    return s3_resource
+
+
+def parse_file_url(url: str) -> tuple:
+    # in case the url doesn't start with s3://
+    if not url.startswith("s3://"):
+        url = "s3://" + url
+    else:
+        pass
+    parsed_url = urlparse(url)
+    bucket_name = parsed_url.netloc
+    object_key = parsed_url.path
+    if object_key[0] == "/":
+        object_key = object_key[1:]
+    else:
+        pass
+    return bucket_name, object_key
+
+
+@task(name="Download file", task_run_name="download_file_{filename}", log_prints=True)
+def file_dl(bucket, filename) -> str:
+    """File download using bucket name and filename
+    filename is the key path in bucket
+    file is the basename
+    """
+    # Set the s3 resource object for local or remote execution
+    s3 = set_s3_resource()
+    source = s3.Bucket(bucket)
+    file_key = filename
+    file = os.path.basename(filename)
+    try:
+        source.download_file(file_key, file)
+        return file
+    except ClientError as ex:
+        ex_code = ex.response["Error"]["Code"]
+        ex_message = ex.response["Error"]["Message"]
+        print(
+            f"ClientError occurred while downloading file {filename} from bucket {bucket}:\n{ex_code}, {ex_message}"
+        )
+        raise
+
+
+@task(
+    name="Download folder",
+    task_run_name="download_folder_{remote_folder}",
+    log_prints=True,
 )
+def folder_dl(bucket: str, remote_folder: str) -> None:
+    """Downloads a remote direcotry folder from s3
+    bucket to local. it generates a folder that follows the
+    structure in s3 bucket
+
+    for instance, if the remote_folder is "uniq_id/test_folder",
+    the local directory will create path of "uniq_id/test_folder"
+    """
+    s3_resouce = set_s3_resource()
+    bucket_obj = s3_resouce.Bucket(bucket)
+    for obj in bucket_obj.objects.filter(Prefix=remote_folder):
+        if not os.path.exists(os.path.dirname(obj.key)):
+            os.makedirs(os.path.dirname(obj.key))
+        try:
+            bucket_obj.download_file(obj.key, obj.key)
+        except NotADirectoryError as err:
+            err_str = repr(err)
+            print(
+                f"Error downloading folder {remote_folder} from bucket {bucket}: {err_str}"
+            )
+    return None
 
 
 @flow(log_print=True)
