@@ -95,7 +95,7 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     return None
 
 
-@flow(log_print=True)
+@flow(log_prints=True)
 def upsert_files(
     uri: str,
     tsv_folder_s3uri: str,
