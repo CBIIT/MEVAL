@@ -28,10 +28,6 @@ deployments:
           id: main_repo_clone_step
           repository: https://github.com/CBIIT/MEVAL.git
           branch: add_parser
-      - prefect.deployments.steps.git_clone:
-          id: sub_repo_clone_step
-          repository: https://github.com/CBIIT/ChildhoodCancerDataInitiative-Prefect_Pipeline.git
-          branch: main      
       - prefect.deployments.steps.pip_install_requirements:
           requirements_file: requirements_python3.13.txt
           directory: "{{ main_repo_clone_step.directory }}"

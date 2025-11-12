@@ -102,9 +102,9 @@ def upsert_files(
     id_field: str,
     model_file_s3uri: str,
     props_file_s3uri: str,
-    subgraph_col: str = None,
-    username: str = None,
-    password: str = None,
+    subgraph_col: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ):
     """
     Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.

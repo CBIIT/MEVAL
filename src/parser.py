@@ -7,7 +7,7 @@ DataFrame = TypeVar("DataFrame")
 class ModelParser:
     """A higher level wrapper of MDFReader class from bento-mdf that offers direct and easy access to model features"""
 
-    def __init__(self, model_file: str, props_file: str, handle: str = None):
+    def __init__(self, model_file: str, props_file: str, handle: str|None = None):
         """Create a class of ModelParser
 
         Args:

@@ -67,14 +67,14 @@ class Loader:
 
     @staticmethod
     def generate_chunk_records(
-        chunk: pd.DataFrame, subgraph_col: str = None
+        chunk: pd.DataFrame, subgraph_col: str|None = None
     ) -> tuple[str, list[dict]]:
         """
         Generate records from a given chunk of data based on the model parser.
 
         Args:
             chunk (pd.DataFrame): DataFrame chunk containing data rows
-            subgraph_col (str): The subgraph column name. This column indicates which subgraph the data entries belong to. In most cases, the value under this subgraph column is a study id/accession. Defaults to None.
+            subgraph_col (str|None): The subgraph column name. This column indicates which subgraph the data entries belong to. In most cases, the value under this subgraph column is a study id/accession. Defaults to None.
             id_field (str, optional): The unique identifier field. Defaults to "guid".
         Returns:
             tuple[str, list[dict]]: A tuple containing (chunk_type, list of records converted from the chunk)
@@ -144,7 +144,7 @@ class Loader:
     def upsert_file_records(
         self,
         file_path: str,
-        subgraph_col: str = None,
+        subgraph_col: str|None = None,
         id_field: str = "guid",
         chunk_size: int = 3000,
     ) -> dict:
@@ -153,7 +153,7 @@ class Loader:
 
         Args:
             file_path (str): The path to the TSV file.
-            subgraph_col (str): The subgraph column name. Defaults to None.
+            subgraph_col (str|None): The subgraph column name. Defaults to None.
             id_field (str, optional): The unique identifier field. Defaults to "guid".
             chunk_size (int, optional): Number of rows per chunk. Defaults to 3000.
 
