@@ -155,7 +155,7 @@ def upsert_files(
     node_upsert_summary = {}
     for file in file_list:
         node_upsert_summary[file] = myloader.upsert_file_records(
-            file_path=file, id_field=id_field, subgraph_col=subgraph_col
+            file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=1000
         )
     print(json.dumps(node_upsert_summary, indent=4))
 
@@ -163,6 +163,6 @@ def upsert_files(
     rel_upsert_summary = {}
     for file in file_list:
         rel_upsert_summary[file] = myloader.upsert_file_relationships(
-            file_path=file, model_parser=model_parser, id_field=id_field
+            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=1000
         )
     print(json.dumps(rel_upsert_summary, indent=4))
