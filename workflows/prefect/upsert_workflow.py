@@ -1,3 +1,4 @@
+from datetime import datetime
 from prefect import flow, task
 from src.loader import Loader
 from src.parser import ModelParser
@@ -7,6 +8,7 @@ from botocore.exceptions import ClientError
 import os
 import json
 from urllib.parse import urlparse
+import pandas as pd
 
 
 def set_s3_resource():
@@ -67,6 +69,20 @@ def file_dl(bucket, filename) -> str:
         raise
 
 
+@task(name="Upload file", task_run_name="upload_file_{newfile}")
+def file_ul(bucket: str, output_folder: str, sub_folder: str, newfile: str):
+    """File upload using bucket name, output folder name
+    and filename
+    """
+    # Set the s3 resource object for local or remote execution
+    s3 = set_s3_resource()
+    source = s3.Bucket(bucket)
+    # upload files outside inputs/ folder
+    file_key = os.path.join(output_folder, sub_folder, newfile)
+    # extra_args={'ACL': 'bucket-owner-full-control'}
+    source.upload_file(newfile, file_key)  # , extra_args)
+    return None
+
 @task(
     name="Download folder",
     task_run_name="download_folder_{remote_folder}",
@@ -97,6 +113,7 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
 
 @flow(log_prints=True)
 def upsert_files(
+    output_bucket_loc: str,
     uri: str,
     tsv_folder_s3uri: str,
     id_field: str,
@@ -110,6 +127,7 @@ def upsert_files(
     Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.
 
     Args:
+        output_bucket_loc (str): The S3 URI of the output bucket location.
         uri (str): The Neo4j database URI.
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files.
         id_field (str): The field to use as the unique identifier for nodes.
@@ -157,6 +175,7 @@ def upsert_files(
         node_upsert_summary[file] = myloader.upsert_file_records(
             file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=1000
         )
+    print("Print out node upsert summary:")
     print(json.dumps(node_upsert_summary, indent=4))
 
     # second to load all the relationships
@@ -165,4 +184,20 @@ def upsert_files(
         rel_upsert_summary[file] = myloader.upsert_file_relationships(
             file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=1000
         )
+    print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))
+
+    # combine two summaries into one, and write into a tsv
+    combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
+    summary_output_name = f"MEVEL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
+    summary_df.index.name = "file_name"
+    summary_df.to_csv(summary_output_name, sep="\t", index=True)
+    # upload the summaru tsv to s3
+    output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder="MEVAL_upsert_summaries",
+        newfile=summary_output_name,
+    )
