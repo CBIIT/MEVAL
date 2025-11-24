@@ -188,7 +188,13 @@ def upsert_files(
     print(json.dumps(rel_upsert_summary, indent=4))
 
     # combine two summaries into one, and write into a tsv
-    combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
+    # needs to combine two dict for every file
+    combined_summary = {
+        k: {node_upsert_summary[k][i] + rel_upsert_summary[k][i]
+        for i in node_upsert_summary[k]}
+        for k in node_upsert_summary
+    }
+    #combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
     summary_output_name = f"MEVEL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"
