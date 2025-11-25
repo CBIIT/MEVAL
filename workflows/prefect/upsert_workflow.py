@@ -127,7 +127,7 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
             else:
                 key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
         return_dict[key] = key_dict
-    print(f"combined summary for {os.path.basename(key)}:")
+    print(f"combined loading summary for all the submission files:")
     print(json.dumps(return_dict, indent=4))
     return return_dict
 
@@ -215,6 +215,7 @@ def upsert_files(
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"
     summary_df = summary_df.reset_index()
+    summary_df["file_name"] = summary_df["file_name"].apply(lambda x: os.path.basename(x))
     summary_df.to_csv(summary_output_name, sep="\t", index=False)
     # upload the summaru tsv to s3
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
