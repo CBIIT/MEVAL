@@ -111,6 +111,26 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     return None
 
 
+@task(log_prints=True)
+def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
+    return_dict={}
+    # both summaries should have the same keys
+    keys = upsert_node_summary.keys()
+    for key in keys:
+        upsert_key_dict = upsert_node_summary[key]
+        rel_key_dict = upser_rel_summary[key]
+        key_dict = {}
+        for subkey in upsert_key_dict.keys():
+            if subkey == "properties_set":
+                key_dict["node_properties_set"] = upsert_key_dict[subkey]
+                key_dict["rel_properties_set"] = rel_key_dict[subkey]
+            else:
+                key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
+        return_dict[key] = key_dict
+    print(f"combined summary for {os.path.basename(key)}:")
+    print(json.dumps(return_dict, indent=4))
+    return return_dict
+
 @flow(log_prints=True)
 def upsert_files(
     output_bucket_loc: str,
@@ -189,16 +209,13 @@ def upsert_files(
 
     # combine two summaries into one, and write into a tsv
     # needs to combine two dict for every file
-    combined_summary = {
-        k: {node_upsert_summary[k][i] + rel_upsert_summary[k][i]
-        for i in node_upsert_summary[k]}
-        for k in node_upsert_summary
-    }
+    combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
     #combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
     summary_output_name = f"MEVEL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"
-    summary_df.to_csv(summary_output_name, sep="\t", index=True)
+    summary_df = summary_df.reset_index()
+    summary_df.to_csv(summary_output_name, sep="\t", index=False)
     # upload the summaru tsv to s3
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
     file_ul(
