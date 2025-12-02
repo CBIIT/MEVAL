@@ -139,6 +139,7 @@ def upsert_files(
     id_field: str,
     model_file_s3uri: str,
     props_file_s3uri: str,
+    delimiter: str = ";",
     subgraph_col: str | None = None,
     username: str | None = None,
     password: str | None = None,
@@ -206,7 +207,7 @@ def upsert_files(
     rel_upsert_summary = {}
     for file in file_list:
         rel_upsert_summary[file] = myloader.upsert_file_relationships(
-            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000
+            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
         )
     print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))

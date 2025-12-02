@@ -5,6 +5,8 @@ from itertools import groupby
 import os
 from timeit import default_timer as timer
 
+from parser import ModelParser
+
 
 class Loader:
     def __init__(self, driver: "GraphDatabase.driver"):
@@ -196,15 +198,16 @@ class Loader:
 
     @staticmethod
     def generate_chunk_relationships(
-        chunk: pd.DataFrame, model_parser: "ModelParser", id_field: str = "guid"
+        chunk: pd.DataFrame, model_parser: "ModelParser", id_field: str = "guid", delimiter: str = ";"
     ) -> list[dict]:
         """
         Generate a list of relationship records from a chunk of data.
 
         Args:
             chunk (pd.DataFrame): The chunk of data to process.
-            id_field (str, optional): The unique identifier field. Defaults to "guid".
             model_parser (ModelParser): The model parser instance to use.
+            id_field (str, optional): The unique identifier field. Defaults to "guid".
+            delimiter (str, optional): The delimiter used in the case of one to many relationship. Defaults to ";".
 
         Returns:
             list[dict]: A list of relationship records.
@@ -218,8 +221,7 @@ class Loader:
         edges_to_add = []
         # edge is usually <parent_node>.<prop>
         for edge in edge_columns:
-            edge_parent = edge.split(".")[0]
-            edge_parent_prop = edge.split(".")[1]
+            edge_parent, edge_parent_prop = edge.split(".")
             # this is the edge handle/label
             edge_handle = model_parser.get_edge_handle(
                 edge_src=chunk_type, edge_dst=edge_parent
@@ -232,15 +234,29 @@ class Loader:
             if chunk_filtered.shape[0] > 0:
                 edges_list = chunk_filtered.to_dict(orient="records")
                 for item in edges_list:
-                    edge_item = {}
-                    edge_item["src_label"] = chunk_type
-                    edge_item["src_prop"] = id_field
-                    edge_item["src_match"] = item[id_field]
-                    edge_item["dst_label"] = edge_parent
-                    edge_item["dst_prop"] = edge_parent_prop
-                    edge_item["dst_match"] = item[edge]
-                    edge_item["handle"] = edge_handle
-                    edges_to_add.append(edge_item)
+                    if delimiter not in item[edge]:
+                        edge_item = {}
+                        edge_item["src_label"] = chunk_type
+                        edge_item["src_prop"] = id_field
+                        edge_item["src_match"] = item[id_field]
+                        edge_item["dst_label"] = edge_parent
+                        edge_item["dst_prop"] = edge_parent_prop
+                        edge_item["dst_match"] = item[edge]
+                        edge_item["handle"] = edge_handle
+                        edges_to_add.append(edge_item)
+                    else:
+                        # one to many relationship
+                        dst_matches = item[edge].split(delimiter)
+                        for dst in dst_matches:
+                            edge_item = {}
+                            edge_item["src_label"] = chunk_type
+                            edge_item["src_prop"] = id_field
+                            edge_item["src_match"] = item[id_field]
+                            edge_item["dst_label"] = edge_parent
+                            edge_item["dst_prop"] = edge_parent_prop
+                            edge_item["dst_match"] = dst.strip()
+                            edge_item["handle"] = edge_handle
+                            edges_to_add.append(edge_item)
             else:
                 # there is no edge to establish with this parent node
                 pass
@@ -316,6 +332,7 @@ class Loader:
         model_parser: "ModelParser",
         id_field: str = "guid",
         chunk_size: int = 3000,
+        delimiter: str = ";"
     ) -> dict:
         """Upsert relationships of a given file
         Relationships can only be done when both parent and child nodes have been created
@@ -340,7 +357,7 @@ class Loader:
                 print(f"Processing batch {batch_count}...")
 
                 chunk_relationships = self.generate_chunk_relationships(
-                    chunk=chunk, id_field=id_field, model_parser=model_parser
+                    chunk=chunk, id_field=id_field, model_parser=model_parser, delimiter=delimiter
                 )
                 # for study/root node tsv, there shouldn't be any edges.
                 if len(chunk_relationships) > 0:
