@@ -179,6 +179,10 @@ def upsert_files(
         handle="handle",
     )
 
+    # create index in memgraph instance if not exist
+    index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
+    print(f"Index created in the database (if not exist): {index_in_db}")
+
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
     folder_dl(tsv_bucket, tsv_folder)
@@ -193,7 +197,7 @@ def upsert_files(
     node_upsert_summary = {}
     for file in file_list:
         node_upsert_summary[file] = myloader.upsert_file_records(
-            file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=1000
+            file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
         )
     print("Print out node upsert summary:")
     print(json.dumps(node_upsert_summary, indent=4))
@@ -202,7 +206,7 @@ def upsert_files(
     rel_upsert_summary = {}
     for file in file_list:
         rel_upsert_summary[file] = myloader.upsert_file_relationships(
-            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=1000
+            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000
         )
     print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))

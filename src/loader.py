@@ -3,6 +3,7 @@ from typing import Generator
 from operator import itemgetter
 from itertools import groupby
 import os
+from timeit import default_timer as timer
 
 
 class Loader:
@@ -171,16 +172,19 @@ class Loader:
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
                 print(f"Processing batch {batch_count}...")
+                batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(chunk, subgraph_col)
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field
                 )
+                batch_end = timer()
                 print(
                     f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
                 )
                 print(
                     f"Batch {batch_count} set {result_summary['properties_set']} properties"
                 )
+                print("Batch loading time (seconds): ", batch_end - batch_begin)
                 summary_list.append(result_summary)
 
         # combine counts in all summaries into one
@@ -465,3 +469,74 @@ class Loader:
                         raise e
         print(f"Total nodes deleted in subgraph {subgraph_value}: {delete_nodes}")
         return delete_nodes
+
+    def _list_index(self) -> list:
+        """List all indexes in the database.
+        Example of returned index:
+        [{'label': 'cell_line', 'property': 'id'}, {'label': 'clinical_measure_file', 'property': 'id'}]
+        """
+        query = "SHOW INDEXES;"
+        with self.driver.session() as session:
+            result = session.run(query)
+            indexes = []
+            for record in result:
+                indexes.append(
+                    {
+                        "label": record.get("label"),
+                        "property": record.get("property")[0],
+                    }
+                )
+        return indexes
+
+    def create_index(self, model_parser: "ModelParser", id_field:str = "guid") -> list[dict]:
+        """Create indexes based on the model parser definitions.
+        Returns a list of created indexes.
+        """
+        created_indexes = []
+        existing_indexes = self._list_index()
+        model_node_list =  model_parser.get_node_list()
+        with self.driver.session() as session:
+            for node in model_node_list:
+                exist=False
+                for idx in existing_indexes:
+                    if idx["label"] == node and idx["property"] == id_field:
+                        # index already exist
+                        created_indexes.append({"label": node, "property": id_field})
+                        exist=True
+                    else:
+                        pass
+                if not exist:
+                    # create index
+                    query = f"CREATE INDEX ON :{node}({id_field});"
+                    try:
+                        session.run(query)
+                        print(f"Index created: {node}({id_field})")
+                        created_indexes.append({"label": node, "property": id_field})
+                    except Exception as e:
+                        print(f"Error creating index for {node}({id_field}): ", e)
+                        raise e
+        return created_indexes
+
+    def drop_index(self, index_list: list[dict]) -> None:
+        """Drop indexes based on the provided list of indexes.
+        Each index in the list should be a dict with 'label' and 'property' keys.
+        """
+        with self.driver.session() as session:
+            for index in index_list:
+                label = index["label"]
+                property_name = index["property"]
+                query = f"DROP INDEX ON :{label}({property_name});"
+                try:
+                    session.run(query)
+                    print(f"Index dropped: {label}({property_name})")
+                except Exception as e:
+                    print(f"Error dropping index for {label}({property_name}): ", e)
+                    raise e
+        return None
+
+    def drop_all_indexes(self) -> None:
+        """Drop all indexes in the database."""
+        existing_indexes = self._list_index()
+        print(existing_indexes)
+        self.drop_index(existing_indexes)
+        return None
