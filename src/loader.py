@@ -5,8 +5,6 @@ from itertools import groupby
 import os
 from timeit import default_timer as timer
 
-from parser import ModelParser
-
 
 class Loader:
     def __init__(self, driver: "GraphDatabase.driver"):
