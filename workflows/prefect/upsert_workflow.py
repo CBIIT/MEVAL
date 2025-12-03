@@ -216,7 +216,7 @@ def upsert_files(
     # needs to combine two dict for every file
     combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
     #combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
-    summary_output_name = f"MEVEL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"
     summary_df = summary_df.reset_index()
