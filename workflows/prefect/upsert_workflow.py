@@ -10,10 +10,9 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 
-# import sys
-# print(os.listdir("../../../"))
-# sys.path.insert(0, os.path.abspath("../../../libs/prefect-toolkit/src"))
-# from commons.datamodel import GetDataModel
+import sys
+sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit/src"))
+from commons.datamodel import GetDataModel
 
 
 def set_s3_resource():
@@ -198,14 +197,14 @@ def upsert_files(
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     print(f"Index created in the database (if not exist): {index_in_db}")
 
-    list_folder("./")
+    list_folder("./libs/prefect-toolkit/src")
 
-    ## test downloading model files
-    #data_model_yaml, props_yaml = GetDataModel.dl_model_files(
-    #    commons_acronym="ccdi", tag="3.1.0"
-    #)
-    #print(f"Downloaded data model yaml: {data_model_yaml}")
-    #print(f"Downloaded properties yaml: {props_yaml}")
+    # test downloading model files
+    data_model_yaml, props_yaml = GetDataModel.dl_model_files(
+        commons_acronym="ccdi", tag="3.1.0"
+    )
+    print(f"Downloaded data model yaml: {data_model_yaml}")
+    print(f"Downloaded properties yaml: {props_yaml}")
 
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
