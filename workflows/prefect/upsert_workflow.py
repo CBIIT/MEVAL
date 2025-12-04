@@ -10,6 +10,10 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 
+import sys
+sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit/src"))
+from commons.datamodel import GetDataModel
+
 
 def set_s3_resource():
     """This method sets the s3_resource object to either use localstack
@@ -184,6 +188,13 @@ def upsert_files(
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     print(f"Index created in the database (if not exist): {index_in_db}")
 
+    # test downloading model files
+    data_model_yaml, props_yaml = GetDataModel.dl_model_files(
+        commons_acronym="ccdi", tag="3.1.0"
+    )
+    print(f"Downloaded data model yaml: {data_model_yaml}")
+    print(f"Downloaded properties yaml: {props_yaml}")
+
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
     folder_dl(tsv_bucket, tsv_folder)
@@ -215,7 +226,7 @@ def upsert_files(
     # combine two summaries into one, and write into a tsv
     # needs to combine two dict for every file
     combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
-    #combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
+    # combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
     summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"

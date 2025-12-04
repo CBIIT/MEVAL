@@ -22,6 +22,7 @@ deployments:
 
     parameters:
       id_field: "id"
+      delimiter: ";"
 
     pull:
       - prefect.deployments.steps.git_clone:
@@ -31,7 +32,13 @@ deployments:
       - prefect.deployments.steps.pip_install_requirements:
           requirements_file: requirements_python3.13.txt
           directory: "{{ main_repo_clone_step.directory }}"
-          stream_output: False
+          stream_output: True
+      - prefect.deployments.steps.run_shell_script:
+          id: install_additional_dependencies
+          script: |
+            git clone https://github.com/CBIIT/prefect-toolkit.git /tmp/prefect-toolkit
+            export PYTHONPATH="/tmp/prefect-toolkit:$PYTHONPATH"
+          stream_output: True
     
     # infra-specific fields
     work_pool:
