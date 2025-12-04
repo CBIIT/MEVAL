@@ -10,10 +10,10 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 
-import sys
-print(os.listdir("../../../"))
-sys.path.insert(0, os.path.abspath("../../../libs/prefect-toolkit/src"))
-from commons.datamodel import GetDataModel
+# import sys
+# print(os.listdir("../../../"))
+# sys.path.insert(0, os.path.abspath("../../../libs/prefect-toolkit/src"))
+# from commons.datamodel import GetDataModel
 
 
 def set_s3_resource():
@@ -136,6 +136,15 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     print(json.dumps(return_dict, indent=4))
     return return_dict
 
+
+@task
+def list_folder(path: str):
+    items = os.listdir(path)
+    print(f"Items under '{path}':")
+    for item in items:
+        print(item)
+
+
 @flow(log_prints=True)
 def upsert_files(
     output_bucket_loc: str,
@@ -189,12 +198,14 @@ def upsert_files(
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     print(f"Index created in the database (if not exist): {index_in_db}")
 
-    # test downloading model files
-    data_model_yaml, props_yaml = GetDataModel.dl_model_files(
-        commons_acronym="ccdi", tag="3.1.0"
-    )
-    print(f"Downloaded data model yaml: {data_model_yaml}")
-    print(f"Downloaded properties yaml: {props_yaml}")
+    list_folder("../../../")
+
+    ## test downloading model files
+    #data_model_yaml, props_yaml = GetDataModel.dl_model_files(
+    #    commons_acronym="ccdi", tag="3.1.0"
+    #)
+    #print(f"Downloaded data model yaml: {data_model_yaml}")
+    #print(f"Downloaded properties yaml: {props_yaml}")
 
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
