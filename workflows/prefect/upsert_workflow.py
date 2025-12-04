@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
 
 
-DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc"]
+DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc"]
 
 def set_s3_resource():
     """This method sets the s3_resource object to either use localstack
@@ -159,7 +159,7 @@ def upsert_files(
         output_bucket_loc (str): The S3 URI of the output location, e.g., s3://my-bucket/runner/output.
         uri (str): The Neo4j database URI.
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files, e.g., s3://data-bucket/tsv-folder/.
-        commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc".
+        commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
         id_field (str, optional): The field to use as the unique identifier for nodes. Defaults to "id".
         delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
@@ -174,20 +174,9 @@ def upsert_files(
         driver = GraphDatabase.driver(uri)
     myloader = Loader(driver=driver)
 
-    ## download model file and props file
-    #model_file_bucket, model_file_key = parse_file_url(model_file_s3uri)
-    #props_file_bucket, props_file_key = parse_file_url(props_file_s3uri)
-
-    ## download the files
-    #model_file_name = file_dl(model_file_bucket, model_file_key)
-    #props_file_name = file_dl(props_file_bucket, props_file_key)
-    #
-    ## create model parser
-    #model_parser = ModelParser(
-    #    model_file=model_file_name,
-    #    props_file=props_file_name,
-    #    handle="handle",
-    #)
+    # test download ccdi dcc model files
+    dcc_model_yaml, dcc_props_yaml = download_model_files(commons_acronym="ccdi_dcc", tag="0.0.2")
+    print(f"Downloaded ccdi dcc model files: {dcc_model_yaml}, {dcc_props_yaml}")
 
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
