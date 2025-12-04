@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 import pandas as pd
 
 import sys
-sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit/src"))
-from commons.datamodel import GetDataModel
+sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
+from src.commons.datamodel import GetDataModel
 
 
 def set_s3_resource():
