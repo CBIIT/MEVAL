@@ -177,6 +177,12 @@ def upsert_files(
     # test download ccdi dcc model files
     dcc_model_yaml, dcc_props_yaml = download_model_files(commons_acronym="ccdi_dcc", tag="0.0.2")
     print(f"Downloaded ccdi dcc model files: {dcc_model_yaml}, {dcc_props_yaml}")
+    dcc_model_parser = ModelParser(
+        model_file=dcc_model_yaml,
+        props_file=dcc_props_yaml,
+        handle="ccdi_dcc",
+    )
+    print("Created ccdi dcc model parser.")
 
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
