@@ -9,11 +9,14 @@ import os
 import json
 from urllib.parse import urlparse
 import pandas as pd
+from typing import Literal
 
 import sys
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
-from src.commons.datamodel import GetDataModel
+from workflow.validate_submission import download_model_files
 
+
+DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc"]
 
 def set_s3_resource():
     """This method sets the s3_resource object to either use localstack
@@ -136,22 +139,14 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-@task
-def list_folder(path: str):
-    items = os.listdir(path)
-    print(f"Items under '{path}':")
-    for item in items:
-        print(item)
-
-
 @flow(log_prints=True)
 def upsert_files(
     output_bucket_loc: str,
     uri: str,
     tsv_folder_s3uri: str,
     id_field: str,
-    model_file_s3uri: str,
-    props_file_s3uri: str,
+    commons_acronym: DropDownChoices,
+    tag: str = "",
     delimiter: str = ";",
     subgraph_col: str | None = None,
     username: str | None = None,
@@ -165,8 +160,8 @@ def upsert_files(
         uri (str): The Neo4j database URI.
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files.
         id_field (str): The field to use as the unique identifier for nodes.
-        model_file_s3uri (str): The S3 URI of the model yaml file.
-        props_file_s3uri (str): The S3 URI of the properties yaml file.
+        commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc".
+        tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
         username (str, optional): Username for Neo4j authentication. Defaults to None.
         password (str, optional): Password for Neo4j authentication. Defaults to None.
@@ -178,33 +173,35 @@ def upsert_files(
         driver = GraphDatabase.driver(uri)
     myloader = Loader(driver=driver)
 
-    # download model file and props file
-    model_file_bucket, model_file_key = parse_file_url(model_file_s3uri)
-    props_file_bucket, props_file_key = parse_file_url(props_file_s3uri)
+    ## download model file and props file
+    #model_file_bucket, model_file_key = parse_file_url(model_file_s3uri)
+    #props_file_bucket, props_file_key = parse_file_url(props_file_s3uri)
 
-    # download the files
-    model_file_name = file_dl(model_file_bucket, model_file_key)
-    props_file_name = file_dl(props_file_bucket, props_file_key)
+    ## download the files
+    #model_file_name = file_dl(model_file_bucket, model_file_key)
+    #props_file_name = file_dl(props_file_bucket, props_file_key)
+    #
+    ## create model parser
+    #model_parser = ModelParser(
+    #    model_file=model_file_name,
+    #    props_file=props_file_name,
+    #    handle="handle",
+    #)
 
+    # test downloading model files
+    data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
+    print(f"Downloaded data model yaml: {data_model_yaml}")
+    print(f"Downloaded properties yaml: {props_yaml}")
     # create model parser
     model_parser = ModelParser(
-        model_file=model_file_name,
-        props_file=props_file_name,
-        handle="handle",
+        model_file=data_model_yaml,
+        props_file=props_yaml,
+        handle=commons_acronym,
     )
 
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     print(f"Index created in the database (if not exist): {index_in_db}")
-
-    list_folder("./libs/prefect-toolkit/src")
-
-    # test downloading model files
-    data_model_yaml, props_yaml = GetDataModel.dl_model_files(
-        commons_acronym="ccdi", tag="3.1.0"
-    )
-    print(f"Downloaded data model yaml: {data_model_yaml}")
-    print(f"Downloaded properties yaml: {props_yaml}")
 
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
@@ -214,6 +211,7 @@ def upsert_files(
         for f in os.listdir(tsv_folder)
         if f.endswith(".tsv")
     ]
+    print(f"tsv files to be processed: {*file_list,}")
 
     # upsert tsv files
     # first to load all the nodes
