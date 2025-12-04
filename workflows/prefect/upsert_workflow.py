@@ -174,18 +174,6 @@ def upsert_files(
         driver = GraphDatabase.driver(uri)
     myloader = Loader(driver=driver)
 
-    # test download ccdi dcc model files
-    dcc_model_yaml, dcc_props_yaml = download_model_files(commons_acronym="ccdi_dcc", tag="0.0.2")
-    print(f"Downloaded ccdi dcc model files: {dcc_model_yaml}, {dcc_props_yaml}")
-    dcc_model_parser = ModelParser(
-        model_file=dcc_model_yaml,
-        props_file=dcc_props_yaml,
-        handle="ccdi_dcc",
-    )
-    print("Created ccdi dcc model parser.")
-    sample_props_list = dcc_model_parser.get_node_props_list(node_name="sample")
-    print(f"props list under sample node in dcc model: {*sample_props_list,}")
-
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
     print(f"Downloaded data model yaml: {data_model_yaml}")
