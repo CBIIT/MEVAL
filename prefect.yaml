@@ -29,6 +29,7 @@ deployments:
           id: main_repo_clone_step
           repository: https://github.com/CBIIT/MEVAL.git
           branch: add_parser
+          include_submodules: True
       - prefect.deployments.steps.pip_install_requirements:
           requirements_file: requirements_python3.13.txt
           directory: "{{ main_repo_clone_step.directory }}"
