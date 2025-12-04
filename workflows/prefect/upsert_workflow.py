@@ -183,6 +183,8 @@ def upsert_files(
         handle="ccdi_dcc",
     )
     print("Created ccdi dcc model parser.")
+    sample_props_list = dcc_model_parser.get_node_props_list(node_name="sample")
+    print(f"props list under sample node in dcc model: {*sample_props_list,}")
 
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
