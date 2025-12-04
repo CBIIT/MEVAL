@@ -144,9 +144,9 @@ def upsert_files(
     output_bucket_loc: str,
     uri: str,
     tsv_folder_s3uri: str,
-    id_field: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
+    id_field: str = "id",
     delimiter: str = ";",
     subgraph_col: str | None = None,
     username: str | None = None,
@@ -156,12 +156,13 @@ def upsert_files(
     Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.
 
     Args:
-        output_bucket_loc (str): The S3 URI of the output bucket location.
+        output_bucket_loc (str): The S3 URI of the output location, e.g., s3://my-bucket/runner/output.
         uri (str): The Neo4j database URI.
-        tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files.
-        id_field (str): The field to use as the unique identifier for nodes.
+        tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files, e.g., s3://data-bucket/tsv-folder/.
         commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
+        id_field (str, optional): The field to use as the unique identifier for nodes. Defaults to "id".
+        delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
         username (str, optional): Username for Neo4j authentication. Defaults to None.
         password (str, optional): Password for Neo4j authentication. Defaults to None.
