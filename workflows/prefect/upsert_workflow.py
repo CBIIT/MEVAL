@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import pandas as pd
 
 import sys
-print(os.listdir("../../../libs/prefect-toolkit/src"))
+print(os.listdir("../../../"))
 sys.path.insert(0, os.path.abspath("../../../libs/prefect-toolkit/src"))
 from commons.datamodel import GetDataModel
 
