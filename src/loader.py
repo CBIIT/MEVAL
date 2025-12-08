@@ -52,11 +52,12 @@ class Loader:
             reader = pd.read_csv(
                 file_path,
                 sep="\t",
-                dtype=str,
+                #dtype=str, # let pandas to infer data types
                 encoding=encoding,
                 chunksize=chunk_size,
                 quotechar='"',
                 doublequote=True,
+                escapechar="\\", # add escape char to handle special characters
                 keep_default_na=False,
             )
             for chunk in reader:
@@ -447,7 +448,7 @@ class Loader:
         delete_nodes = 0
         with self.driver.session() as session:
             with session.begin_transaction() as tx:
-                # identify all node ids in the subgraph
+                # identify all node ID of nodes in the subgraph
                 id_result = tx.run(
                     f"""
                 MATCH (s:{root_node_label} {{{root_node_prop}: $subgraph_value}})
