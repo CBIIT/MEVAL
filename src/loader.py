@@ -102,7 +102,9 @@ class Loader:
                 if pd.isna(record[key]):
                     record[key] = ""
                 else:
-                    record[key] = str(record[key])
+                    # let's not convert to string to preserve data types
+                    #record[key] = str(record[key])
+                    pass
             records.append(record)
         return chunk_type, records
 
