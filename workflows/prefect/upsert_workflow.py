@@ -141,7 +141,7 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
 
 
 @task(name="Upsert nodes of a file", task_run_name=lambda file_path: f"upsert_nodes_one_file_{os.path.basename(file_path)}")
-def upsert_nodes_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
+def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
     """Prefect task to upsert data nodes from a submission file
 
     Args:
@@ -173,9 +173,20 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
     futures= []
     processed_files = []
     return_dict={}
+    inputs_for_task = []
     for file in file_list:
-        processed_files.append(file)
-        futures.append(upsert_nodes_one_file.submit(loader=loader, file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=chunk_size))
+        inputs_for_task.append({
+            "loader": loader,
+            "file_path": file,
+            "id_field": id_field,
+            "subgraph_col": subgraph_col,
+            "chunk_size": chunk_size,
+        })
+    for item in inputs_for_task:
+        future  = upsert_records_one_file.submit(**item)
+        futures.append(future)
+        processed_files.append(item["file_path"])
+
     results = [future.result() for future in futures]
     for i, file in enumerate(processed_files):
         return_dict[file] = results[i]
@@ -240,18 +251,22 @@ def upsert_rels_file_list(
     futures = []
     processed_files = []
     return_dict = {}
+    inputs_for_task = []
     for file in file_list:
-        processed_files.append(file)
-        futures.append(
-            upsert_rels_one_file.submit(
-                loader=loader,
-                file_path=file,
-                id_field=id_field,
-                subgraph_col=subgraph_col,
-                chunk_size=chunk_size,
-                delimiter=delimiter
-            )
+        inputs_for_task.append(
+            {
+                "loader": loader,
+                "file_path": file,
+                "id_field": id_field,
+                "subgraph_col": subgraph_col,
+                "chunk_size": chunk_size,
+                "delimiter": delimiter,
+            }
         )
+    for item in inputs_for_task:
+        future  = upsert_rels_one_file.submit(**item)
+        futures.append(future)
+        processed_files.append(item["file_path"])
     results = [future.result() for future in futures]
     for i, file in enumerate(processed_files):
         return_dict[file] = results[i]
