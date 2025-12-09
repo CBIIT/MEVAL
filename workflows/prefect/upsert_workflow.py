@@ -171,23 +171,21 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
         subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
     """
-    futures = {}
-    
+
     # Submit all tasks first
-    for file in file_list:
-        future = upsert_records_one_file.submit(
-            loader=loader,
-            file_path=file,
-            id_field=id_field,
-            subgraph_col=subgraph_col,
-            chunk_size=chunk_size
-        )
-        futures[file] = future
+    futures = upsert_records_one_file.map(
+        loader=loader,
+        file_path=file_list,
+        id_field=id_field,
+        subgraph_col=subgraph_col,
+        chunk_size=chunk_size
+    )
+    actual_results = [r.result() for r in futures]
     
-    # Wait for all futures to complete and collect results
     return_dict = {}
-    for file, future in futures.items():
-        return_dict[file] = future.result()
+    for i in range(len(file_list)):
+        return_dict[file_list[i]] = actual_results[i]
+
     return return_dict
 
 
@@ -245,24 +243,21 @@ def upsert_rels_file_list(
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
         delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
     """
-    futures = {}
-    
     # Submit all tasks first
-    for file in file_list:
-        future = upsert_rels_one_file.submit(
-            loader=loader,
-            file_path=file,
-            model_parser=model_parser,
-            id_field=id_field,
-            chunk_size=chunk_size,
-            delimiter=delimiter
-        )
-        futures[file] = future
-    
+    futures = upsert_rels_one_file.map(
+        loader=loader,
+        file_path=file_list,
+        model_parser=model_parser,
+        id_field=id_field,
+        chunk_size=chunk_size,
+        delimiter=delimiter
+    )
+    actual_results = [r.result() for r in futures]
+
     # Wait for all futures to complete and collect results
     return_dict = {}
-    for file, future in futures.items():
-        return_dict[file] = future.result()
+    for i in range(len(file_list)):
+        return_dict[file_list[i]] = actual_results[i]
     return return_dict
 
 
