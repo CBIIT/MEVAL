@@ -171,9 +171,9 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
         subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
     """
-    futures = []
-    return_dict = {}
-
+    futures = {}
+    
+    # Submit all tasks first
     for file in file_list:
         future = upsert_records_one_file.submit(
             loader=loader,
@@ -182,9 +182,11 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
             subgraph_col=subgraph_col,
             chunk_size=chunk_size
         )
-        futures.append((file, future))
-
-    for file, future in futures:
+        futures[file] = future
+    
+    # Wait for all futures to complete and collect results
+    return_dict = {}
+    for file, future in futures.items():
         return_dict[file] = future.result()
     return return_dict
 
@@ -243,9 +245,9 @@ def upsert_rels_file_list(
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
         delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
     """
-    futures = []
-    return_dict = {}
+    futures = {}
     
+    # Submit all tasks first
     for file in file_list:
         future = upsert_rels_one_file.submit(
             loader=loader,
@@ -255,9 +257,11 @@ def upsert_rels_file_list(
             chunk_size=chunk_size,
             delimiter=delimiter
         )
-        futures.append((file, future))
+        futures[file] = future
     
-    for file, future in futures:
+    # Wait for all futures to complete and collect results
+    return_dict = {}
+    for file, future in futures.items():
         return_dict[file] = future.result()
     return return_dict
 
