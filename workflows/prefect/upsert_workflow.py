@@ -161,7 +161,7 @@ def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgr
     task_runner=ThreadPoolTaskRunner(max_workers=10),
 )
 def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
-    """_summary_
+    """Prefect flow to upsert data nodes from a list of submission files
 
     Args:
         loader (Loader): Loader instance
@@ -200,8 +200,8 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 def upsert_rels_one_file(
     loader: Loader,
     file_path: str,
+    model_parser: ModelParser,
     id_field: str,
-    subgraph_col: str,
     chunk_size: int = 3000,
     delimiter: str = ";",
 ):
@@ -210,6 +210,7 @@ def upsert_rels_one_file(
     Args:
         loader (Loader): Loader instance
         file_path (str): submission file path
+        model_parser (ModelParser): ModelParser instance
         id_field (str): id field to use for matching purpose
         subgraph_col (str | None): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
@@ -217,8 +218,8 @@ def upsert_rels_one_file(
     """
     file_upsert_summary = loader.upsert_file_relationships(
         file_path=file_path,
+        model_parser=model_parser,
         id_field=id_field,
-        subgraph_col=subgraph_col,
         chunk_size=chunk_size,
         delimiter=delimiter,
     )
@@ -233,8 +234,8 @@ def upsert_rels_one_file(
 def upsert_rels_file_list(
     loader: Loader,
     file_list: list[str],
+    model_parser: ModelParser,
     id_field: str,
-    subgraph_col: str | None = None,
     chunk_size: int = 3000,
     delimiter: str = ";",
 ):
@@ -243,6 +244,7 @@ def upsert_rels_file_list(
     Args:
         loader (Loader): Loader instance
         file_list (list[str]): List of submission file paths
+        model_parser (ModelParser): ModelParser instance
         id_field (str): id field to use for matching purpose
         subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
@@ -257,8 +259,8 @@ def upsert_rels_file_list(
             {
                 "loader": loader,
                 "file_path": file,
+                "model_parser": model_parser,
                 "id_field": id_field,
-                "subgraph_col": subgraph_col,
                 "chunk_size": chunk_size,
                 "delimiter": delimiter,
             }
