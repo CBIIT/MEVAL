@@ -361,8 +361,8 @@ def upsert_files(
     rel_upsert_summary = upsert_rels_file_list(
         loader=myloader,
         file_list=file_list,
+        model_parser=model_parser,
         id_field=id_field,
-        subgraph_col=subgraph_col,
         chunk_size=3000,
         delimiter=delimiter,
     )
