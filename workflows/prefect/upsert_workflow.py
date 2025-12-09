@@ -1,5 +1,6 @@
 from datetime import datetime
 from prefect import flow, task
+from prefect.task_runners import ThreadPoolTaskRunner
 from src.loader import Loader
 from src.parser import ModelParser
 from neo4j import GraphDatabase
@@ -139,6 +140,124 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
+@task(name="Upsert nodes of a file", task_run_name=lambda file_path: f"upsert_nodes_one_file_{os.path.basename(file_path)}")
+def upsert_nodes_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
+    """Prefect task to upsert data nodes from a submission file
+
+    Args:
+        loader (Loader): Loader instance
+        file_path (str): submission file path
+        id_field (str): id field to use for matching purpose
+        subgraph_col (str | None): The column indicating subgraph information. Defaults to None.
+        chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
+    """
+    file_upsert_summary = loader.upsert_file_records(file_path=file_path, id_field=id_field, subgraph_col=subgraph_col, chunk_size=chunk_size)
+    return file_upsert_summary
+
+
+@flow(
+    name="Upsert nodes of file list",
+    log_prints=True,
+    task_runner=ThreadPoolTaskRunner(max_workers=10),
+)
+def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
+    """_summary_
+
+    Args:
+        loader (Loader): Loader instance
+        file_list (list[str]): List of submission file paths
+        id_field (str): id field to use for matching purpose
+        subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
+        chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
+    """
+    futures= []
+    processed_files = []
+    return_dict={}
+    for file in file_list:
+        processed_files.append(file)
+        futures.append(upsert_nodes_one_file.submit(loader=loader, file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=chunk_size))
+    results = [future.result() for future in futures]
+    for i, file in enumerate(processed_files):
+        return_dict[file] = results[i]
+    return return_dict
+
+
+@task(
+    name="Upsert relationships of a file",
+    task_run_name=lambda file_path: f"upsert_rels_one_file_{os.path.basename(file_path)}",
+)
+def upsert_rels_one_file(
+    loader: Loader,
+    file_path: str,
+    id_field: str,
+    subgraph_col: str,
+    chunk_size: int = 3000,
+    delimiter: str = ";",
+):
+    """Prefect task to upsert data relationships from a submission file
+
+    Args:
+        loader (Loader): Loader instance
+        file_path (str): submission file path
+        id_field (str): id field to use for matching purpose
+        subgraph_col (str | None): The column indicating subgraph information. Defaults to None.
+        chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
+        delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
+    """
+    file_upsert_summary = loader.upsert_file_relationships(
+        file_path=file_path,
+        id_field=id_field,
+        subgraph_col=subgraph_col,
+        chunk_size=chunk_size,
+        delimiter=delimiter,
+    )
+    return file_upsert_summary
+
+
+@flow(
+    name="Upsert relationships of file list",
+    log_prints=True,
+    task_runner=ThreadPoolTaskRunner(max_workers=10),
+)
+def upsert_rels_file_list(
+    loader: Loader,
+    file_list: list[str],
+    id_field: str,
+    subgraph_col: str | None = None,
+    chunk_size: int = 3000,
+    delimiter: str = ";",
+):
+    """Prefect flow to upsert data relationships from a list of submission files
+
+    Args:
+        loader (Loader): Loader instance
+        file_list (list[str]): List of submission file paths
+        id_field (str): id field to use for matching purpose
+        subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
+        chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
+        delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
+    """
+    futures = []
+    processed_files = []
+    return_dict = {}
+    for file in file_list:
+        processed_files.append(file)
+        futures.append(
+            upsert_rels_one_file.submit(
+                loader=loader,
+                file_path=file,
+                id_field=id_field,
+                subgraph_col=subgraph_col,
+                chunk_size=chunk_size,
+                delimiter=delimiter
+            )
+        )
+    results = [future.result() for future in futures]
+    for i, file in enumerate(processed_files):
+        return_dict[file] = results[i]
+    return return_dict
+
+
 @flow(log_prints=True)
 def upsert_files(
     output_bucket_loc: str,
@@ -201,20 +320,35 @@ def upsert_files(
 
     # upsert tsv files
     # first to load all the nodes
-    node_upsert_summary = {}
-    for file in file_list:
-        node_upsert_summary[file] = myloader.upsert_file_records(
-            file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
-        )
+    # node_upsert_summary = {}
+    # for file in file_list:
+    #     node_upsert_summary[file] = myloader.upsert_file_records(
+    #         file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
+    #     )
+    node_upsert_summary = upsert_records_file_list(
+        loader=myloader,
+        file_list=file_list,
+        id_field=id_field,
+        subgraph_col=subgraph_col,
+        chunk_size=3000,
+    )
     print("Print out node upsert summary:")
     print(json.dumps(node_upsert_summary, indent=4))
 
     # second to load all the relationships
-    rel_upsert_summary = {}
-    for file in file_list:
-        rel_upsert_summary[file] = myloader.upsert_file_relationships(
-            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
-        )
+    # rel_upsert_summary = {}
+    # for file in file_list:
+    #     rel_upsert_summary[file] = myloader.upsert_file_relationships(
+    #         file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
+    #     )
+    rel_upsert_summary = upsert_rels_file_list(
+        loader=myloader,
+        file_list=file_list,
+        id_field=id_field,
+        subgraph_col=subgraph_col,
+        chunk_size=3000,
+        delimiter=delimiter,
+    )
     print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))
 
