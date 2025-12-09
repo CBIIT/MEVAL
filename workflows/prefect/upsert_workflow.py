@@ -148,7 +148,9 @@ def cache_key_ignore_loader_parser(context, parameters):
 
 
 
-@task(name="Upsert nodes of a file", log_prints=True, cache_key_fn=cache_key_ignore_loader_parser)
+@task(name="Upsert nodes of a file", log_prints=True, 
+      #cache_key_fn=cache_key_ignore_loader_parser
+      )
 def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
     """Prefect task to upsert data nodes from a submission file
 
@@ -197,7 +199,8 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 
 
 @task(
-    name="Upsert relationships of a file", log_prints=True, cache_key_fn=cache_key_ignore_loader_parser
+    name="Upsert relationships of a file", log_prints=True, 
+    #cache_key_fn=cache_key_ignore_loader_parser
 )
 def upsert_rels_one_file(
     loader: Loader,
