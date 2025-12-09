@@ -352,6 +352,9 @@ def upsert_files(
     print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))
 
+    # close myloader instance when the upload is done
+    myloader.close()
+
     # combine two summaries into one, and write into a tsv
     # needs to combine two dict for every file
     combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
