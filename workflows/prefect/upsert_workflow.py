@@ -11,7 +11,7 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 from typing import Literal
-from prefect.tasks import task_input_hash
+from prefect.cache_functions import NO_CACHE
 
 import sys
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
@@ -141,16 +141,7 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-def cache_key_ignore_loader_parser(context, parameters):
-    # Only hash safe inputs, excluding loader and model_parser
-    safe_inputs = {k: v for k, v in parameters.items() if k not in ["loader", "model_parser"]}
-    return task_input_hash(context, safe_inputs)
-
-
-
-@task(name="Upsert nodes of a file", log_prints=True, 
-      #cache_key_fn=cache_key_ignore_loader_parser
-      )
+@task(name="Upsert nodes of a file", log_prints=True, cache_policy=NO_CACHE)
 def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
     """Prefect task to upsert data nodes from a submission file
 
@@ -182,7 +173,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
     """
     futures = []
     return_dict = {}
-    
+
     for file in file_list:
         future = upsert_records_one_file.submit(
             loader=loader,
@@ -192,16 +183,13 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
             chunk_size=chunk_size
         )
         futures.append((file, future))
-    
+
     for file, future in futures:
         return_dict[file] = future.result()
     return return_dict
 
 
-@task(
-    name="Upsert relationships of a file", log_prints=True, 
-    #cache_key_fn=cache_key_ignore_loader_parser
-)
+@task(name="Upsert relationships of a file", log_prints=True, cache_policy=NO_CACHE)
 def upsert_rels_one_file(
     loader: Loader,
     file_path: str,
