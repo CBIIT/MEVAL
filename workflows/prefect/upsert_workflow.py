@@ -191,7 +191,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
             "chunk_size": chunk_size,
         })
     for item in inputs_for_task:
-        future  = upsert_records_one_file.submit(**item)
+        future  = upsert_records_one_file.submit(loader=item["loader"], file_path=item["file_path"], id_field=item["id_field"], subgraph_col=item["subgraph_col"], chunk_size=item["chunk_size"])
         futures.append(future)
         processed_files.append(item["file_path"])
 
@@ -273,7 +273,7 @@ def upsert_rels_file_list(
             }
         )
     for item in inputs_for_task:
-        future  = upsert_rels_one_file.submit(**item)
+        future  = upsert_rels_one_file.submit(loader=item["loader"], file_path=item["file_path"], model_parser=item["model_parser"], id_field=item["id_field"], chunk_size=item["chunk_size"], delimiter=item["delimiter"]  )
         futures.append(future)
         processed_files.append(item["file_path"])
     results = [future.result() for future in futures]
