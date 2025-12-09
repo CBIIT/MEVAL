@@ -328,15 +328,15 @@ def upsert_files(
     #     node_upsert_summary[file] = myloader.upsert_file_records(
     #         file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
     #     )
-    node_upsert_summary = upsert_records_file_list(
-        loader=myloader,
-        file_list=file_list,
-        id_field=id_field,
-        subgraph_col=subgraph_col,
-        chunk_size=3000,
-    )
-    print("Print out node upsert summary:")
-    print(json.dumps(node_upsert_summary, indent=4))
+    # node_upsert_summary = upsert_records_file_list(
+    #     loader=myloader,
+    #     file_list=file_list,
+    #     id_field=id_field,
+    #     subgraph_col=subgraph_col,
+    #     chunk_size=3000,
+    # )
+    # print("Print out node upsert summary:")
+    # print(json.dumps(node_upsert_summary, indent=4))
 
     # second to load all the relationships
     # rel_upsert_summary = {}
@@ -358,21 +358,21 @@ def upsert_files(
     # close myloader instance when the upload is done
     myloader.close()
 
-    # combine two summaries into one, and write into a tsv
-    # needs to combine two dict for every file
-    combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
-    # combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
-    summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
-    summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
-    summary_df.index.name = "file_name"
-    summary_df = summary_df.reset_index()
-    summary_df["file_name"] = summary_df["file_name"].apply(lambda x: os.path.basename(x))
-    summary_df.to_csv(summary_output_name, sep="\t", index=False)
-    # upload the summaru tsv to s3
-    output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
-    file_ul(
-        bucket=output_bucket,
-        output_folder=output_key_prefix,
-        sub_folder="MEVAL_upsert_summaries",
-        newfile=summary_output_name,
-    )
+    ## combine two summaries into one, and write into a tsv
+    ## needs to combine two dict for every file
+    #combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
+    ## combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
+    #summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    #summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
+    #summary_df.index.name = "file_name"
+    #summary_df = summary_df.reset_index()
+    #summary_df["file_name"] = summary_df["file_name"].apply(lambda x: os.path.basename(x))
+    #summary_df.to_csv(summary_output_name, sep="\t", index=False)
+    ## upload the summaru tsv to s3
+    #output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
+    #file_ul(
+    #    bucket=output_bucket,
+    #    output_folder=output_key_prefix,
+    #    sub_folder="MEVAL_upsert_summaries",
+    #    newfile=summary_output_name,
+    #)
