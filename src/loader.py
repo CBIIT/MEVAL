@@ -123,17 +123,6 @@ class Loader:
             records (list[dict]): A list of records to be upserted.
             id_field (str, optional): The unique identifier field. Defaults to "guid".
         """
-        # all_keys = set()
-        # for record in records:
-        #     all_keys.update(record.keys())
-        # all_keys = list(all_keys)
-        # set_clause = ", ".join([f"n.{k} = record.{k}" for k in all_keys])
-        # cypher_statement = f"""
-        # UNWIND $records AS record
-        # MERGE (n:{node_type} {{ {id_field}: record.{id_field} }})
-        # ON CREATE SET {set_clause}, n.created = dateTime()
-        # ON MATCH SET {set_clause}, n.updated = dateTime()
-        # """
         cypher_statement = f"""
         UNWIND $records AS record
         MERGE (n:{node_type} {{ {id_field}: record.{id_field} }})
