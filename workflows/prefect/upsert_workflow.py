@@ -141,10 +141,10 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-def cache_key_ignore_loader_parser(task, **kwargs):
-    # Only hash safe inputs
-    safe_inputs = {k: v for k, v in kwargs.items() if k not in ["loader","model_parser"]}
-    return task_input_hash(task, **safe_inputs)
+def cache_key_ignore_loader_parser(context, parameters):
+    # Only hash safe inputs, excluding loader and model_parser
+    safe_inputs = {k: v for k, v in parameters.items() if k not in ["loader", "model_parser"]}
+    return task_input_hash(context, safe_inputs)
 
 
 
@@ -178,26 +178,21 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
         subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
     """
-    futures= []
-    processed_files = []
-    return_dict={}
-    inputs_for_task = []
+    futures = []
+    return_dict = {}
+    
     for file in file_list:
-        inputs_for_task.append({
-            "loader": loader,
-            "file_path": file,
-            "id_field": id_field,
-            "subgraph_col": subgraph_col,
-            "chunk_size": chunk_size,
-        })
-    for item in inputs_for_task:
-        future  = upsert_records_one_file.submit(loader=item["loader"], file_path=item["file_path"], id_field=item["id_field"], subgraph_col=item["subgraph_col"], chunk_size=item["chunk_size"])
-        futures.append(future)
-        processed_files.append(item["file_path"])
-
-    results = [future.result() for future in futures]
-    for i, file in enumerate(processed_files):
-        return_dict[file] = results[i]
+        future = upsert_records_one_file.submit(
+            loader=loader,
+            file_path=file,
+            id_field=id_field,
+            subgraph_col=subgraph_col,
+            chunk_size=chunk_size
+        )
+        futures.append((file, future))
+    
+    for file, future in futures:
+        return_dict[file] = future.result()
     return return_dict
 
 
@@ -258,27 +253,21 @@ def upsert_rels_file_list(
         delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
     """
     futures = []
-    processed_files = []
     return_dict = {}
-    inputs_for_task = []
+    
     for file in file_list:
-        inputs_for_task.append(
-            {
-                "loader": loader,
-                "file_path": file,
-                "model_parser": model_parser,
-                "id_field": id_field,
-                "chunk_size": chunk_size,
-                "delimiter": delimiter,
-            }
+        future = upsert_rels_one_file.submit(
+            loader=loader,
+            file_path=file,
+            model_parser=model_parser,
+            id_field=id_field,
+            chunk_size=chunk_size,
+            delimiter=delimiter
         )
-    for item in inputs_for_task:
-        future  = upsert_rels_one_file.submit(loader=item["loader"], file_path=item["file_path"], model_parser=item["model_parser"], id_field=item["id_field"], chunk_size=item["chunk_size"], delimiter=item["delimiter"]  )
-        futures.append(future)
-        processed_files.append(item["file_path"])
-    results = [future.result() for future in futures]
-    for i, file in enumerate(processed_files):
-        return_dict[file] = results[i]
+        futures.append((file, future))
+    
+    for file, future in futures:
+        return_dict[file] = future.result()
     return return_dict
 
 
