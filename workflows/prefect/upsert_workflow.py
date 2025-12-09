@@ -11,6 +11,7 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 from typing import Literal
+from prefect.tasks import task_input_hash
 
 import sys
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
@@ -140,7 +141,14 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-@task(name="Upsert nodes of a file", log_prints=True)
+def cache_key_ignore_loader_parser(task, **kwargs):
+    # Only hash safe inputs
+    safe_inputs = {k: v for k, v in kwargs.items() if k not in ["loader","model_parser"]}
+    return task_input_hash(task, **safe_inputs)
+
+
+
+@task(name="Upsert nodes of a file", log_prints=True, cache_key_fn=cache_key_ignore_loader_parser)
 def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
     """Prefect task to upsert data nodes from a submission file
 
@@ -194,8 +202,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 
 
 @task(
-    name="Upsert relationships of a file",
-    log_prints=True,
+    name="Upsert relationships of a file", log_prints=True, cache_key_fn=cache_key_ignore_loader_parser
 )
 def upsert_rels_one_file(
     loader: Loader,
@@ -275,7 +282,7 @@ def upsert_rels_file_list(
     return return_dict
 
 
-@flow(log_prints=True)
+@flow(log_prints=True, name="Dataloading Upsert Workflow")
 def upsert_files(
     output_bucket_loc: str,
     uri: str,
