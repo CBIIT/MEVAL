@@ -140,7 +140,7 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-@task(name="Upsert nodes of a file", task_run_name=lambda file_path: f"upsert_nodes_one_file_{os.path.basename(file_path)}")
+@task(name="Upsert nodes of a file", task_run_name=lambda **kw: f"upsert_nodes_one_file_{os.path.basename(kw['file_path'])}")
 def upsert_records_one_file(loader: Loader, file_path: str, id_field: str, subgraph_col: str, chunk_size: int = 3000):
     """Prefect task to upsert data nodes from a submission file
 
@@ -195,7 +195,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 
 @task(
     name="Upsert relationships of a file",
-    task_run_name=lambda file_path: f"upsert_rels_one_file_{os.path.basename(file_path)}",
+    task_run_name=lambda **kw: f"upsert_rels_one_file_{os.path.basename(kw['file_path'])}",
 )
 def upsert_rels_one_file(
     loader: Loader,
