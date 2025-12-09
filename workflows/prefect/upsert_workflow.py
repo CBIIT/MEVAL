@@ -313,35 +313,35 @@ def upsert_files(
 
     # upsert tsv files
     # first to load all the nodes
-    # node_upsert_summary = {}
-    # for file in file_list:
-    #     node_upsert_summary[file] = myloader.upsert_file_records(
-    #         file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
-    #     )
-    node_upsert_summary = upsert_records_file_list(
-        loader=myloader,
-        file_list=file_list,
-        id_field=id_field,
-        subgraph_col=subgraph_col,
-        chunk_size=3000,
-    )
+    node_upsert_summary = {}
+    for file in file_list:
+        node_upsert_summary[file] = myloader.upsert_file_records(
+            file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
+        )
+    #node_upsert_summary = upsert_records_file_list(
+    #    loader=myloader,
+    #    file_list=file_list,
+    #    id_field=id_field,
+    #    subgraph_col=subgraph_col,
+    #    chunk_size=3000,
+    #)
     print("Print out node upsert summary:")
     print(json.dumps(node_upsert_summary, indent=4))
 
     # second to load all the relationships
-    # rel_upsert_summary = {}
-    # for file in file_list:
-    #     rel_upsert_summary[file] = myloader.upsert_file_relationships(
-    #         file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
-    #     )
-    rel_upsert_summary = upsert_rels_file_list(
-        loader=myloader,
-        file_list=file_list,
-        model_parser=model_parser,
-        id_field=id_field,
-        chunk_size=3000,
-        delimiter=delimiter,
-    )
+    rel_upsert_summary = {}
+    for file in file_list:
+        rel_upsert_summary[file] = myloader.upsert_file_relationships(
+            file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
+        )
+    #rel_upsert_summary = upsert_rels_file_list(
+    #    loader=myloader,
+    #    file_list=file_list,
+    #    model_parser=model_parser,
+    #    id_field=id_field,
+    #    chunk_size=3000,
+    #    delimiter=delimiter,
+    #)
     print("Print out relationship upsert summary:")
     print(json.dumps(rel_upsert_summary, indent=4))
 
