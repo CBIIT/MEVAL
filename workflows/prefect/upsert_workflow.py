@@ -1,5 +1,6 @@
 from datetime import datetime
 from prefect import flow, task
+from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
 from src.parser import ModelParser
 from neo4j import GraphDatabase
@@ -121,6 +122,7 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
 @task(
     name="Upsert nodes of file list",
     log_prints=True,
+    cache_policy=NO_CACHE,
 )
 def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
     """Prefect flow to upsert data nodes from a list of submission files
@@ -148,6 +150,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 @task(
     name="Upsert relationships of file list",
     log_prints=True,
+    cache_policy=NO_CACHE,
 )
 def upsert_rels_file_list(
     loader: Loader,
