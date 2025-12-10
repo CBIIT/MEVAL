@@ -209,8 +209,6 @@ def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dic
             else:
                 key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
         return_dict[key] = key_dict
-    print(f"combined loading summary for all the submission files:")
-    print(json.dumps(return_dict, indent=4))
     return return_dict
 
 
