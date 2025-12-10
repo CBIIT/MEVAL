@@ -141,7 +141,7 @@ def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
     return return_dict
 
 
-@flow(
+@task(
     name="Upsert nodes of file list",
     log_prints=True,
 )
@@ -169,7 +169,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
 
 
 
-@flow(
+@task(
     name="Upsert relationships of file list",
     log_prints=True,
 )
