@@ -1,6 +1,5 @@
 from datetime import datetime
 from prefect import flow, task
-from prefect.task_runners import ThreadPoolTaskRunner
 from src.loader import Loader
 from src.parser import ModelParser
 from neo4j import GraphDatabase
@@ -11,7 +10,6 @@ import json
 from urllib.parse import urlparse
 import pandas as pd
 from typing import Literal
-from prefect.cache_policies import NO_CACHE
 
 import sys
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
