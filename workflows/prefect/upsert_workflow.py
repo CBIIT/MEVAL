@@ -118,27 +118,6 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     return None
 
 
-@task(log_prints=True)
-def combine_summaries(upsert_node_summary:dict, upser_rel_summary:dict) -> dict:
-    return_dict={}
-    # both summaries should have the same keys
-    keys = upsert_node_summary.keys()
-    for key in keys:
-        upsert_key_dict = upsert_node_summary[key]
-        rel_key_dict = upser_rel_summary[key]
-        key_dict = {}
-        for subkey in upsert_key_dict.keys():
-            if subkey == "properties_set":
-                key_dict["node_properties_set"] = upsert_key_dict[subkey]
-                key_dict["rel_properties_set"] = rel_key_dict[subkey]
-            else:
-                key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
-        return_dict[key] = key_dict
-    print(f"combined loading summary for all the submission files:")
-    print(json.dumps(return_dict, indent=4))
-    return return_dict
-
-
 @task(
     name="Upsert nodes of file list",
     log_prints=True,
@@ -202,6 +181,59 @@ def upsert_rels_file_list(
     return return_dict
 
 
+@task(name="Combine node and relationship upsert summaries", log_prints=True)
+def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dict:
+    """Combines node upsert summary with relationship upsert summary
+
+    Args:
+        upsert_node_summary (dict): summary dictionary from node upsert
+        upser_rel_summary (dict): summary dictionary from relationship upsert
+
+    Returns:
+        dict: a combined summary dictionary
+    """
+    return_dict = {}
+    # both summaries should have the same keys
+    keys = upsert_node_summary.keys()
+    for key in keys:
+        upsert_key_dict = upsert_node_summary[key]
+        rel_key_dict = upser_rel_summary[key]
+        key_dict = {}
+        for subkey in upsert_key_dict.keys():
+            if subkey == "properties_set":
+                key_dict["node_properties_set"] = upsert_key_dict[subkey]
+                key_dict["rel_properties_set"] = rel_key_dict[subkey]
+            else:
+                key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
+        return_dict[key] = key_dict
+    print(f"combined loading summary for all the submission files:")
+    print(json.dumps(return_dict, indent=4))
+    return return_dict
+
+
+@task(name="Prepare upsert summary into tsv", log_prints=True)
+def prepare_upsert_summary_tsv(combined_summary: dict) -> str:
+    """_summary_
+
+    Args:
+        combined_summary (dict): a combined summary dictionary including node and relationship upsert summaries
+
+    Returns:
+        str: file name of a summary tsv file
+    """
+    summary_output_name = (
+        f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    )
+    summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
+    summary_df.index.name = "file_name"
+    summary_df = summary_df.reset_index()
+    summary_df["file_name"] = summary_df["file_name"].apply(
+        lambda x: os.path.basename(x)
+    )
+    summary_df.to_csv(summary_output_name, sep="\t", index=False)
+    return summary_output_name
+
+
 @flow(log_prints=True, name="Dataloading Upsert Workflow")
 def upsert_files(
     output_bucket_loc: str,
@@ -260,15 +292,12 @@ def upsert_files(
         for f in os.listdir(tsv_folder)
         if f.endswith(".tsv")
     ]
-    print(f"tsv files to be processed: {*file_list,}")
+    file_list_names = [os.path.basename(f) for f in file_list]
+    print(f"File list to be processed: {*file_list_names,}")
 
     # upsert tsv files
     # first to load all the nodes
-    # node_upsert_summary = {}
-    # for file in file_list:
-    #     node_upsert_summary[file] = myloader.upsert_file_records(
-    #         file_path=file, id_field=id_field, subgraph_col=subgraph_col, chunk_size=3000
-    #     )
+    print("Starting node upsert...")
     node_upsert_summary = upsert_records_file_list(
         loader=myloader,
         file_list=file_list,
@@ -276,15 +305,14 @@ def upsert_files(
         subgraph_col=subgraph_col,
         chunk_size=3000,
     )
-    print("Print out node upsert summary:")
-    print(json.dumps(node_upsert_summary, indent=4))
+    total_nodes_created = sum([value["nodes_created"] for value in node_upsert_summary.values()])
+    total_node_prop_set = sum([value["properties_set"] for value in node_upsert_summary.values()])
+    print("Node Upsert is complete.")
+    print(f"Nodes created: {total_nodes_created}")
+    print(f"Node properties set: {total_node_prop_set}")
 
     # second to load all the relationships
-    # rel_upsert_summary = {}
-    # for file in file_list:
-    #     rel_upsert_summary[file] = myloader.upsert_file_relationships(
-    #         file_path=file, model_parser=model_parser, id_field=id_field, chunk_size=3000, delimiter=delimiter
-    #     )
+    print("Starting relationship upsert...")
     rel_upsert_summary = upsert_rels_file_list(
         loader=myloader,
         file_list=file_list,
@@ -293,27 +321,24 @@ def upsert_files(
         chunk_size=3000,
         delimiter=delimiter,
     )
-    print("Print out relationship upsert summary:")
-    print(json.dumps(rel_upsert_summary, indent=4))
+    # get total relationships created and props set
+    total_rels_created = sum([value["relationships_created"] for value in rel_upsert_summary.values()])
+    total_rel_prop_set = sum([value["properties_set"] for value in rel_upsert_summary.values()])
+    print("Relationship Upsert is complete.")
+    print(f"Relationships created: {total_rels_created}")
+    print(f"Relationship properties set: {total_rel_prop_set}")
 
     # combine two summaries into one, and write into a tsv
     # needs to combine two dict for every file
     combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
-    # combined_summary = {k: node_upsert_summary[k] + rel_upsert_summary[k] for k in node_upsert_summary}
-    summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
-    summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
-    summary_df.index.name = "file_name"
-    summary_df = summary_df.reset_index()
-    summary_df["file_name"] = summary_df["file_name"].apply(lambda x: os.path.basename(x))
-    summary_df.to_csv(summary_output_name, sep="\t", index=False)
+    tsv_output = prepare_upsert_summary_tsv(combined_summary=combined_summary)
     # upload the summaru tsv to s3
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
         sub_folder="MEVAL_upsert_summaries",
-        newfile=summary_output_name,
+        newfile=tsv_output,
     )
     # close myloader instance when the upload is done
     myloader.close()
-
