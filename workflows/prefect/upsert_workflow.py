@@ -168,7 +168,6 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
     return return_dict
 
 
-
 @task(
     name="Upsert relationships of file list",
     log_prints=True,
@@ -181,14 +180,13 @@ def upsert_rels_file_list(
     chunk_size: int = 3000,
     delimiter: str = ";",
 ):
-    """Prefect flow to upsert data relationships from a list of submission files
+    """Prefect task to upsert data relationships from a list of submission files
 
     Args:
         loader (Loader): Loader instance
         file_list (list[str]): List of submission file paths
         model_parser (ModelParser): ModelParser instance
         id_field (str): id field to use for matching purpose
-        subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
         delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
     """
