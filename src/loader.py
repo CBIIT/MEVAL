@@ -3,6 +3,7 @@ from typing import Generator
 from operator import itemgetter
 from itertools import groupby
 import os
+from neo4j.exceptions import ClientError
 from timeit import default_timer as timer
 
 
@@ -103,7 +104,7 @@ class Loader:
                     record[key] = ""
                 else:
                     # let's not convert to string to preserve data types
-                    #record[key] = str(record[key])
+                    # record[key] = str(record[key])
                     pass
             records.append(record)
         return chunk_type, records
@@ -488,17 +489,25 @@ class Loader:
         Example of returned index:
         [{'label': 'cell_line', 'property': 'id'}, {'label': 'clinical_measure_file', 'property': 'id'}]
         """
-        query = "SHOW INDEXES;"
+        primary_query = "SHOW INDEXES;"
+        fallback_query = "SHOW INDEX INFO;"
         with self.driver.session() as session:
-            result = session.run(query)
-            indexes = []
-            for record in result:
+            try:
+                result = session.run(primary_query)
+            except ClientError as e:
+                print("Primary index query failed, trying fallback query...")
+                result = session.run(fallback_query)
+        indexes = []
+        for record in result:
+            if record.get("index type") == "label+property":
                 indexes.append(
                     {
                         "label": record.get("label"),
                         "property": record.get("property")[0],
                     }
                 )
+            else:
+                pass
         return indexes
 
     def create_index(self, model_parser: "ModelParser", id_field:str = "guid") -> list[dict]:
