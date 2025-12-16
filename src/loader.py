@@ -497,17 +497,17 @@ class Loader:
             except ClientError as e:
                 print("Primary index query failed, trying fallback query...")
                 result = session.run(fallback_query)
-        indexes = []
-        for record in result:
-            if record.get("index type") == "label+property":
-                indexes.append(
-                    {
-                        "label": record.get("label"),
-                        "property": record.get("property")[0],
-                    }
-                )
-            else:
-                pass
+            indexes = []
+            for record in result:
+                if record.get("index type") == "label+property":
+                    indexes.append(
+                        {
+                            "label": record.get("label"),
+                            "property": record.get("property")[0],
+                        }
+                    )
+                else:
+                    pass
         return indexes
 
     def create_index(self, model_parser: "ModelParser", id_field:str = "guid") -> list[dict]:
