@@ -60,6 +60,7 @@ class Loader:
                 doublequote=True,
                 escapechar="\\", # add escape char to handle special characters
                 keep_default_na=False,
+                na_values=[""],  # treat empty strings as NaN
             )
             for chunk in reader:
                 # which row contains data node properties as well as relationships
@@ -97,16 +98,17 @@ class Loader:
         # create a list of records
         records = []
         for record in chunk_filtered.to_dict(orient="records"):
-            # ensure all values are strings
+            # check if there is any missing value in the properties, collect these keys and remove them
+            keys_to_remove = []
             for key in record:
-                # convert NaN to empty string
+                # find keys to empty str which interpreted as NaN by pandas
                 if pd.isna(record[key]):
-                    record[key] = ""
+                    keys_to_remove.append(key)
                 else:
                     # let's not convert to string to preserve data types
-                    # record[key] = str(record[key])
                     pass
-            records.append(record)
+            cleaned_record = {k: v for k, v in record.items() if k not in keys_to_remove}
+            records.append(cleaned_record)
         return chunk_type, records
 
     # upsert records of a chunk with session.begin_transaction as input
