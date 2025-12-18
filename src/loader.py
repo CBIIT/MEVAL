@@ -232,6 +232,7 @@ class Loader:
             # if there is edge left to establish
             if chunk_filtered.shape[0] > 0:
                 edges_list = chunk_filtered.to_dict(orient="records")
+                print(edges_list[0])
                 for item in edges_list:
                     if delimiter not in item[edge]:
                         edge_item = {}
