@@ -2,7 +2,7 @@ from datetime import datetime
 from prefect import flow
 from src.loader import Loader
 from neo4j import GraphDatabase
-from src.workflows.prefect.upsert_workflow import get_secret_task
+from workflows.prefect.upsert_workflow import get_secret_task
 
 @flow(log_prints=True, name="Wipe out Database Flow")
 def wipe_database(

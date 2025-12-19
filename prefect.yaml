@@ -46,7 +46,6 @@ deployments:
     tags: ["MEVAL","Qiong", "TEST"]
     description: "Prefect test deployment for wiping out database workflow"
     entrypoint: workflows/prefect/wipe_database.py:wipe_database
-    parameters:
 
     pull:
       - prefect.deployments.steps.git_clone:
