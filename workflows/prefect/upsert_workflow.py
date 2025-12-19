@@ -166,7 +166,7 @@ def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dic
 
 @task(name="Prepare upsert summary into tsv", log_prints=True)
 def prepare_upsert_summary_tsv(combined_summary: dict) -> str:
-    """_summary_
+    """Prepares upsert summary dictionary into a tsv file
 
     Args:
         combined_summary (dict): a combined summary dictionary including node and relationship upsert summaries
