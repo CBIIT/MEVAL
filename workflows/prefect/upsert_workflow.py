@@ -3,12 +3,9 @@ from prefect import flow, task
 from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
 from src.parser import ModelParser
+from src.utils import parse_file_url, get_secret, file_dl_s3, file_ul_s3, folder_dl_s3
 from neo4j import GraphDatabase
-import boto3
-from botocore.exceptions import ClientError
 import os
-import json
-from urllib.parse import urlparse
 import pandas as pd
 from typing import Literal
 
@@ -19,76 +16,42 @@ from workflow.validate_submission import download_model_files
 
 DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc"]
 
-def set_s3_resource():
-    """This method sets the s3_resource object to either use localstack
-    for local development if the LOCALSTACK_ENDPOINT_URL variable is
-    defined and returns the object
+
+@task(name="Get secret from AWS secrets manager")
+def get_secret_task(secret_name_path: str, secret_key_name: str):
+    """Prefect task to retrieve a secret hash from AWS Secrets Manager
+
+    Args:
+        secret_name_path (str): Secrets name path, i.e. ccdi/storage/inventory/token
+        secret_key_name (str): Secret key name associated with hash/token
+
+    Returns:
+        str: Secret hash/token
     """
-    localstack_endpoint = os.environ.get("LOCALSTACK_ENDPOINT_URL")
-    if localstack_endpoint != None:
-        AWS_REGION = "us-east-1"
-        AWS_PROFILE = "localstack"
-        ENDPOINT_URL = localstack_endpoint
-        boto3.setup_default_session(profile_name=AWS_PROFILE)
-        s3_resource = boto3.resource(
-            "s3", region_name=AWS_REGION, endpoint_url=ENDPOINT_URL
-        )
-    else:
-        s3_resource = boto3.resource("s3")
-    return s3_resource
+    secret_value = get_secret(secret_name_path=secret_name_path, secret_key_name=secret_key_name)
+    return secret_value
 
-
-def parse_file_url(url: str) -> tuple:
-    # in case the url doesn't start with s3://
-    if not url.startswith("s3://"):
-        url = "s3://" + url
-    else:
-        pass
-    parsed_url = urlparse(url)
-    bucket_name = parsed_url.netloc
-    object_key = parsed_url.path
-    if object_key[0] == "/":
-        object_key = object_key[1:]
-    else:
-        pass
-    return bucket_name, object_key
-
-
-@task(name="Download file", task_run_name="download_file_{filename}", log_prints=True)
+@task(name="Download file from s3", task_run_name="download_file_{filename}", log_prints=True)
 def file_dl(bucket, filename) -> str:
-    """File download using bucket name and filename
+    """Prefect task to download a file from s3 using bucket name and filename
     filename is the key path in bucket
     file is the basename
+    Args:
+        bucket (str): S3 bucket name
+        filename (str): S3 file key path
+    Returns:
+        str: downloaded file name
     """
-    # Set the s3 resource object for local or remote execution
-    s3 = set_s3_resource()
-    source = s3.Bucket(bucket)
-    file_key = filename
-    file = os.path.basename(filename)
-    try:
-        source.download_file(file_key, file)
-        return file
-    except ClientError as ex:
-        ex_code = ex.response["Error"]["Code"]
-        ex_message = ex.response["Error"]["Message"]
-        print(
-            f"ClientError occurred while downloading file {filename} from bucket {bucket}:\n{ex_code}, {ex_message}"
-        )
-        raise
+    filename = file_dl_s3(bucket=bucket, filename=filename)
+    return filename
 
 
-@task(name="Upload file", task_run_name="upload_file_{newfile}")
+@task(name="Upload file to s3", task_run_name="upload_file_{newfile}")
 def file_ul(bucket: str, output_folder: str, sub_folder: str, newfile: str):
-    """File upload using bucket name, output folder name
+    """Prefect task to upload file to s3 bucket using bucket name, output folder name
     and filename
     """
-    # Set the s3 resource object for local or remote execution
-    s3 = set_s3_resource()
-    source = s3.Bucket(bucket)
-    # upload files outside inputs/ folder
-    file_key = os.path.join(output_folder, sub_folder, newfile)
-    # extra_args={'ACL': 'bucket-owner-full-control'}
-    source.upload_file(newfile, file_key)  # , extra_args)
+    file_ul_s3(bucket=bucket, output_folder=output_folder, sub_folder=sub_folder, newfile=newfile)
     return None
 
 @task(
@@ -97,25 +60,14 @@ def file_ul(bucket: str, output_folder: str, sub_folder: str, newfile: str):
     log_prints=True,
 )
 def folder_dl(bucket: str, remote_folder: str) -> None:
-    """Downloads a remote direcotry folder from s3
+    """Prefect task to download a remote direcotry folder from s3
     bucket to local. it generates a folder that follows the
     structure in s3 bucket
 
     for instance, if the remote_folder is "uniq_id/test_folder",
     the local directory will create path of "uniq_id/test_folder"
     """
-    s3_resouce = set_s3_resource()
-    bucket_obj = s3_resouce.Bucket(bucket)
-    for obj in bucket_obj.objects.filter(Prefix=remote_folder):
-        if not os.path.exists(os.path.dirname(obj.key)):
-            os.makedirs(os.path.dirname(obj.key))
-        try:
-            bucket_obj.download_file(obj.key, obj.key)
-        except NotADirectoryError as err:
-            err_str = repr(err)
-            print(
-                f"Error downloading folder {remote_folder} from bucket {bucket}: {err_str}"
-            )
+    folder_dl_s3(bucket=bucket, remote_folder=remote_folder)
     return None
 
 
@@ -237,37 +189,51 @@ def prepare_upsert_summary_tsv(combined_summary: dict) -> str:
 
 @flow(log_prints=True, name="Dataloading Upsert Workflow")
 def upsert_files(
+    db_creds_secret_name: str,
+    uri_secret_key: str,
     output_bucket_loc: str,
-    uri: str,
     tsv_folder_s3uri: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
     id_field: str = "id",
     delimiter: str = ";",
     subgraph_col: str | None = None,
-    username: str | None = None,
-    password: str | None = None,
+    username_secret_key: str | None = None,
+    password_secret_key: str | None = None,
 ):
     """
     Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.
 
     Args:
+        db_creds_secret_name (str): The name/path of the AWS Secrets Manager secret containing the database credentials.
+        uri_secret_key (str): The secret key name for the database URI within the secret.
         output_bucket_loc (str): The S3 URI of the output location, e.g., s3://my-bucket/runner/output.
-        uri (str): The Neo4j database URI.
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files, e.g., s3://data-bucket/tsv-folder/.
         commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
         id_field (str, optional): The field to use as the unique identifier for nodes. Defaults to "id".
         delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
-        username (str, optional): Username for Neo4j authentication. Defaults to None.
-        password (str, optional): Password for Neo4j authentication. Defaults to None.
+        username_secret_key (str, optional): The secret key name for the username to access the DB instance within the secret. Defaults to None.
+        password_secret_key (str, optional): The secret key name for the password to access the DB instance within the secret. Defaults to None.
     """
-    # create a loader instance
-    if username is not None and password is not None:
+    # retrieve db creds from AWS secrets manager
+    uri = get_secret_task(
+        secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key
+    )
+    if username_secret_key is not None and password_secret_key is not None:
+        username = get_secret_task(
+            secret_name_path=db_creds_secret_name,
+            secret_key_name=username_secret_key,
+        )
+        password = get_secret_task(
+            secret_name_path=db_creds_secret_name,
+            secret_key_name=password_secret_key,
+        )
         driver = GraphDatabase.driver(uri, auth=(username, password))
     else:
         driver = GraphDatabase.driver(uri)
+
     myloader = Loader(driver=driver)
 
     # test downloading model files
