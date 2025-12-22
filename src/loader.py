@@ -71,7 +71,7 @@ class Loader:
 
     @staticmethod
     def generate_chunk_records(
-        chunk: pd.DataFrame, subgraph_col: str|None = None
+        chunk: pd.DataFrame, model_parser: "ModelParser",subgraph_col: str|None = None
     ) -> tuple[str, list[dict]]:
         """
         Generate records from a given chunk of data based on the model parser.
@@ -108,6 +108,20 @@ class Loader:
                     # let's not convert to string to preserve data types
                     pass
             cleaned_record = {k: v for k, v in record.items() if k not in keys_to_remove}
+            # for remaining keys, if the cleaned_record value is an int/floar, check the model
+            # we have cases of str type property that are mis inferred as number/int during loading
+            for u in cleaned_record:
+                if isinstance(cleaned_record[u], (int, float)):
+                    expected_type = model_parser.get_prop_type(node_name=chunk_type, prop_name=u)
+                    if expected_type == "number" or expected_type == "integer":
+                        # all good
+                        pass
+                    else:
+                        # convert to str
+                        cleaned_record[u] = str(cleaned_record[u])
+                else:
+                    # all good
+                    pass
             records.append(cleaned_record)
         return chunk_type, records
 
@@ -146,7 +160,8 @@ class Loader:
     def upsert_file_records(
         self,
         file_path: str,
-        subgraph_col: str|None = None,
+        model_parser: "ModelParser",
+        subgraph_col: str | None = None,
         id_field: str = "guid",
         chunk_size: int = 3000,
     ) -> dict:
@@ -174,7 +189,7 @@ class Loader:
                 batch_count += 1
                 print(f"Processing batch {batch_count}...")
                 batch_begin = timer()
-                chunk_type, records = self.generate_chunk_records(chunk, subgraph_col)
+                chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col)
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field
                 )

@@ -76,12 +76,13 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     log_prints=True,
     cache_policy=NO_CACHE,
 )
-def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
+def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser: ModelParser, id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
     """Prefect flow to upsert data nodes from a list of submission files
 
     Args:
         loader (Loader): Loader instance
         file_list (list[str]): List of submission file paths
+        model_parser (ModelParser): ModelParser instance
         id_field (str): id field to use for matching purpose
         subgraph_col (str | None, optional): The column indicating subgraph information. Defaults to None.
         chunk_size (int, optional): Chunk size of each processing. Defaults to 3000.
@@ -91,6 +92,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], id_field: str
         print(f"Files to be processed for data nodes: {file}")
         record_upsert_summary=loader.upsert_file_records(
             file_path=file,
+            model_parser=model_parser,
             id_field=id_field,
             subgraph_col=subgraph_col,
             chunk_size=chunk_size,
@@ -267,6 +269,7 @@ def upsert_files(
     print("Starting node upsert...")
     node_upsert_summary = upsert_records_file_list(
         loader=myloader,
+        model_parser=model_parser,
         file_list=file_list,
         id_field=id_field,
         subgraph_col=subgraph_col,
