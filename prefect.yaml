@@ -63,3 +63,25 @@ deployments:
       name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
       work_queue_name: null
       job_variables: {}
+
+  - name: TEST-universal-dataloader-delete-subgraph
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for deleting subgraph in the database workflow"
+    entrypoint: workflows/prefect/delete_database_subgraph.py:delete_database_subgraph
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}

@@ -453,7 +453,7 @@ class Loader:
         return delete_nodes
 
     def wipe_subgraph(
-        self, root_node_label: str, root_node_prop: str, subgraph_value: str
+        self, root_node_label: str, root_node_prop: str, subgraph_value: str, chunk_threshold: int = 10000
     ) -> int:
         """Wipe a subgraph by deleting all nodes and relationships connected to a root node."""
         # Helper: generator to split list into batches
@@ -461,46 +461,113 @@ class Loader:
             for i in range(0, len(lst), size):
                 yield lst[i:i + size]
 
-        delete_nodes = 0
-        with self.driver.session() as session:
-            with session.begin_transaction() as tx:
-                # identify all node ID of nodes in the subgraph
-                id_result = tx.run(
-                    f"""
-                MATCH (s:{root_node_label} {{{root_node_prop}: $subgraph_value}})
-                OPTIONAL MATCH (s)-[*]-(n)
-                WITH COLLECT(DISTINCT id(s)) + COLLECT(DISTINCT id(n)) AS node_ids
-                RETURN node_ids
-                """,
-                    subgraph_value=subgraph_value,
-                ).single()
-                node_ids = id_result["node_ids"] or []
-                total_nodes = len(node_ids)
-                print(f"Total nodes to delete in subgraph {subgraph_value}: {total_nodes}")
+        node_ids = self._get_subgraph_nodes_ids(root_node_label, root_node_prop, subgraph_value)
 
-                # start deleting nodes in batches
-                batch_count = 0
-                for batch in chunks(node_ids, 5000):
-                    batch_count += 1
-                    print(f"Processing batch {batch_count}: {len(batch)}")
-                    try:
-                        res = tx.run(f"""
-                        MATCH (n)
-                        WHERE id(n) IN $batch
-                        DETACH DELETE n
-                        RETURN count(n) AS deleted
-                        """, batch=batch
-                        ).single()
-                        deleted_count = res["deleted"]
-                        delete_nodes += deleted_count
-                        if deleted_count == 0:
-                            break
-                    except Exception as e:
-                        print(f"Error wiping subgraph {subgraph_value}: ", e)
-                        tx.rollback()
-                        raise e
-        print(f"Total nodes deleted in subgraph {subgraph_value}: {delete_nodes}")
-        return delete_nodes
+        deleted_nodes = 0
+        detached_rels = 0
+        if len(node_ids) == 0:
+            print(f"No nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Nothing to delete.")
+        # found nodes belonging to the subgraph
+        else:
+            print(f"{len(node_ids)} nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Start deleting...")
+            if len(node_ids) > chunk_threshold:
+                # large subgraph to delete, print warning and delete in batches
+                print(f"Warning: large subgraph detected with {len(node_ids)} nodes, deletion may take a while...")
+                # first detach relationships in batches
+                print("Start detaching relationships...")
+                rel_batch_count = 0
+                for batch in chunks(node_ids, 5000): # chunk it for 5000 by default
+                    rel_batch_count += 1
+                    detached_nodes_count = self._detach_nodes_by_ids(node_ids=batch)
+                    print(f"Detached rels count for batch {rel_batch_count}: ", detached_nodes_count)
+                    detached_rels += detached_nodes_count
+                print(f"Total relationships detached: {detached_rels}")
+                # then delete nodes in batches
+                print("Start deleting nodes...")
+                node_batch_count = 0
+                for batch in chunks(node_ids, 5000): # chunk it for 5000 by default
+                    node_batch_count += 1
+                    deleted_nodes_count = self._delete_nodes_by_ids(node_ids=batch)
+                    print(f"Deleted nodes count for batch {node_batch_count}: ", deleted_nodes_count)
+                    deleted_nodes += deleted_nodes_count
+                print(f"Total nodes deleted: {deleted_nodes}")
+            else:
+                # small subgraph, no batching needed
+                print("Start deleting nodes and relationships...")
+                # first detach relationships
+                detached_rels = self._detach_nodes_by_ids(node_ids=node_ids)
+                print(f"Total relationships detached: {detached_rels}")
+                # then delete nodes
+                deleted_nodes = self._delete_nodes_by_ids(node_ids=node_ids)
+                print(f"Total nodes deleted: {deleted_nodes}")
+        return {"nodes_deleted": deleted_nodes, "relationships_detached": detached_rels}
+
+    def _get_subgraph_nodes_ids(self, root_node_label: str, root_node_property: str, subgraph_value: str) -> list[int]:
+        """Returns a list of node id property values in a subgraph defined by the root node.
+
+        Args:
+            root_node_label (str): root node label, such as study
+            root_node_property (str): root node property for matching, such as study_id, dbgap_accession
+            subgraph_value (str): the value of root node property to identify the subgraph
+
+        Returns:
+            list[int]: a list of IDs of all nodes in the subgraph
+        """
+        query = f"""
+        MATCH (s:{root_node_label} {{{root_node_property}: $subgraph_value}})
+        OPTIONAL MATCH (s)-[*]-(n)
+        WITH COLLECT(DISTINCT id(s)) + COLLECT(DISTINCT id(n)) AS node_ids
+        RETURN node_ids
+        """
+        with self.driver.session() as session:
+            result = session.run(query, subgraph_value=subgraph_value)
+            record = result.single()
+            return record["node_ids"] if record else []
+
+    def _detach_nodes_by_ids(self, node_ids: list[int]) -> int:
+        """detach any relationship of matched nodes using a list of IDs 
+
+        Args:
+            node_ids (list[int]): A list of IDs of nodes
+
+        Returns:
+            int: number of deleted rekationships
+        """
+        query = """
+        UNWIND $node_ids AS nid
+        MATCH (n)
+        WHERE id(n) = nid
+        MATCH (n)-[r]-()
+        WITH DISTINCT r
+        DELETE r
+        RETURN count(r) AS deleted_rels
+        """
+        with self.driver.session() as session:
+            result = session.run(query, node_ids=node_ids)
+            record = result.single()
+            return record["deleted_rels"] if record else 0
+
+    def _delete_nodes_by_ids(self, node_ids: list[int]) -> int:
+        """delete nodes using a list of IDs AFTER detaching relationships
+
+        Args:
+            node_ids (list[int]): A list of IDs of nodes
+
+        Returns:
+            int: number of deleted nodes
+        """
+        query = """
+        UNWIND $node_ids AS nid
+        MATCH (n)
+        WHERE id(n) = nid
+        WITH DISTINCT n
+        DELETE n
+        RETURN count(n) AS deleted_nodes
+        """
+        with self.driver.session() as session:
+            result = session.run(query, node_ids=node_ids)
+            record = result.single()
+            return record["deleted_nodes"] if record else 0
 
     def _list_index(self) -> list:
         """List all indexes in the database.
