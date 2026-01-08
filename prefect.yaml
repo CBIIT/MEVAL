@@ -64,11 +64,14 @@ deployments:
       work_queue_name: null
       job_variables: {}
 
-  - name: TEST-universal-dataloader-delete-subgraph
+  - name: TEST-universal-dataloader-delete-study
     version: null
     tags: ["MEVAL","Qiong", "TEST"]
     description: "Prefect test deployment for deleting subgraph in the database workflow"
-    entrypoint: workflows/prefect/delete_database_subgraph.py:delete_database_subgraph
+    entrypoint: workflows/prefect/delete_database_subgraph.py:delete_database_study_subgraph
+    parameters:
+      root_node_label: "study"
+      root_node_property: "study_id"
     pull:
       - prefect.deployments.steps.git_clone:
           id: main_repo_clone_step

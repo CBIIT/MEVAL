@@ -19,8 +19,8 @@ def timer(label: str=""):
         print(f"{label} took {duration:.3f} seconds")
 
 
-@flow(log_prints=True, name="Delete Database Subgraph Flow")
-def delete_database_subgraph(
+@flow(log_prints=True, name="Delete Database Study Subgraph Flow")
+def delete_database_study_subgraph(
     db_creds_secret_name: str,
     uri_secret_key: str,
     root_node_label: str,
@@ -30,14 +30,14 @@ def delete_database_subgraph(
     password_secret_key: str | None = None,
 ):
     """
-    Delete subgraphs in the database by matching a root node and removing all connected nodes and relationships.
+    Delete study subgraphs in the database by matching a root node and removing all connected nodes and relationships.
 
     Args:
         db_creds_secret_name (str): The name of the AWS Secrets Manager secret containing database credentials.
         uri_secret_key (str): The key for the database URI in the secret.
-        root_node_label (str): The label of the root node to match.
-        root_node_property (str): The property name of the root node to match.
-        root_node_property_value (list[str]): A list of the property values of the root node to match.
+        root_node_label (str): The label of the root node. It is the origin from which all other nodes in its tree structure descend. Root node has no other parent node it points to. In most cases, this root node label is 'study'
+        root_node_property (str): The property name of the root node to match. In some cases, this property is 'study_id'.
+        root_node_property_value (list[str]): A list of the property values of the root node to match. This can be a list of study/dbGaP accession ids, such as 'phs000123'
         username_secret_key (str | None): The key for the database username in the secret.
         password_secret_key (str | None): The key for the database password in the secret.
     """
