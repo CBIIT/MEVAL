@@ -3,7 +3,30 @@ from botocore.exceptions import ClientError
 from urllib.parse import urlparse
 import json
 import os
+from pytz import timezone
+from datetime import datetime
 
+
+def get_time() -> str:
+    """Returns the current time"""
+    tz = timezone("EST")
+    now = datetime.now(tz)
+    dt_string = now.strftime("%Y%m%d_T%H%M%S")
+    return dt_string
+
+
+def file_ul(bucket: str, output_folder: str, sub_folder: str, newfile: str):
+    """File upload using bucket name, output folder name
+    and filename
+    """
+    # Set the s3 resource object for local or remote execution
+    s3 = set_s3_resource()
+    source = s3.Bucket(bucket)
+    # upload files outside inputs/ folder
+    file_key = os.path.join(output_folder, sub_folder, newfile)
+    # extra_args={'ACL': 'bucket-owner-full-control'}
+    source.upload_file(newfile, file_key)  # , extra_args)
+    return None
 
 def set_s3_resource():
     """This method sets the s3_resource object to either use localstack

@@ -88,3 +88,31 @@ deployments:
       name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
       work_queue_name: null
       job_variables: {}
+
+  - name: TEST-universal-dataloader-anchored-traversals-viz
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for visualizing anchored traversals workflow"
+    entrypoint: workflows/prefect/find_anchored_traversals.py:find_anchored_traversals
+
+    parameters:
+      root_node_label: "study"
+      root_node_property: "study_id"
+      output_bucket: "ccdi-validation"
+
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
