@@ -1,0 +1,3 @@
+type	study.study_id	participant.participant_id	generic_file_id	file_name	data_category	file_type	file_description	file_size	md5sum	file_mapping_level	file_access	acl	authz	file_url	dcf_indexd_guid	crdc_id
+generic_file		PT_001;PT_004;PT_017;test_wrong_1;test_wrong_2	generic_file_1	filename_01	Genomics	fastq	random_file_description	15648641	9f3b2e7c4a1d8f6b0c5e9a2d7b4f1c8e	Participant	Controlled	['phs000123.c1']	['/programs/phs000123.c1']	s3://test-bucket/filename_01	99fe1000-82d9-481d-aa15-1a46f241d4af	
+generic_file	phs000123_test		generic_file_2	filename_02	Generic	txt	mock_file_description	123782	4c8a1f2e9d7b6c3a0e5f2b1d8c9a7e6f	Study	Controlled	['phs000123.c1']	['/programs/phs000123.c1']	s3://test-bucket/filename_02	baa83a1a-80ca-4e53-bb57-2c4fbb37a868	

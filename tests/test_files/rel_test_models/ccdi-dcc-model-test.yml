@@ -1,0 +1,125 @@
+Handle: CCDI-DCC
+Version: test_version
+Nodes:
+  consent_group:
+    Desc: "A set of study participants who have signed the same consent agreement and that will be included in the dbGaP repository."
+    Tags:
+      Category: participant
+      Assignment: extended
+      Class: secondary
+      Template: 'Yes'
+    Props:
+      - consent_group_id
+      - consent_group_name
+      - consent_group_suffix 
+      - guid
+  participant:
+    Desc: "The participant node is comprised of properties which describe the participant attributes."
+    Tags:
+      Category: participant
+      Assignment: core
+      Class: primary
+      Template: 'Yes'
+    Props:
+      - participant_id
+      - race       
+      - sex_at_birth
+      - occupation
+      - guid
+      - crdc_id
+  study:
+    Desc: "The study node is comprised of properties which describe high level metadata that applies to all facets of the study."
+    Tags:
+      Category: study
+      Assignment: core
+      Class: primary
+      Template: 'Yes'
+    Props:
+      - study_id
+      - dbgap_accession
+      - study_name
+      - study_acronym
+      - study_description
+      - external_url
+      - experimental_strategy_and_data_subtype
+      - study_phase
+      - study_period_start
+      - study_period_stop
+      - study_data_types
+      - promotion_status
+      - guid
+      - crdc_id
+  survival:
+    Desc: "The survival node is comprised of properties which describe metadata related to vital status and medical events at timepoints for a participant."
+    Tags:
+      Category: clinical
+      Assignment: core
+      Class: secondary
+      Template: 'Yes'
+    Props:
+      - survival_id
+      - last_known_survival_status
+      - age_at_last_known_survival_status
+      - first_event
+      - event_free_survival_status
+      - age_at_event_free_survival_status
+      - follow_up_category
+      - follow_up_other
+      - adverse_event
+      - comorbidity
+      - comorbidity_method_of_diagnosis
+      - risk_factor
+      - cause_of_death
+      - guid
+  generic_file: 
+    Desc: "The generic file node is comprised of properties which describe file metadata for generic files that do not fall under any other node."
+    Tags:
+      Category: data_file
+      Assignment: extended
+      Class: secondary
+      Template: 'Yes'
+    Props:
+      - generic_file_id
+      - file_name
+      - data_category
+      - file_type
+      - file_description
+      - file_size
+      - md5sum
+      - file_mapping_level
+      - file_access
+      - acl
+      - authz
+      - file_url
+      - dcf_indexd_guid
+      - guid
+      - crdc_id
+
+
+Relationships:
+  of_consent_group:
+    Props: null
+    Mul: many_to_one
+    Ends:
+      - Src: consent_group
+        Dst: study
+  of_participant:
+    Props: null
+    Mul: many_to_one
+    Ends:
+      - Src: participant
+        Dst: consent_group
+  of_survival:
+    Props: null
+    Mul: many_to_one
+    Ends:
+      - Src: survival
+        Dst: participant
+  of_generic_file:
+    Props: null
+    Mul: many_to_many
+    Ends:
+      - Src: generic_file
+        Dst: study
+      - Src: generic_file
+        Dst: participant

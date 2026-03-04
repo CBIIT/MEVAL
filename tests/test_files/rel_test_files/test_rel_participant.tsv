@@ -1,0 +1,21 @@
+type	consent_group.consent_group_id	participant_id	race	sex_at_birth	occupation	crdc_id
+participant	phs000123_GRU	PT_001	White	Female		
+participant	phs000123_GRU	PT_002	Asian	Male		
+participant	phs000123_GRU	PT_003	White	Female		
+participant	phs000123_GRU	PT_004	Hispanic or Latino;White	Female		
+participant	phs000123_GRU	PT_005	Hispanic or Latino;White	Male		
+participant	phs000123_GRU	PT_006	Hispanic or Latino;White	Male		
+participant	phs000123_GRU	PT_007	White	Male		
+participant	phs000123_GRU	PT_008	Asian	Male		
+participant	phs000123_GRU	PT_009	White	Male		
+participant	phs000123_GRU	PT_010	Hispanic or Latino;White	Female		
+participant	phs000123_GRU	PT_011	White	Male		
+participant	phs000123_GRU	PT_012	White	Male		
+participant	phs000123_GRU	PT_013	Black or African American	Female		
+participant	testcase	PT_014	White	Female		
+participant	phs000123_GRU	PT_015	White	Female		
+participant	phs000123_GRU	PT_016	White	Female		
+participant	phs000123_GRU	PT_017	White	Male		
+participant	phs000123_GRU	PT_018	White	Female		
+participant	phs000123_GRU	PT_019	White	Female		
+participant	phs000123_GRU	PT_020	White	Male		
