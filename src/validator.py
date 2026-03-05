@@ -327,7 +327,7 @@ class Validator:
             except Exception as e:
                 print(f"Error processing {str(file_path)}: {e}")
                 raise e
-                
+
         return type_file_dict
 
     @classmethod
@@ -572,10 +572,27 @@ class Validator:
                     else:
                         # not all values in the relationship column are empty
                         pass
-                    
+
                     rel_multi = Validator.get_rel_multiplicity(file_type, rel_col.split(".")[0], mdf)
                     rel_col_parent, rel_col_parent_key_prop = rel_col.split(".")
                     parent_files = type_file_dict.get(rel_col_parent)
+                    # there is a chance that parent_files return None. Add an error message if this happens for rel_col
+                    # At this point, we already that rel_col is not empty
+                    if parent_files is None:
+                        if str(file) not in validation_results:
+                            validation_results[str(file)] = []
+                        # add error message for missing parent file for this relationship column
+                        validation_results[str(file)].append(
+                            {
+                                "row": "N/A",
+                                "edge_column": rel_col,
+                                "invalid_value": "N/A",
+                                "edge_src": file_type,
+                                "edge_dst": rel_col_parent,
+                                "message": f"Failed to find parent file for NONEMPTY relationship column '{rel_col}' in the provided file list: {file_path_list}"
+                            }
+                        )
+                        continue
                     parent_key_values = []
                     for parent_file in parent_files:
                         parent_encoding = Validator.check_encoding(str(parent_file))
@@ -592,7 +609,7 @@ class Validator:
                         parent_key_values += parent_file_df[rel_col_parent_key_prop].dropna().tolist()
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
-                        
+
                     rel_col_values = file_df[rel_col]
                     for i in rel_col_values.index:
                         # row number is i+1
@@ -639,6 +656,3 @@ class Validator:
                 print(f"Error processing {str(file)}: {e}")
                 raise e
         return validation_results
-
-
-

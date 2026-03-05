@@ -39,7 +39,7 @@ class TestValidator(unittest.TestCase):
             ) from error
 
     def test_validate_tsv_records_survival_file(self) -> None:
-        tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_DCC1.0.0.tsv"
+        tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
 
         results = self.validator.validate_tsv_records(str(tsv_path))
 
@@ -64,7 +64,7 @@ class TestValidator(unittest.TestCase):
         self.assertIn("Eye Pain", results[6]["messages"]["warnings"][0][0]["input"])
 
     def test_read_tsv_records_survival_file(self) -> None:
-        tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_DCC1.0.0.tsv"
+        tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
 
         records = list(self.validator.read_tsv_records(str(tsv_path), self.mdf_reader))
 
