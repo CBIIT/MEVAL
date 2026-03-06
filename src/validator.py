@@ -589,7 +589,7 @@ class Validator:
                                 "invalid_value": "N/A",
                                 "edge_src": file_type,
                                 "edge_dst": rel_col_parent,
-                                "message": f"Failed to find parent file for NONEMPTY relationship column '{rel_col}' in the provided file list: {file_path_list}"
+                                "message": f"Failed to find {rel_col_parent} type file for NONEMPTY relationship column '{rel_col}' in the provided file list: {[str(i) for i in file_path_list]}"
                             }
                         )
                         continue
