@@ -76,7 +76,7 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     log_prints=True,
     cache_policy=NO_CACHE,
 )
-def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser: ModelParser, id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000):
+def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser: ModelParser, id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000, delimiter: str = ";"):
     """Prefect flow to upsert data nodes from a list of submission files
 
     Args:
@@ -96,6 +96,7 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser:
             id_field=id_field,
             subgraph_col=subgraph_col,
             chunk_size=chunk_size,
+            delimiter=delimiter
         )
         return_dict[file] = record_upsert_summary
     return return_dict
@@ -274,6 +275,7 @@ def upsert_files(
         id_field=id_field,
         subgraph_col=subgraph_col,
         chunk_size=3000,
+        delimiter=delimiter
     )
     total_nodes_created = sum([value["nodes_created"] for value in node_upsert_summary.values()])
     total_node_prop_set = sum([value["properties_set"] for value in node_upsert_summary.values()])

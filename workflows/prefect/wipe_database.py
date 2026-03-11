@@ -1,5 +1,5 @@
 from datetime import datetime
-from prefect import flow
+from prefect import flow, get_run_logger
 from src.loader import Loader
 from neo4j import GraphDatabase
 from workflows.prefect.upsert_workflow import get_secret_task
@@ -20,7 +20,8 @@ def wipe_database(
         username_secret_key (str | None): The key for the database username in the secret.
         password_secret_key (str | None): The key for the database password in the secret.
     """
-    print("Starting to retrieve database credentials from Secrets Manager...")
+    logger = get_run_logger()
+    logger.info("Starting to retrieve database credentials from Secrets Manager...")
     uri = get_secret_task(db_creds_secret_name, uri_secret_key)
     username = (
         get_secret_task(db_creds_secret_name, username_secret_key)
@@ -37,5 +38,8 @@ def wipe_database(
 
     myloader = Loader(driver=driver)
     myloader.wipe_database()
-    print("Wiping database completed.")
+    logger.info("Wiping database nodes and relationships completed.")
+
+    myloader.drop_all_indexes()
+    logger.info("Dropping all indexes completed.")
     return None

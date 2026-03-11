@@ -49,7 +49,7 @@ class Validator:
         return project_namespace
 
     @staticmethod
-    def generate_uuid5(project_name: str, subgraph_value: str, record_type: str, record_key_value: str) -> str:
+    def generate_uuid5(project_name: str, subgraph_value: str, record_type: str, record_key_value: str, delimiter: str|None = ";") -> str:
         """
         Generate a UUID5 based on the project namespace, record type, and record key value.
 
@@ -61,16 +61,31 @@ class Validator:
         Returns:
             str: The generated UUID5 as a string.
         """
-        if pd.isna(record_key_value) or record_key_value.strip() == "":
+        str_key_value = str(record_key_value)
+        if pd.isna(record_key_value) or str_key_value.strip() == "":
             return ""
         else:
-            project_namespace = Validator.get_project_namespace(project_name)
-            str_input = f"{subgraph_value}::{record_type}::{record_key_value}"
-            str_uuid = uuid5(project_namespace, str_input)
-        return str(str_uuid)
+            if delimiter is None:
+                project_namespace = Validator.get_project_namespace(project_name)
+                str_input = f"{subgraph_value}::{record_type}::{str_key_value}"
+                str_uuid = uuid5(project_namespace, str_input)
+                return str(str_uuid)
+            else:
+                str_key_list = [str(item).strip() for item in str_key_value.split(delimiter)]
+                return_uuid_list = []
+                for item in str_key_list:
+                    if pd.isna(item) or item.strip() == "":
+                        pass
+                    else:
+                        project_namespace = Validator.get_project_namespace(project_name)
+                        str_input = f"{subgraph_value}::{record_type}::{item}"
+                        str_uuid = uuid5(project_namespace, str_input)
+                        return_uuid_list.append(str(str_uuid))
+                return_uuid = delimiter.join(return_uuid_list)
+                return return_uuid
 
     @staticmethod
-    def add_uuid_to_tsv_file(file_path: str | PosixPath, project_name: str, mdf: MDF, output_file_path: str, uuid_column: str = "guid") -> None:
+    def add_uuid_to_tsv_file(file_path: str | PosixPath, project_name: str, mdf: MDF, output_file_path: str, uuid_column: str = "guid", delimiter: str | None = ";") -> None:
         """
         Add a "guid" column to the TSV file with generated UUID5 values based on the project namespace, record type, and record key value.
         The output TSV will have the UUID column, such as "guid", and all relationship columns will be converted to UUID based on the parent type.
@@ -82,6 +97,7 @@ class Validator:
             subgraph_value (str): The value to be added to the record dict for subgraph key, which is also used for uuid generation.
             id_field_mapping (dict[str, str]): A dictionary mapping record types to their corresponding key field names. e.g. {"participant": "participant_id", "diagnosis": "diagnosis_id"}
             output_file_path (str): The path to save the output TSV file with the added "guid" column.
+            delimiter (str | None): The delimiter to use for splitting multiple key values. Defaults to ";".
         """
         file_path_str = str(file_path)
         encoding = Validator.check_encoding(file_path_str)
@@ -93,7 +109,8 @@ class Validator:
             doublequote=True,
             escapechar="\\",  # add escape char to handle special characters
             keep_default_na=False,
-            na_values=[""],  # treat empty strings as NaN
+            na_values=[""], # treat empty strings as NaN
+            dtype=str, # read columns as str. This is to avoid infer columns full of numbers as float64
         )
         file_type = file_df["type"].iloc[0] # we only expect one type of a file
 
@@ -120,14 +137,16 @@ class Validator:
         file_type_key_prop = mdf.model.nodes[file_type].get_key_prop().handle
 
         # first write uuid column
-        file_df[uuid_column] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=file_type, record_key_value=row[file_type_key_prop]), axis=1)
+        # uuid column for the file type itself don't need delimiter since it's expected to be only one key value for each record
+        file_df[uuid_column] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=file_type, record_key_value=row[file_type_key_prop], delimiter=None), axis=1)
 
         # second write guid for all relationship columns
+        # relationship column might need delimiter if it is present
         rel_col = [col for col in file_df.columns if "." in col]
         for col in rel_col:
             parent_type = col.split(".")[0]
             new_rel_col = parent_type + "." + uuid_column
-            file_df[new_rel_col] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=parent_type, record_key_value=row[col]), axis=1)
+            file_df[new_rel_col] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=parent_type, record_key_value=row[col], delimiter=delimiter), axis=1)
 
         # remove original relationship columns and subgraph column
         cols_to_remove = rel_col + ["subgraph"] if "subgraph" in file_df.columns else rel_col
@@ -249,7 +268,7 @@ class Validator:
         return subgraph_dict
 
     @staticmethod
-    def add_subgrapgh_value_to_tsv(file_path: str | PosixPath, subgraph_vlaue: str) -> str:
+    def add_subgrapgh_value_to_tsv(file_path: str | PosixPath, subgraph_vlaue: str, output_file_path: str) -> str:
         """
         Adds a subgraph value to the "subgraph" column in the file. This is for the purpose of determining which subgraph the file belongs to when loading to graph db.
         This only applied to tsv file type
@@ -261,8 +280,6 @@ class Validator:
             str: path of the new file with subgraoph value added
         """
         encoding = Validator.check_encoding(str(file_path))
-        file_name = os.path.basename(file_path)
-        new_file_name = file_name.replace(".tsv", f"_with_subgraph.tsv")
         try:
             file_df = pd.read_csv(
                 str(file_path),
@@ -273,10 +290,11 @@ class Validator:
                 escapechar="\\",  # add escape char to handle special characters
                 keep_default_na=False,
                 na_values=[""],  # treat empty strings as NaN
+                dtype=str,  # read columns as str. This is to avoid infer columns full of numbers as float64
             )
             file_df["subgraph"] = subgraph_vlaue
-            file_df.to_csv(new_file_name, sep="\t", index=False, na_rep="")
-            return new_file_name
+            file_df.to_csv(output_file_path, sep="\t", index=False, na_rep="")
+            return output_file_path
         except Exception as e:
             print(f"Error reading {str(file_path)}: {e}")
             raise e

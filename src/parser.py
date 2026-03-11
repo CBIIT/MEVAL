@@ -41,6 +41,26 @@ class ModelParser:
         except KeyError as e:
             raise KeyError(f"Node '{node_name}' not found in the model.") from e
 
+    def get_node_props_if_list_type(self, node_name: str) -> list[str]:
+        """Get the list of property names that are list type for a given node
+
+        Args:
+            node_name (str): name of the node
+        Returns:
+            list[str]: list of property names that are list type for the node
+        """
+        try:
+            node_props = self.get_node_props_list(node_name)
+            list_type_props = []
+            for prop in node_props:
+                if self.if_prop_list(node_name, prop):
+                    list_type_props.append(prop)
+                else:
+                    pass
+            return list_type_props
+        except KeyError as e:
+            raise KeyError(f"Node '{node_name}' not found in the model.") from e
+
     def get_node_props_list_required(self, node_name: str) -> list[str]:
         """Get the list of required property names for a given node
 
@@ -190,6 +210,24 @@ class ModelParser:
                 return prop.is_strict
             else:
                 raise ValueError(f"Node '{node_name}' doesn't have a property '{prop_name}'")
+        except KeyError as e:
+            raise KeyError(f"Node '{node_name}' or property '{prop_name}' not found in the model.") from e
+
+    def if_prop_list(self, node_name: str, prop_name: str) -> bool:
+        """Check if a given property of a node is a list type
+
+        Args:
+            node_name (str): name of the node
+            prop_name (str): name of the property
+        Returns:
+            bool: True if the property is a list type, False otherwise
+        """
+        try:
+            prop = self.model.nodes[node_name].props[prop_name]
+            if prop.get_attr_dict() is not None and prop.get_attr_dict()["value_domain"] == "list":
+                return True
+            else:
+                return False
         except KeyError as e:
             raise KeyError(f"Node '{node_name}' or property '{prop_name}' not found in the model.") from e
 

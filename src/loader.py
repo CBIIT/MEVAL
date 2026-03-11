@@ -89,7 +89,7 @@ class Loader:
 
     @staticmethod
     def generate_chunk_records(
-        chunk: pd.DataFrame, model_parser: "ModelParser",subgraph_col: str|None = None
+        chunk: pd.DataFrame, model_parser: "ModelParser",subgraph_col: str|None = None, delimiter: str = ";"
     ) -> tuple[str, list[dict]]:
         """
         Generate records from a given chunk of data based on the model parser.
@@ -113,6 +113,10 @@ class Loader:
             if col != subgraph_col and col != "type" and "." not in col
         ]
         chunk_filtered = chunk[columns_to_keep]
+
+        # get a list of list type properties (if any) in node == chunk_type
+        list_type_props = model_parser.get_node_props_if_list_type(chunk_type)
+
         # create a list of records
         records = []
         for record in chunk_filtered.to_dict(orient="records"):
@@ -126,6 +130,21 @@ class Loader:
                     # let's not convert to string to preserve data types
                     pass
             cleaned_record = {k: v for k, v in record.items() if k not in keys_to_remove}
+
+            # if the propery is a list type, convert the value to list by a delimiter, such as ";"
+            if len(list_type_props) > 0:
+                for prop in cleaned_record:
+                    if prop in list_type_props:
+                        prop_value = cleaned_record[prop]
+                        prop_list = []
+                        if delimiter not in prop_value:
+                            prop_list.append(prop_value.strip())
+                        else:
+                            prop_list = [item.strip() for item in prop_value.split(delimiter)]
+                        cleaned_record[prop] = prop_list
+                    else:
+                        pass
+
             # for remaining keys, if the cleaned_record value is an int/floar, check the model
             # we have cases of str type property that are mis inferred as number/int during loading
             for u in cleaned_record:
@@ -182,6 +201,7 @@ class Loader:
         subgraph_col: str | None = None,
         id_field: str = "guid",
         chunk_size: int = 3000,
+        delimiter: str = ";"
     ) -> dict:
         """
         Upsert records from a TSV file into the graph database in chunks.
@@ -207,7 +227,7 @@ class Loader:
                 batch_count += 1
                 print(f"Processing batch {batch_count}...")
                 batch_begin = timer()
-                chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col)
+                chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field
                 )
