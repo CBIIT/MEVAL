@@ -146,6 +146,7 @@ class Validator:
         for col in rel_col:
             parent_type = col.split(".")[0]
             new_rel_col = parent_type + "." + uuid_column
+            # I'll leave delimiter available here for all multiplicity types. Because There might be use cases of project wanting to have many_to_many or one_to_many relationship before they were able to release model
             file_df[new_rel_col] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=parent_type, record_key_value=row[col], delimiter=delimiter), axis=1)
 
         # remove original relationship columns and subgraph column
