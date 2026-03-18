@@ -1,0 +1,34 @@
+type	consent_group.consent_group_id	participant_id	race	sex_at_birth	occupation	crdc_id	subgraph
+participant	phs001234_GRU	PT_001	White	Female			phs001234
+participant	phs001234_GRU	PT_002	Asian	Male			phs001234
+participant	phs001234_GRU	PT_003	White	Female			phs001234
+participant	phs001234_GRU	PT_004	Hispanic or Latino;White	Female			phs001234
+participant	phs001234_GRU	PT_005	Hispanic or Latino;White	Male			phs001234
+participant	phs001234_GRU	PT_006	Hispanic or Latino;White	Male			phs001234
+participant	phs001234_GRU	PT_007	White	Male			phs001234
+participant	phs001234_GRU	PT_008	Asian	Male			phs001234
+participant	phs001234_GRU	PT_009	White	Male			phs001234
+participant	phs001234_GRU	PT_010	Hispanic or Latino;White	Female			phs001234
+participant	phs001234_GRU	PT_011	White	Male			phs001234
+participant	phs001234_GRU	PT_012	White	Male			phs001234
+participant	phs001234_GRU	PT_013	Black or African American	Female			phs001234
+participant	phs001234_GRU	PT_014	White	Female			phs001234
+participant	phs001234_GRU	PT_015	White	Female			phs001234
+participant	phs001234_GRU	PT_016	White	Female			phs001234
+participant	phs001234_GRU	PT_017	White	Male			phs001234
+participant	phs001234_GRU	PT_018	White	Female			phs001234
+participant	phs001234_GRU	PT_019	White	Female			phs001234
+participant	phs001234_GRU	PT_020	White	Male			phs001234
+participant	phs001234_GRU	PT_021	White	Male			phs001234
+participant	phs001234_GRU	PT_022	Hispanic or Latino;White	Female			phs001234
+participant	phs001234_GRU	PT_023	White	Female			phs001234
+participant	phs001234_GRU	PT_024	White	Female			phs001234
+participant	phs001234_GRU	PT_025	White	Male			phs001234
+participant	phs001234_GRU	PT_026	White	Male			phs001234
+participant	phs001234_GRU	PT_027	Unknown	Male			phs001234
+participant	phs001234_GRU	PT_028	White	Male			phs001234
+participant	phs001234_GRU	PT_029	Black or African American	Female			phs001234
+participant	phs001234_GRU	PT_030	White	Male			phs001234
+participant	phs001234_GRU	PT_031	White	Male			phs001234
+participant	phs001234_GRU	PT_032	White	Male			phs001234
+participant	phs001234_GRU	PT_033	White	Male			phs001234

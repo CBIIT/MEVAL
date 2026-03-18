@@ -1,0 +1,2 @@
+type	study.study_id	consent_group_id	consent_group_name	consent_group_suffix
+consent_group	phs000123;test_case	phs000123_GRU	GRU	c1

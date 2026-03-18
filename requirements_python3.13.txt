@@ -1,0 +1,4 @@
+bento-mdf==0.13.0
+boto3==1.36.11
+pandas==2.3.3
+neo4j-viz==1.0.0

@@ -1,0 +1,2 @@
+type	study_id	dbgap_accession	study_name	study_acronym	study_description	external_url	experimental_strategy_and_data_subtype	study_phase	study_period_start	study_period_stop	study_data_types	promotion_status	crdc_id
+study	phs000123	phs000123	test study name	TEST	study test description			Completed				Promote	

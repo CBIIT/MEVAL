@@ -1,0 +1,10 @@
+type	survival_id	last_known_survival_status	age_at_last_known_survival_status	first_event	event_free_survival_status	age_at_event_free_survival_status	follow_up_category	follow_up_other	adverse_event	comorbidity	comorbidity_method_of_diagnosis	risk_factor	cause_of_death	guid	participant.guid
+survival	survival_101	Dead	7134	Relapse	Not Censored	5854							Due to this disease	99861501-19d6-48b9-9107-489bdb91a6da	21be1149-7f9f-4dd4-b93c-7a3ab06c3875
+survival	survival_30	Dead	3513	Death	Not Censored	3512			Acute Coronary Syndrome;  Alopecia				Due to this disease	b4ce294b-9847-41c2-adf7-bbc0d09e7cf7	2ebcb9ee-9150-4a2e-a886-cd286a54a37f
+survival	survival_100	Not Reported	123	Progression	Not reported	1234	comorbidity		  Hematoma;Glaucoma				Unknown	d11a11b3-2484-4f10-82e8-d0d11bf187d9	0f5ce4a0-9a48-4150-9004-bff3806db0fc
+survival	survival_76	Dead	6246	Death	Not Censored	6240			Atrial Flutter; test wrong term				Due to this disease	da46aca4-260e-4c9c-9f1b-98ff6aef6fa7	bb119cfc-db5f-4744-8895-78e4ace883f2
+survival	survival_117	Dead	2618	Relapse	Not Censored	2346	Risk_factor testing case						Due to this disease	af1441fd-ba97-476f-bd27-b289591ddbeb	c9a1778d-fa5b-43ee-bd0f-0b834c863ae7
+survival	survival_65	Dead			Not Censored	2940							Due to this disease	374ccb29-d21d-4e5b-8c70-fc872b4157c1	6f5123a2-dcf8-4f87-9208-c395d71fc449
+survival	survival_72	Dead	9130	Relapse	Not Censored	7469							Testing case	0c7c3c8f-3ff1-41ae-93f4-1f849374ec87	08f4c5af-bdd5-4c89-961e-5d2ed6a299a7
+survival	survival_90	Dead	2833	Relapse	Not Censored	2610			Biliary Fistula;Biliary Tract Infection;Eye Pain				Due to this disease	5e18f86d-d4c3-4d94-b834-6f39bc8ed0e2	9c5a6f99-a5e3-41dd-95a5-d26480f087a3
+															

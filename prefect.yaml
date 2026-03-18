@@ -1,0 +1,118 @@
+# Welcome to your prefect.yaml file! You can use this file for storing and managing
+# configuration for deploying your flows. We recommend committing this file to source
+# control along with your flow code.
+
+# Generic metadata about this project
+name: s3-Prefect-Workflow
+prefect-version: 3.14.19
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push: null
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+  - name: TEST-universal-dataloader
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for universal data loader upsert workflow"
+    entrypoint: workflows/prefect/upsert_workflow.py:upsert_files
+
+    parameters:
+      id_field: "id"
+      delimiter: ";"
+
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
+
+  - name: TEST-universal-dataloader-wipe-db
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for wiping out database workflow"
+    entrypoint: workflows/prefect/wipe_database.py:wipe_database
+
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
+
+  - name: TEST-universal-dataloader-delete-study
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for deleting subgraph in the database workflow"
+    entrypoint: workflows/prefect/delete_database_subgraph.py:delete_database_study_subgraph
+    parameters:
+      root_node_label: "study"
+      root_node_property: "study_id"
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
+
+  - name: TEST-universal-dataloader-anchored-traversals-viz
+    version: null
+    tags: ["MEVAL","Qiong", "TEST"]
+    description: "Prefect test deployment for visualizing anchored traversals workflow"
+    entrypoint: workflows/prefect/find_anchored_traversals.py:find_anchored_traversals
+
+    parameters:
+      root_node_label: "study"
+      root_node_property: "study_id"
+      output_bucket: "ccdi-validation"
+
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: add_parser
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
