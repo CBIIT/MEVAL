@@ -743,7 +743,7 @@ class Loader:
                 "properties_set": 0,
                 "relationships_created": 0,
                 "relationships_deleted": 0,
-            }
+            }, processed_rel_dict
         else:
             # combine counts in all summaries into one
             return_summary = {key: 0 for key in summary_list[0].keys()}

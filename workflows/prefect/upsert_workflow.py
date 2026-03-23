@@ -166,6 +166,7 @@ def upsert_rels_file_list(
             id_field=id_field,
             chunk_size=chunk_size,
             delimiter=delimiter,
+            logger=logger
         )
         return_dict[file] = rel_upsert_summary
     return return_dict, processed_rel_dict
