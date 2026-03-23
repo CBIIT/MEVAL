@@ -167,7 +167,7 @@ class Loader:
     # upsert records of a chunk with session.begin_transaction as input
     @staticmethod
     def upsert_chunk_records_with_tx(
-        tx, node_type: str, records: list[dict], id_field: str = "guid"
+        tx, node_type: str, records: list[dict], id_field: str = "guid", logger: logging.Logger | None = None
     ):
         """
         Upsert a list of records into a graph database using the provided transaction.
@@ -191,6 +191,8 @@ class Loader:
                 summary = results.consume()
                 return vars(summary.counters)
             except Exception as e:
+                if logger:
+                    logger.error("Error upserting records: %s", e)
                 print("Error upserting records: ", e)
                 ts.rollback()
                 raise e
@@ -236,7 +238,7 @@ class Loader:
                 batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
                 result_summary = self.upsert_chunk_records_with_tx(
-                    tx, chunk_type, records, id_field
+                    tx, chunk_type, records, id_field, logger=logger
                 )
                 batch_end = timer()
                 if logger:
@@ -331,7 +333,7 @@ class Loader:
         return edges_to_add
 
     @staticmethod
-    def upsert_chunk_relationships_with_tx(tx, edge_list: list[dict]) -> dict:
+    def upsert_chunk_relationships_with_tx(tx, edge_list: list[dict], logger: logging.Logger | None = None) -> dict:
         """Upsert relationships in the database with a list of dictionaries that specify the edges.
         A edge item example would be:
         {
@@ -378,12 +380,18 @@ class Loader:
                 try:
                     results = ts.run(cypher, **params)
                     summary = results.consume()
+                    if logger:
+                        logger.info(
+                            f"Relationships created for {src_label}-{handle}->{dst_label}: {summary.counters.relationships_created}"
+                        )
                     print(
                         f"Relationships created for {src_label}-{handle}->{dst_label}:",
                         summary.counters.relationships_created,
                     )
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
+                    if logger:
+                        logger.error("Error upserting records: %s", e)
                     print("Error upserting records: ", e)
                     ts.rollback()
                     raise e
@@ -685,7 +693,7 @@ class Loader:
                         try:
                             # with session.begin_transaction() as tx:
                             summary = self.upsert_chunk_relationships_with_tx(
-                                tx, edge_list=chunk_relationships
+                                tx, edge_list=chunk_relationships, logger=logger
                             )
                             summary_list.append(summary)
                             if logger:
