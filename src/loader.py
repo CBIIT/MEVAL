@@ -668,11 +668,11 @@ class Loader:
                         if logger:
                             logger.warning(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
                             logger.warning(
-                                f"guid {guid} was processed in {guid_old_source['file_path']} at row {guid_old_source['row_number']}. Deleting the relationships established by this record."
+                                f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
                             )
                         print(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
                         print(
-                            f"guid {guid} was processed in {guid_old_source['file_path']} at row {guid_old_source['row_number']}. Deleting the relationships established by this record."
+                            f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
                         )
 
                         guid_old_source_record = self.read_tsv_at_row_number(file_path=guid_old_source["file_path"], row_number=guid_old_source["row_number"])
@@ -680,9 +680,13 @@ class Loader:
                         if len(guid_old_rel_list) > 0:
                             del_rel_summary = self.remove_rel_of_record(rel_list=guid_old_rel_list, logger=logger)
                             if logger:
-                                logger.info(f"Removed previous relationships for PROCESSED guid {guid} from this loading. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
-                            print(f"Removed previous relationships for PROCESSED guid {guid} from this loading. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                                logger.warning(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                            print(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
                             summary_list.append(del_rel_summary)
+                        else:
+                            if logger:
+                                logger.warning(f"Relationships deleted: 0")
+                            print(f"Relationships deleted: 0")
                         processed_rel_dict[guid] = source # replace the source info using the guid information of the current chunk
 
                 chunk_relationships = self.generate_chunk_relationships(
