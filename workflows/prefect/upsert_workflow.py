@@ -11,6 +11,7 @@ from typing import Literal
 import logging
 from timeit import default_timer as timer
 import sys
+import json
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
@@ -321,8 +322,10 @@ def upsert_files(
 
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
-    print(f"Index created in the database (if not exist): {index_in_db}")
-    file_logger.info(f"Index created in the database (if not exist): {index_in_db}")
+    print(f"Index created in the database (if not exist):")
+    print(json.dumps(index_in_db, indent=2, sort_keys=True))
+    file_logger.info(f"Index created in the database (if not exist):")
+    file_logger.info(json.dumps(index_in_db, indent=2, sort_keys=True))
 
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
