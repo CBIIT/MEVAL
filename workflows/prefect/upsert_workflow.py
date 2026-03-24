@@ -324,17 +324,10 @@ def upsert_files(
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     index_df = pd.DataFrame(index_in_db)
     print(
-        "Index created in the database (if not exist):\n\t"
-        + index_df.to_markdown(tablefmt="rounded_grid", index=False).replace(
-            "\n", "\n\t"
-        )
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
     )
     file_logger.info(
-        "Index created in the database (if not exist):"
-        + "\n"
-        + index_df.to_markdown(tablefmt="rounded_grid", index=False).replace(
-            "\n", "\n\t"
-        )
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
     )
 
     # download tsv folder
