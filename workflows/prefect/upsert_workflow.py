@@ -303,9 +303,6 @@ def upsert_files(
         log_file=file_logger_name
     )
 
-    # print files under current directory for debugging
-    print(f"Current directory files: {os.listdir('.')}")
-
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(
         commons_acronym=commons_acronym, tag=tag
@@ -405,8 +402,6 @@ def upsert_files(
         newfile=tsv_output,
     )
     # upload the log file to s3
-    # print files under current directory for debugging
-    print(f"Current directory files: {os.listdir('.')}")
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
