@@ -647,9 +647,14 @@ class Loader:
                 chunk, remain_list, remove_list = self.remove_chunk_duplicates(
                     chunk=chunk, current_data_row=current_data_row, id_field=id_field, data_start_offset=data_start_offset, logger=logger
                 )
-                if logger:
-                    logger.info(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
-                print(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                if len(remove_list) > 0:
+                    if logger:
+                        logger.info(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                    print(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                else:
+                    if logger:
+                        logger.info(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
+                    print(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
 
                 # keep track of rows to be processed
                 processed_rel_chunk_records = self.turn_remain_row_list_to_dict(chunk, file_path, remain_list, id_field=id_field)

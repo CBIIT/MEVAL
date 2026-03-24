@@ -240,9 +240,7 @@ def get_logger(log_file: str) -> logging.Logger:
         file_handler = logging.FileHandler(log_file)
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(formatter)
-
         logger.addHandler(file_handler)
-
     return logger
 
 
@@ -296,9 +294,13 @@ def upsert_files(
     myloader = Loader(driver=driver)
 
     # create a logger instance to record logger info in a file
+    file_logger_name = f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     file_logger = get_logger(
-        log_file=f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log_file=file_logger_name
     )
+
+    # print files under current directory for debugging
+    print(f"Current directory files: {os.listdir('.')}")
 
     # test downloading model files
     data_model_yaml, props_yaml = download_model_files(
@@ -399,11 +401,13 @@ def upsert_files(
         newfile=tsv_output,
     )
     # upload the log file to s3
+    # print files under current directory for debugging
+    print(f"Current directory files: {os.listdir('.')}")
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
         sub_folder="MEVAL_upsert_summaries",
-        newfile=file_logger.handlers[0].baseFilename,
+        newfile=file_logger_name,
     )
     # close myloader instance when the upload is done
     myloader.close()
