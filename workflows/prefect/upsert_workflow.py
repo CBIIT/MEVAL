@@ -9,7 +9,7 @@ import os
 import pandas as pd
 from typing import Literal
 import logging
-
+from timeit import default_timer as timer
 import sys
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
@@ -113,9 +113,7 @@ def upsert_records_file_list(
     """
     return_dict = {}
     for file in file_list:
-        if logger:
-            logger.info(f"Files to be processed for data nodes: {file}")
-        print(f"Files to be processed for data nodes: {file}")
+        proc_begin = timer()
         record_upsert_summary = loader.upsert_file_records(
             file_path=file,
             model_parser=model_parser,
@@ -125,6 +123,10 @@ def upsert_records_file_list(
             delimiter=delimiter,
             logger=logger
         )
+        proc_end=timer()
+        if logger:
+            logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
+        print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         return_dict[file] = record_upsert_summary
     return return_dict
 
@@ -156,9 +158,7 @@ def upsert_rels_file_list(
     return_dict = {}
     processed_rel_dict = {}
     for file in file_list:
-        if logger:
-            logger.info(f"Files to be processed for relationships: {file}")
-        print(f"Files to be processed for relationships: {file}")
+        proc_begin = timer()
         rel_upsert_summary, processed_rel_dict = loader.upsert_file_relationships(
             file_path=file,
             model_parser=model_parser,
@@ -168,6 +168,10 @@ def upsert_rels_file_list(
             delimiter=delimiter,
             logger=logger
         )
+        proc_end=timer()
+        if logger:
+            logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
+        print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         return_dict[file] = rel_upsert_summary
     return return_dict, processed_rel_dict
 
@@ -333,12 +337,12 @@ def upsert_files(
     ]
     file_list_names = [os.path.basename(f) for f in file_list]
     print(f"File list to be processed: {*file_list_names,}")
-    file_logger.info(f"File list to be processed: {*file_list_names,}")
+    file_logger.info(f"Files counts to be processed: {len(file_list)}")
 
     # upsert tsv files
     # first to load all the nodes
     print("Starting node upsert...")
-    file_logger.info("Starting node upsert...")
+    file_logger.info("(Node Upsert) Starting node upsert...")
     node_upsert_summary = upsert_records_file_list(
         loader=myloader,
         model_parser=model_parser,

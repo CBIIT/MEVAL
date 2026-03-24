@@ -226,8 +226,8 @@ class Loader:
         # Use a single session for all chunks
         batch_count = 0
         if logger:
-            logger.info(f"Start processing file {os.path.basename(file_path)}")
-        print(f"Start processing file {os.path.basename(file_path)}")
+            logger.info(f"(Node Upsert) Start file {os.path.basename(file_path)}")
+        print(f"(Node Upsert) Start file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
             # with session.begin_transaction() as tx:
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
@@ -235,12 +235,12 @@ class Loader:
                 if logger:
                     logger.info(f"Processing batch {batch_count}...")
                 print(f"Processing batch {batch_count}...")
-                batch_begin = timer()
+                #batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field, logger=logger
                 )
-                batch_end = timer()
+                #batch_end = timer()
                 if logger:
                     logger.info(
                         f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
@@ -248,14 +248,14 @@ class Loader:
                     logger.info(
                         f"Batch {batch_count} set {result_summary['properties_set']} properties"
                     )
-                    logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
+                    #logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
                 print(
                     f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
                 )
                 print(
                     f"Batch {batch_count} set {result_summary['properties_set']} properties"
                 )
-                print("Batch loading time (seconds): ", batch_end - batch_begin)
+                #print("Batch loading time (seconds): ", batch_end - batch_begin)
                 summary_list.append(result_summary)
 
         # combine counts in all summaries into one
@@ -632,8 +632,8 @@ class Loader:
 
         # Use a single session but separate transactions for each chunk
         if logger:
-            logger.info(f"Start processing file {os.path.basename(file_path)}")
-        print(f"Start processing file {os.path.basename(file_path)}")
+            logger.info(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
+        print(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
             data_start_offset = 2 # data line starts at line 2
             current_data_row = 0
@@ -680,8 +680,8 @@ class Loader:
                         if len(guid_old_rel_list) > 0:
                             del_rel_summary = self.remove_rel_of_record(rel_list=guid_old_rel_list, logger=logger)
                             if logger:
-                                logger.info(f"Removed relationships for PROCESSED guid {guid} from this loading. Row number of the old record in the file: {guid_old_source['row_number']}. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
-                            print(f"Removed relationships for PROCESSED guid {guid} from this loading. Row number of the old record in the file: {guid_old_source['row_number']}. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                                logger.info(f"Removed previous relationships for PROCESSED guid {guid} from this loading. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                            print(f"Removed previous relationships for PROCESSED guid {guid} from this loading. Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
                             summary_list.append(del_rel_summary)
                         processed_rel_dict[guid] = source # replace the source info using the guid information of the current chunk
 
@@ -734,7 +734,7 @@ class Loader:
                                 print(f"Retrying batch {batch_count}...")
                 else:
                     if logger:
-                        logger.info(f"Batch {batch_count} skipped: no relationships to create")
+                        logger.info(f"(Batch {batch_count} skipped: no relationships to create")
                     print(f"Batch {batch_count} skipped: no relationships to create")
                 current_data_row += chunk_size
 
