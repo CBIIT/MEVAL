@@ -324,8 +324,7 @@ def upsert_files(
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
     index_df = pd.DataFrame(index_in_db)
     print(
-        "Index created in the database (if not exist):"
-        + "\n"
+        "Index created in the database (if not exist):\n\t"
         + index_df.to_markdown(tablefmt="rounded_grid", index=False).replace(
             "\n", "\n\t"
         )
