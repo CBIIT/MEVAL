@@ -233,8 +233,8 @@ class Loader:
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
                 if logger:
-                    logger.info(f"Processing batch {batch_count}...")
-                print(f"Processing batch {batch_count}...")
+                    logger.info(f"Processing Batch {batch_count}...")
+                print(f"Processing Batch {batch_count}...")
                 #batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
                 result_summary = self.upsert_chunk_records_with_tx(
@@ -243,17 +243,17 @@ class Loader:
                 #batch_end = timer()
                 if logger:
                     logger.info(
-                        f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
+                        f"Created {result_summary['nodes_created']} nodes"
                     )
                     logger.info(
-                        f"Batch {batch_count} set {result_summary['properties_set']} properties"
+                        f"Set {result_summary['properties_set']} properties"
                     )
                     #logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
                 print(
-                    f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
+                    f"Created {result_summary['nodes_created']} nodes"
                 )
                 print(
-                    f"Batch {batch_count} set {result_summary['properties_set']} properties"
+                    f"Set {result_summary['properties_set']} properties"
                 )
                 #print("Batch loading time (seconds): ", batch_end - batch_begin)
                 summary_list.append(result_summary)
@@ -382,10 +382,10 @@ class Loader:
                     summary = results.consume()
                     if logger:
                         logger.info(
-                            f"Relationships created for {src_label}-{handle}->{dst_label}: {summary.counters.relationships_created}"
+                            f"Rels ({src_label})-[{handle}]->({dst_label}) created: {summary.counters.relationships_created}"
                         )
                     print(
-                        f"Relationships created for {src_label}-{handle}->{dst_label}:",
+                        f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
                     summary_list.append(vars(summary.counters))
@@ -707,10 +707,10 @@ class Loader:
                             summary_list.append(summary)
                             if logger:
                                 logger.info(
-                                    f"Batch {batch_count} completed: {summary.get('relationships_created', 0)} relationships created"
+                                    f"Batch {batch_count} completed"
                                 )
                             print(
-                                f"Batch {batch_count} completed: {summary.get('relationships_created', 0)} relationships created"
+                                f"Batch {batch_count} completed"
                             )
                             break  # Success, exit retry loop
                         except Exception as e:
@@ -738,7 +738,7 @@ class Loader:
                                 print(f"Retrying batch {batch_count}...")
                 else:
                     if logger:
-                        logger.info(f"(Batch {batch_count} skipped: no relationships to create")
+                        logger.info(f"Batch {batch_count} skipped: no relationships to create")
                     print(f"Batch {batch_count} skipped: no relationships to create")
                 current_data_row += chunk_size
 
