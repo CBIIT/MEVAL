@@ -264,7 +264,7 @@ def upsert_files(
     password_secret_key: str | None = None,
 ):
     """
-    Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.
+    Upsert data from TSV files into a graph database.
 
     Args:
         db_creds_secret_name (str): The name/path of the AWS Secrets Manager secret containing the database credentials.
