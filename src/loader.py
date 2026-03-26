@@ -405,7 +405,6 @@ class Loader:
     @staticmethod
     def remove_chunk_duplicates(
         chunk: "pd.DataFrame",
-        current_data_row: int,
         id_field: str = "guid",
         data_start_offset: int = 2,
         logger: logging.Logger | None = None,
@@ -414,7 +413,6 @@ class Loader:
 
         Args:
             chunk (pd.DataFrame): a chunk read from submission file
-            current_data_row (int): the starting row of current chunk.
             data_start_offset (int): Which line does the data start, defaults to 2
             id_field (str): The field/column name to check duplicates. Defaults to "guid"
             logger (logging.Logger | None, optional): The logger instance to use. Defaults to None.
@@ -427,7 +425,7 @@ class Loader:
         to_remove_index = chunk[chunk.duplicated(subset=[id_field], keep="last")]
         removed_indices = to_remove_index.index.tolist()
         if len(removed_indices) > 0:
-            return_list = [data_start_offset + current_data_row + idx for idx in removed_indices]
+            return_list = [data_start_offset + idx for idx in removed_indices]
             chunk.drop(index=to_remove_index.index, inplace=True)
             return_remove_list = return_list
             if logger:
@@ -436,7 +434,7 @@ class Loader:
         else:
             pass
         # get the row number of remaining rows in the chunk,
-        return_remain_list = [data_start_offset + current_data_row + idx for idx in chunk.index.tolist()]   
+        return_remain_list = [data_start_offset + idx for idx in chunk.index.tolist()]   
         return chunk, return_remain_list, return_remove_list
 
     @staticmethod
@@ -636,7 +634,6 @@ class Loader:
         print(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
             data_start_offset = 2 # data line starts at line 2
-            current_data_row = 0
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
                 if logger:
@@ -645,7 +642,7 @@ class Loader:
 
                 # remove duplicated records within the chunk based on id_field, e.g., guid
                 chunk, remain_list, remove_list = self.remove_chunk_duplicates(
-                    chunk=chunk, current_data_row=current_data_row, id_field=id_field, data_start_offset=data_start_offset, logger=logger
+                    chunk=chunk, id_field=id_field, data_start_offset=data_start_offset, logger=logger
                 )
                 if len(remove_list) > 0:
                     if logger:
@@ -740,7 +737,6 @@ class Loader:
                     if logger:
                         logger.info(f"Batch {batch_count} skipped: no relationships to create")
                     print(f"Batch {batch_count} skipped: no relationships to create")
-                current_data_row += chunk_size
 
         # if summary_list is empty
         if len(summary_list) == 0:

@@ -402,7 +402,7 @@ class Validator:
             )
         return is_valid, warning_error_messages
 
-    def validate_tsv_records(self, file_path: str, subgraph_col: str = "subgraph", id_field: str = "guid", delimiter: str = ";") -> dict[str, Any]:
+    def validate_tsv_records(self, file_path: str, subgraph_col: str = "subgraph", id_field: str = "guid", delimiter: str = ";") -> list[dict, Any]:
         """
         Validates records from a TSV file and returns the validation results.
         although the validator_record can take a dict or a list of dict, we only validate one record at a time here.
@@ -674,4 +674,103 @@ class Validator:
             except Exception as e:
                 print(f"Error processing {str(file)}: {e}")
                 raise e
+        return validation_results
+
+    @staticmethod
+    def read_tsv_key_prop_values(file_path: str | PosixPath, key_prop: str, chunk_size: int = 5000) -> Iterator[str]:
+        """Read the key prop values of a tsv file
+
+        Args:
+            file_path (str | PosixPath): file path or filepath object
+            key_prop (str): key property name
+
+        Returns:
+            Iterator[str]: An iterator over the key property values in the TSV file.
+        """
+        encoding = Validator.check_encoding(str(file_path))
+        try:
+            for chunk in pd.read_csv(
+                str(file_path),
+                sep="\t",
+                encoding=encoding,
+                quotechar='"',
+                doublequote=True,
+                escapechar="\\",  # add escape char to handle special characters
+                keep_default_na=False,
+                na_values=[""],  # treat empty strings as NaN
+                dtype=str,  # read columns as str. This is to avoid infer columns full of numbers as float64
+                chunksize=chunk_size
+            ):
+                for index, val in chunk[key_prop].items():
+                    yield index, ("" if pd.isna(val) else val.strip())
+        except Exception as e:
+            print(f"Error reading {str(file_path)}: {e}")
+            raise e
+
+    @staticmethod
+    def identify_duplicated_values(value_list: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+        """
+        Identify duplicated values in a list of dictionaries based on a specified key.
+        value_list is expected to be a list of dictionaries:
+        [
+        {
+            "type": "participant",
+            "file_path": "path/to/participant.tsv",
+            "key_prop": "participant_id",
+            "key_prop_value": "participant_001",
+            "row": 2,
+        },
+        ...
+        ]
+
+        Args:
+            value_list: A list of dictionaries containing the values to be checked for duplicates.
+            key: The key in the dictionaries to check for duplicate values.
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries containing the duplicated records
+        """
+        # turn value_list in to a dataframe for easier manipulation
+        value_df = pd.DataFrame(value_list)
+        duplicated_df = value_df[value_df.duplicated(subset=[key], keep=False)]
+        duplicated_values = duplicated_df.to_dict(orient="records")
+        return duplicated_values
+
+    def validate_tsv_uniq_entry(self, file_path_list: list[str | PosixPath]) -> list[dict[str, Any]]:
+        """
+        Validates the uniqueness of data entry within a list of tsv files for a subgraph submission.
+        We ASSUME the provided files are from the SAME subgraph. In some cases, it can be from the same study, but in other cases, it can be from the same program with multiple studies under it.
+        Because two entries of [same key property value] in the [same type] under the [same subgraph] will share the same UUID
+        The function will first look at the type of each files, and then look for duplicated entry (key property) within the same type files.  
+        For example, if a participant_id (key prop for participant node) value appear in two participant type files, it will be considered as duplicated entry
+
+        Args:
+            file_path_list: A list of paths to TSV files to be validated for unique entries in the id field column.
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries containing validation results for duplicated entries in the id field column, including validity status and any warning/error messages.
+        """
+        validation_results = []
+        data_start_offset = 2 # data line starts at line 2
+
+        type_file_dict = self.file_type_read(file_path_list)
+        for type in type_file_dict:
+            type_file_list = type_file_dict[type]
+            # get key prop
+            key_prop = self.model.nodes[type].get_key_prop().handle
+            key_prop_list = []
+            for file in type_file_list:
+                for index, key_prop_value in self.read_tsv_key_prop_values(file, key_prop):
+                    key_prop_list.append(
+                        {
+                            "type": type,
+                            "file_path": str(file),
+                            "key_prop": key_prop,
+                            "key_prop_value": key_prop_value,
+                            "row": index + data_start_offset,
+                        }
+                    )
+            duplicated_key_list = self.identify_duplicated_values(key_prop_list, "key_prop_value")
+            if len(duplicated_key_list) > 0:
+                validation_results += duplicated_key_list
+            else:
+                pass
         return validation_results
