@@ -372,13 +372,12 @@ def upsert_files(
     # second to load all the relationships
     print("Starting relationship upsert...")
     file_logger.info("Starting relationship upsert...")
-    rel_upsert_summary, processed_rel_dict = upsert_rels_file_list(
+    rel_upsert_summary, _ = upsert_rels_file_list(
         loader=myloader,
         file_list=file_list,
         model_parser=model_parser,
         id_field=id_field,
-        chunk_size=30, # test with a much smaller chunk size
-        #chunk_size=3000,
+        chunk_size=3000,
         delimiter=delimiter,
         logger=file_logger,
     )
