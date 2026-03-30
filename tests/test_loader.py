@@ -104,7 +104,6 @@ class TestLoader(unittest.TestCase):
 
 		updated_chunk, remain_rows, removed_rows = Loader.remove_chunk_duplicates(
 			chunk=chunk,
-			current_data_row=0,
 			id_field="guid",
 			data_start_offset=2,
 			logger=None,

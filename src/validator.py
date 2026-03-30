@@ -731,7 +731,8 @@ class Validator:
         """
         # turn value_list in to a dataframe for easier manipulation
         value_df = pd.DataFrame(value_list)
-        duplicated_df = value_df[value_df.duplicated(subset=[key], keep=False)]
+        duplicated_df = value_df[value_df.duplicated(subset=[key], keep=False)].copy()
+        duplicated_df.sort_values(by=["type", "key_prop", "key_prop_value", "row"], inplace=True)
         duplicated_values = duplicated_df.to_dict(orient="records")
         return duplicated_values
 
