@@ -1,0 +1,171 @@
+import sys
+import unittest
+import tempfile
+from pathlib import Path
+
+import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+	sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.loader import Loader
+
+
+class FakeModelParser:
+	def get_node_props_if_list_type(self, node_name: str) -> list[str]:
+		if node_name == "sample":
+			return ["tags"]
+		return []
+
+	def get_prop_type(self, node_name: str, prop_name: str) -> str:
+		if node_name == "sample" and prop_name == "count":
+			return "integer"
+		return "string"
+
+	def get_edge_handle(self, edge_src: str, edge_dst: str) -> str:
+		if edge_src == "sample" and edge_dst == "participant":
+			return "of_participant"
+		return "related_to"
+
+
+class TestLoader(unittest.TestCase):
+	def test_chunks(self) -> None:
+		data = [1, 2, 3, 4, 5]
+		result = list(Loader.chunks(data, size=2))
+		self.assertEqual(result, [[1, 2], [3, 4], [5]])
+
+	def test_generate_chunk_records_cleans_and_converts_types(self) -> None:
+		parser = FakeModelParser()
+		chunk = pd.DataFrame(
+			{
+				"type": ["sample", "sample"],
+				"guid": ["s1", "s2"],
+				"name": ["alpha", "beta"],
+				"tags": ["a ; b", "single"],
+				"count": [7, 8],
+				"participant.guid": ["p1", "p2"],
+				"subgraph": ["sg1", "sg1"],
+				"notes": [float("nan"), "ok"],
+			}
+		)
+
+		chunk_type, records = Loader.generate_chunk_records(
+			chunk=chunk,
+			model_parser=parser,
+			subgraph_col="subgraph",
+			delimiter=";",
+		)
+
+		self.assertEqual(chunk_type, "sample")
+		self.assertEqual(len(records), 2)
+		self.assertNotIn("participant.guid", records[0])
+		self.assertNotIn("subgraph", records[0])
+		self.assertEqual(records[0]["tags"], ["a", "b"])
+		self.assertEqual(records[1]["tags"], ["single"])
+		self.assertIsInstance(records[0]["count"], int)
+		self.assertNotIn("notes", records[0])
+		self.assertEqual(records[1]["notes"], "ok")
+
+	def test_generate_chunk_relationships_handles_one_to_many(self) -> None:
+		parser = FakeModelParser()
+		chunk = pd.DataFrame(
+			{
+				"type": ["sample", "sample"],
+				"guid": ["s1", "s2"],
+				"participant.guid": ["p1;p2", "p3"],
+				"name": ["x", "y"],
+			}
+		)
+
+		edges = Loader.generate_chunk_relationships(
+			chunk=chunk,
+			model_parser=parser,
+			id_field="guid",
+			delimiter=";",
+		)
+
+		self.assertEqual(len(edges), 3)
+		self.assertEqual(edges[0]["src_label"], "sample")
+		self.assertEqual(edges[0]["dst_label"], "participant")
+		self.assertEqual(edges[0]["handle"], "of_participant")
+		self.assertSetEqual(
+			{edge["dst_match"] for edge in edges},
+			{"p1", "p2", "p3"},
+		)
+
+	def test_remove_chunk_duplicates_reports_file_rows(self) -> None:
+		chunk = pd.DataFrame(
+			{
+				"guid": ["g1", "g2", "g1"],
+				"type": ["sample", "sample", "sample"],
+			}
+		)
+
+		updated_chunk, remain_rows, removed_rows = Loader.remove_chunk_duplicates(
+			chunk=chunk,
+			id_field="guid",
+			data_start_offset=2,
+			logger=None,
+		)
+
+		self.assertEqual(updated_chunk["guid"].tolist(), ["g2", "g1"])
+		self.assertEqual(removed_rows, [2])
+		self.assertEqual(remain_rows, [3, 4])
+
+	def test_read_tsv_at_row_number(self) -> None:
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			tsv_path = Path(tmp_dir) / "sample.tsv"
+			tsv_path.write_text(
+				"type\tguid\tname\n"
+				"sample\ts1\tAlpha\n"
+				"sample\ts2\tBeta\n",
+				encoding="utf-8",
+			)
+
+			row2 = Loader.read_tsv_at_row_number(str(tsv_path), row_number=2)
+			row3 = Loader.read_tsv_at_row_number(str(tsv_path), row_number=3)
+
+			self.assertEqual(row2["guid"], "s1")
+			self.assertEqual(row3["name"], "Beta")
+
+	def test_generate_del_rel_list_of_a_record(self) -> None:
+		record = {
+			"type": "sample",
+			"guid": "s1",
+			"participant.guid": "p1;p2",
+			"study.guid": "st1",
+		}
+
+		rels = Loader.generate_del_rel_list_of_a_record(
+			record_dict=record,
+			id_field="guid",
+			delimiter=";",
+		)
+
+		self.assertEqual(len(rels), 3)
+		self.assertSetEqual(
+			{(r["dst_label"], r["dst_match"]) for r in rels},
+			{("participant", "p1"), ("participant", "p2"), ("study", "st1")},
+		)
+
+	def test_turn_remain_row_list_to_dict(self) -> None:
+		chunk = pd.DataFrame(
+			{
+				"guid": ["g1", "g2"],
+				"type": ["sample", "sample"],
+			}
+		)
+		out = Loader.turn_remain_row_list_to_dict(
+			chunk=chunk,
+			file_path="folder/sample.tsv",
+			remain_row_list=[10, 11],
+			id_field="guid",
+		)
+
+		self.assertEqual(out["g1"]["row_number"], 10)
+		self.assertEqual(out["g2"]["file_path"], "folder/sample.tsv")
+
+
+if __name__ == "__main__":
+	unittest.main()

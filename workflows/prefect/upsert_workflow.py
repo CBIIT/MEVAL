@@ -8,8 +8,11 @@ from neo4j import GraphDatabase
 import os
 import pandas as pd
 from typing import Literal
-
+import logging
+from timeit import default_timer as timer
 import sys
+import json
+
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
 
@@ -28,10 +31,17 @@ def get_secret_task(secret_name_path: str, secret_key_name: str):
     Returns:
         str: Secret hash/token
     """
-    secret_value = get_secret(secret_name_path=secret_name_path, secret_key_name=secret_key_name)
+    secret_value = get_secret(
+        secret_name_path=secret_name_path, secret_key_name=secret_key_name
+    )
     return secret_value
 
-@task(name="Download file from s3", task_run_name="download_file_{filename}", log_prints=True)
+
+@task(
+    name="Download file from s3",
+    task_run_name="download_file_{filename}",
+    log_prints=True,
+)
 def file_dl(bucket, filename) -> str:
     """Prefect task to download a file from s3 using bucket name and filename
     filename is the key path in bucket
@@ -51,8 +61,14 @@ def file_ul(bucket: str, output_folder: str, sub_folder: str, newfile: str):
     """Prefect task to upload file to s3 bucket using bucket name, output folder name
     and filename
     """
-    file_ul_s3(bucket=bucket, output_folder=output_folder, sub_folder=sub_folder, newfile=newfile)
+    file_ul_s3(
+        bucket=bucket,
+        output_folder=output_folder,
+        sub_folder=sub_folder,
+        newfile=newfile,
+    )
     return None
+
 
 @task(
     name="Download folder",
@@ -76,7 +92,16 @@ def folder_dl(bucket: str, remote_folder: str) -> None:
     log_prints=True,
     cache_policy=NO_CACHE,
 )
-def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser: ModelParser, id_field: str, subgraph_col: str|None = None, chunk_size: int = 3000, delimiter: str = ";"):
+def upsert_records_file_list(
+    loader: Loader,
+    file_list: list[str],
+    model_parser: ModelParser,
+    id_field: str,
+    subgraph_col: str | None = None,
+    chunk_size: int = 3000,
+    delimiter: str = ";",
+    logger: logging.Logger | None = None,
+):
     """Prefect flow to upsert data nodes from a list of submission files
 
     Args:
@@ -89,15 +114,20 @@ def upsert_records_file_list(loader: Loader, file_list: list[str], model_parser:
     """
     return_dict = {}
     for file in file_list:
-        print(f"Files to be processed for data nodes: {file}")
-        record_upsert_summary=loader.upsert_file_records(
+        proc_begin = timer()
+        record_upsert_summary = loader.upsert_file_records(
             file_path=file,
             model_parser=model_parser,
             id_field=id_field,
             subgraph_col=subgraph_col,
             chunk_size=chunk_size,
-            delimiter=delimiter
+            delimiter=delimiter,
+            logger=logger
         )
+        proc_end=timer()
+        if logger:
+            logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
+        print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         return_dict[file] = record_upsert_summary
     return return_dict
 
@@ -114,6 +144,7 @@ def upsert_rels_file_list(
     id_field: str,
     chunk_size: int = 3000,
     delimiter: str = ";",
+    logger: logging.Logger | None = None,
 ):
     """Prefect task to upsert data relationships from a list of submission files
 
@@ -126,17 +157,24 @@ def upsert_rels_file_list(
         delimiter (str, optional): Delimiter for multi-valued linkage fields. Defaults to ";"
     """
     return_dict = {}
+    processed_rel_dict = {}
     for file in file_list:
-        print(f"Files to be processed for relationships: {file}")
-        rel_upsert_summary = loader.upsert_file_relationships(
+        proc_begin = timer()
+        rel_upsert_summary, processed_rel_dict = loader.upsert_file_relationships(
             file_path=file,
             model_parser=model_parser,
+            processed_rel_dict=processed_rel_dict,
             id_field=id_field,
             chunk_size=chunk_size,
             delimiter=delimiter,
+            logger=logger
         )
+        proc_end=timer()
+        if logger:
+            logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
+        print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         return_dict[file] = rel_upsert_summary
-    return return_dict
+    return return_dict, processed_rel_dict
 
 
 @task(name="Combine node and relationship upsert summaries", log_prints=True)
@@ -190,6 +228,27 @@ def prepare_upsert_summary_tsv(combined_summary: dict) -> str:
     return summary_output_name
 
 
+def get_logger(log_file: str) -> logging.Logger:
+    """Returns a logger instance that records loading progress
+
+    Args:
+        log_file (str): file path including the filename
+
+    Returns:
+        logging.Logger: Logger instance
+    """
+    logger = logging.getLogger("upsert_logger")
+    logger.setLevel(logging.INFO)
+
+    # Avoid adding duplicate handlers if called multiple times
+    if not logger.handlers:
+        file_handler = logging.FileHandler(log_file)
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    return logger
+
+
 @flow(log_prints=True, name="Dataloading Upsert Workflow")
 def upsert_files(
     db_creds_secret_name: str,
@@ -205,7 +264,7 @@ def upsert_files(
     password_secret_key: str | None = None,
 ):
     """
-    Upsert study data from TSV files located in the specified S3 URI into the Neo4j database.
+    Upsert data from TSV files into a graph database.
 
     Args:
         db_creds_secret_name (str): The name/path of the AWS Secrets Manager secret containing the database credentials.
@@ -239,8 +298,19 @@ def upsert_files(
 
     myloader = Loader(driver=driver)
 
+    # create a logger instance to record logger info in a file
+    file_logger_name = f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    file_logger = get_logger(
+        log_file=file_logger_name
+    )
+
     # test downloading model files
-    data_model_yaml, props_yaml = download_model_files(commons_acronym=commons_acronym, tag=tag)
+    data_model_yaml, props_yaml = download_model_files(
+        commons_acronym=commons_acronym, tag=tag
+    )
+    file_logger.info(
+        f"Downloaded data model, props yaml: {data_model_yaml}, {props_yaml}"
+    )
     print(f"Downloaded data model yaml: {data_model_yaml}")
     print(f"Downloaded properties yaml: {props_yaml}")
     # create model parser
@@ -252,7 +322,13 @@ def upsert_files(
 
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
-    print(f"Index created in the database (if not exist): {index_in_db}")
+    index_df = pd.DataFrame(index_in_db)
+    print(
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
+    file_logger.info(
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
 
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
@@ -264,10 +340,12 @@ def upsert_files(
     ]
     file_list_names = [os.path.basename(f) for f in file_list]
     print(f"File list to be processed: {*file_list_names,}")
+    file_logger.info(f"Files counts to be processed: {len(file_list)}")
 
     # upsert tsv files
     # first to load all the nodes
     print("Starting node upsert...")
+    file_logger.info("(Node Upsert) Starting node upsert...")
     node_upsert_summary = upsert_records_file_list(
         loader=myloader,
         model_parser=model_parser,
@@ -275,30 +353,47 @@ def upsert_files(
         id_field=id_field,
         subgraph_col=subgraph_col,
         chunk_size=3000,
-        delimiter=delimiter
+        delimiter=delimiter,
+        logger=file_logger,
     )
-    total_nodes_created = sum([value["nodes_created"] for value in node_upsert_summary.values()])
-    total_node_prop_set = sum([value["properties_set"] for value in node_upsert_summary.values()])
+    total_nodes_created = sum(
+        [value["nodes_created"] for value in node_upsert_summary.values()]
+    )
+    total_node_prop_set = sum(
+        [value["properties_set"] for value in node_upsert_summary.values()]
+    )
     print("Node Upsert is complete.")
     print(f"Nodes created: {total_nodes_created}")
     print(f"Node properties set: {total_node_prop_set}")
+    file_logger.info("Node Upsert is complete.")
+    file_logger.info(f"Nodes created: {total_nodes_created}")
+    file_logger.info(f"Node properties set: {total_node_prop_set}")
 
     # second to load all the relationships
     print("Starting relationship upsert...")
-    rel_upsert_summary = upsert_rels_file_list(
+    file_logger.info("Starting relationship upsert...")
+    rel_upsert_summary, _ = upsert_rels_file_list(
         loader=myloader,
         file_list=file_list,
         model_parser=model_parser,
         id_field=id_field,
         chunk_size=3000,
         delimiter=delimiter,
+        logger=file_logger,
     )
     # get total relationships created and props set
-    total_rels_created = sum([value["relationships_created"] for value in rel_upsert_summary.values()])
-    total_rel_prop_set = sum([value["properties_set"] for value in rel_upsert_summary.values()])
+    total_rels_created = sum(
+        [value["relationships_created"] for value in rel_upsert_summary.values()]
+    )
+    total_rel_prop_set = sum(
+        [value["properties_set"] for value in rel_upsert_summary.values()]
+    )
     print("Relationship Upsert is complete.")
     print(f"Relationships created: {total_rels_created}")
     print(f"Relationship properties set: {total_rel_prop_set}")
+    file_logger.info("Relationship Upsert is complete.")
+    file_logger.info(f"Relationships created: {total_rels_created}")
+    file_logger.info(f"Relationship properties set: {total_rel_prop_set}")
 
     # combine two summaries into one, and write into a tsv
     # needs to combine two dict for every file
@@ -311,6 +406,13 @@ def upsert_files(
         output_folder=output_key_prefix,
         sub_folder="MEVAL_upsert_summaries",
         newfile=tsv_output,
+    )
+    # upload the log file to s3
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder="MEVAL_upsert_summaries",
+        newfile=file_logger_name,
     )
     # close myloader instance when the upload is done
     myloader.close()

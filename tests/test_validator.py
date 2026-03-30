@@ -219,5 +219,57 @@ class TestValidator(unittest.TestCase):
         self.assertIn(0, messages["warnings"])
         self.assertEqual(1, len(messages["warnings"][0]))
         self.assertEqual("enum", messages["warnings"][0][0]["type"])
+
+    def test_validate_tsv_uniq_entry_with_duplicates_across_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_a = Path(tmp_dir) / "participant_a.tsv"
+            file_b = Path(tmp_dir) / "participant_b.tsv"
+
+            file_a.write_text(
+                "type\tparticipant_id\tsex\n"
+                "participant\tP001\tMale\n"
+                "participant\tP002\tFemale\n",
+                encoding="utf-8",
+            )
+            file_b.write_text(
+                "type\tparticipant_id\tsex\n"
+                "participant\tP001\tMale\n"
+                "participant\tP003\tFemale\n",
+                encoding="utf-8",
+            )
+
+            duplicated = self.validator.validate_tsv_uniq_entry([str(file_a), str(file_b)])
+
+            self.assertEqual(len(duplicated), 2)
+            self.assertSetEqual(
+                {item["file_path"] for item in duplicated},
+                {str(file_a), str(file_b)},
+            )
+            self.assertTrue(all(item["type"] == "participant" for item in duplicated))
+            self.assertTrue(all(item["key_prop"] == "participant_id" for item in duplicated))
+            self.assertTrue(all(item["key_prop_value"] == "P001" for item in duplicated))
+            self.assertEqual(sorted(item["row"] for item in duplicated), [2, 2])
+
+    def test_validate_tsv_uniq_entry_without_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_a = Path(tmp_dir) / "participant_a.tsv"
+            file_b = Path(tmp_dir) / "participant_b.tsv"
+
+            file_a.write_text(
+                "type\tparticipant_id\tsex\n"
+                "participant\tP100\tMale\n"
+                "participant\tP101\tFemale\n",
+                encoding="utf-8",
+            )
+            file_b.write_text(
+                "type\tparticipant_id\tsex\n"
+                "participant\tP102\tMale\n"
+                "participant\tP103\tFemale\n",
+                encoding="utf-8",
+            )
+
+            duplicated = self.validator.validate_tsv_uniq_entry([str(file_a), str(file_b)])
+
+            self.assertEqual(duplicated, [])
 if __name__ == "__main__":
     unittest.main()

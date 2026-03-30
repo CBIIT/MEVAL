@@ -1,6 +1,6 @@
 from time import time
 import pandas as pd
-from typing import Dict, Generator, Any
+from typing import Dict, Generator, Any, Optional, Tuple
 from operator import itemgetter
 from itertools import groupby
 import os
@@ -9,6 +9,8 @@ from neo4j_viz.neo4j import from_neo4j
 from neo4j.graph import Path
 from timeit import default_timer as timer
 import json
+import logging
+from collections import defaultdict
 
 
 class Loader:
@@ -165,7 +167,7 @@ class Loader:
     # upsert records of a chunk with session.begin_transaction as input
     @staticmethod
     def upsert_chunk_records_with_tx(
-        tx, node_type: str, records: list[dict], id_field: str = "guid"
+        tx, node_type: str, records: list[dict], id_field: str = "guid", logger: logging.Logger | None = None
     ):
         """
         Upsert a list of records into a graph database using the provided transaction.
@@ -189,6 +191,8 @@ class Loader:
                 summary = results.consume()
                 return vars(summary.counters)
             except Exception as e:
+                if logger:
+                    logger.error("Error upserting records: %s", e)
                 print("Error upserting records: ", e)
                 ts.rollback()
                 raise e
@@ -201,7 +205,8 @@ class Loader:
         subgraph_col: str | None = None,
         id_field: str = "guid",
         chunk_size: int = 3000,
-        delimiter: str = ";"
+        delimiter: str = ";",
+        logger: logging.Logger | None = None
     ) -> dict:
         """
         Upsert records from a TSV file into the graph database in chunks.
@@ -220,25 +225,37 @@ class Loader:
 
         # Use a single session for all chunks
         batch_count = 0
-        print(f"Start processing file {os.path.basename(file_path)}")
+        if logger:
+            logger.info(f"(Node Upsert) Start file {os.path.basename(file_path)}")
+        print(f"(Node Upsert) Start file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
             # with session.begin_transaction() as tx:
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
-                print(f"Processing batch {batch_count}...")
-                batch_begin = timer()
+                if logger:
+                    logger.info(f"Processing Batch {batch_count}...")
+                print(f"Processing Batch {batch_count}...")
+                #batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
                 result_summary = self.upsert_chunk_records_with_tx(
-                    tx, chunk_type, records, id_field
+                    tx, chunk_type, records, id_field, logger=logger
                 )
-                batch_end = timer()
+                #batch_end = timer()
+                if logger:
+                    logger.info(
+                        f"Created {result_summary['nodes_created']} nodes"
+                    )
+                    logger.info(
+                        f"Set {result_summary['properties_set']} properties"
+                    )
+                    #logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
                 print(
-                    f"Batch {batch_count} created {result_summary['nodes_created']} nodes"
+                    f"Created {result_summary['nodes_created']} nodes"
                 )
                 print(
-                    f"Batch {batch_count} set {result_summary['properties_set']} properties"
+                    f"Set {result_summary['properties_set']} properties"
                 )
-                print("Batch loading time (seconds): ", batch_end - batch_begin)
+                #print("Batch loading time (seconds): ", batch_end - batch_begin)
                 summary_list.append(result_summary)
 
         # combine counts in all summaries into one
@@ -316,7 +333,7 @@ class Loader:
         return edges_to_add
 
     @staticmethod
-    def upsert_chunk_relationships_with_tx(tx, edge_list: list[dict]) -> dict:
+    def upsert_chunk_relationships_with_tx(tx, edge_list: list[dict], logger: logging.Logger | None = None) -> dict:
         """Upsert relationships in the database with a list of dictionaries that specify the edges.
         A edge item example would be:
         {
@@ -363,12 +380,18 @@ class Loader:
                 try:
                     results = ts.run(cypher, **params)
                     summary = results.consume()
+                    if logger:
+                        logger.info(
+                            f"Rels ({src_label})-[{handle}]->({dst_label}) created: {summary.counters.relationships_created}"
+                        )
                     print(
-                        f"Relationships created for {src_label}-{handle}->{dst_label}:",
+                        f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
+                    if logger:
+                        logger.error("Error upserting records: %s", e)
                     print("Error upserting records: ", e)
                     ts.rollback()
                     raise e
@@ -379,14 +402,215 @@ class Loader:
                 return_summary[key] += value
         return return_summary
 
+    @staticmethod
+    def remove_chunk_duplicates(
+        chunk: "pd.DataFrame",
+        id_field: str = "guid",
+        data_start_offset: int = 2,
+        logger: logging.Logger | None = None,
+    ) -> Tuple["pd.DataFrame", list]:
+        """Remove duplicated row of a given id_field (e.g., guid) and report the removed row numbers
+
+        Args:
+            chunk (pd.DataFrame): a chunk read from submission file
+            data_start_offset (int): Which line does the data start, defaults to 2
+            id_field (str): The field/column name to check duplicates. Defaults to "guid"
+            logger (logging.Logger | None, optional): The logger instance to use. Defaults to None.
+
+        Returns:
+            tuple: A tuple containing the updated chunk, a list of remaining row numbers, and a list of removed row numbers.
+        """
+        return_remove_list = [] # if no duplicates, return an empty list
+        return_remain_list = []
+        to_remove_index = chunk[chunk.duplicated(subset=[id_field], keep="last")]
+        removed_indices = to_remove_index.index.tolist()
+        if len(removed_indices) > 0:
+            return_list = [data_start_offset + idx for idx in removed_indices]
+            chunk.drop(index=to_remove_index.index, inplace=True)
+            return_remove_list = return_list
+            if logger:
+                logger.warning(f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk.")
+            print(f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk.")
+        else:
+            pass
+        # get the row number of remaining rows in the chunk,
+        return_remain_list = [data_start_offset + idx for idx in chunk.index.tolist()]   
+        return chunk, return_remain_list, return_remove_list
+
+    @staticmethod
+    def read_tsv_at_row_number(file_path: str, row_number: int) -> dict:
+        """Read a single row of a given file with a row number
+
+        Args:
+            file_path (str): The path to the file to read.
+            row_number (int): The row number to read (1-based index).
+
+        Returns:
+            dict: A dictionary representing the row data.
+        """
+        encoding = Loader.check_encoding(file_path)
+        if row_number < 2:
+            raise ValueError("Row number should be 2 or greater. Row 1 is expected to be the header.")
+        try:
+            row_data = pd.read_csv(
+                file_path,
+                sep="\t",
+                encoding=encoding,
+                skiprows=lambda x: x != 0
+                and x != (row_number - 1),  # skip rows before the target row
+                nrows=1,  # read only one row
+                quotechar='"',
+                doublequote=True,
+                escapechar="\\",  # add escape char to handle special characters
+                keep_default_na=False,
+                na_values=[""],  # treat empty strings as NaN
+            )
+            return row_data.to_dict(orient="records")[0]  # return the single row as a dict
+        except Exception as e:
+            print(f"Error reading row {row_number} from {file_path}: {e}")
+            raise e
+
+    @staticmethod
+    def generate_del_rel_list_of_a_record(record_dict: dict, id_field: str = "guid", delimiter: str = ";") -> list[dict]:
+        """
+
+        Args:
+            record_dict (dict): a record dictionary from function read_tsv_at_row_number
+            id_field (str, optional): id field. Defaults to "guid".
+            delimiter (str, optional): delimiter used in the record. Defaults to ";".
+
+        Returns:
+            list[dict]: A list of dictionaries representing the relationships to be deleted.
+        """
+        edge_keys = [key for key in record_dict.keys() if "." in key]
+        rel_list = []
+        for edge in edge_keys:
+            edge_parent, edge_parent_prop = edge.split(".")
+            if delimiter not in record_dict[edge]:
+                rel_item = {}
+                rel_item["src_label"] = record_dict["type"]
+                rel_item["src_prop"] = id_field
+                rel_item["src_match"] = record_dict[id_field]
+                rel_item["dst_label"] = edge_parent
+                rel_item["dst_prop"] = edge_parent_prop
+                rel_item["dst_match"] = record_dict[edge]
+                rel_list.append(rel_item)
+            else:
+                dst_matches = record_dict[edge].split(delimiter)
+                for dst in dst_matches:
+                    rel_item = {}
+                    rel_item["src_label"] = record_dict["type"]
+                    rel_item["src_prop"] = id_field
+                    rel_item["src_match"] = record_dict[id_field]
+                    rel_item["dst_label"] = edge_parent
+                    rel_item["dst_prop"] = edge_parent_prop
+                    rel_item["dst_match"] = dst.strip()
+                    rel_list.append(rel_item)
+        return rel_list
+
+    def remove_rel_of_record(self, rel_list: list[dict], logger: logging.Logger|None=None) -> dict:
+        """
+        Delete relationships for a batch of node pairs.
+
+            Expected input format:
+            [
+                {
+                    "src_label": "image",
+                    "src_prop": "guid",
+                    "src_match": "805be67f-c9e4-51cb-939e-c9fd6bb9cd71",
+                    "dst_label": "file",
+                    "dst_prop": "guid",
+                    "dst_match": "287f3775-4f4b-50f4-95ec-555191fe2011"
+                }
+            ]
+
+            Returns:
+                dict with per-batch counters
+        """
+        # Group rows by Cypher shape so we can batch them efficiently.
+        grouped = defaultdict(list)
+        for item in rel_list:
+            key = (
+                item["src_label"],
+                item["src_prop"],
+                item["dst_label"],
+                item["dst_prop"],
+            )
+            grouped[key].append(
+                {
+                    "src_match": item["src_match"],
+                    "dst_match": item["dst_match"],
+                }
+            )
+
+        counters_list = []
+        with self.driver.session() as session:
+            for (src_label, src_prop, dst_label, dst_prop), pairs in grouped.items():
+                cypher = f"""
+                UNWIND $pairs AS pair
+                MATCH (src:{src_label} {{{src_prop}: pair.src_match}})
+                MATCH (dst:{dst_label} {{{dst_prop}: pair.dst_match}})
+                MATCH (src)-[r]->(dst)
+                DELETE r
+                """
+                try:
+                    result = session.run(cypher, pairs=pairs)
+                    counters_list.append(vars(result.consume().counters))
+                except Exception as e:
+                    if logger:
+                        logger.error("Error deleting relationships: %s", e)
+                    else:
+                        print("Error deleting relationships: ", e)
+                    raise e
+        # combine counts in all summaries into one
+        return_summary = {key: 0 for key in counters_list[0].keys()}
+        for summary in counters_list:
+            for key, value in summary.items():
+                return_summary[key] += value
+        return return_summary
+
+    @staticmethod
+    def turn_remain_row_list_to_dict(chunk: "pd.DataFrame", file_path: str, remain_row_list: list, id_field: str = "guid") -> dict:
+        """Generates a dict which records each record's source from a chunk
+        The dictionary will be in the format like this:
+        {
+            "guid_value":{
+                "file_path": "source/file/path",
+                "row_number": 10
+                ""
+            }
+        }
+
+        Args:
+            chunk (pd.DataFrame): a chunk from the source file
+            file_path (str): source file path
+            remain_row_list (list): The list of row numbers of these records
+
+        Returns:
+            dict: a dictionary of chunk records keeping
+        """
+        return_dict = {}
+        # chunk and remain_row_list should be the same lentgh
+        count = 0
+        for _, row in chunk.iterrows():
+            guid_row = row[id_field]
+            return_dict[guid_row] = {
+                "file_path": file_path,
+                "row_number": remain_row_list[count]
+            }
+            count += 1
+        return return_dict
+
     def upsert_file_relationships(
         self,
         file_path: str,
         model_parser: "ModelParser",
+        processed_rel_dict: dict,
         id_field: str = "guid",
         chunk_size: int = 3000,
-        delimiter: str = ";"
-    ) -> dict:
+        delimiter: str = ";",
+        logger: logging.Logger | None = None
+    ) -> Tuple[dict, dict]:
         """Upsert relationships of a given file
         Relationships can only be done when both parent and child nodes have been created
 
@@ -394,20 +618,73 @@ class Loader:
             file_path (str): The path to the file to process.
             id_field (str, optional): The name of the ID field. Defaults to "guid".
             chunk_size (int, optional): The size of the chunks to process. Defaults to 3000.
+            delimiter (str, optional): The delimiter used in the file. Defaults to ";".
+            logger (logging.Logger, optional): The logger instance to use. Defaults to None.
 
         Returns:
-            dict: A summary of the upsert operation.
+            tuple[dict, dict]: A tuple of (summary dict, updated processed_rel_dict).
         """
         encoding = self.check_encoding(file_path)
         summary_list = []
         batch_count = 0
 
         # Use a single session but separate transactions for each chunk
-        print(f"Start processing file {os.path.basename(file_path)}")
+        if logger:
+            logger.info(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
+        print(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
+            data_start_offset = 2 # data line starts at line 2
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
+                if logger:
+                    logger.info(f"Processing batch {batch_count}...")
                 print(f"Processing batch {batch_count}...")
+
+                # remove duplicated records within the chunk based on id_field, e.g., guid
+                chunk, remain_list, remove_list = self.remove_chunk_duplicates(
+                    chunk=chunk, id_field=id_field, data_start_offset=data_start_offset, logger=logger
+                )
+                if len(remove_list) > 0:
+                    if logger:
+                        logger.info(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                    print(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                else:
+                    if logger:
+                        logger.info(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
+                    print(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
+
+                # keep track of rows to be processed
+                processed_rel_chunk_records = self.turn_remain_row_list_to_dict(chunk, file_path, remain_list, id_field=id_field)
+                for guid, source in processed_rel_chunk_records.items():
+                    if guid not in processed_rel_dict:
+                        processed_rel_dict[guid] = source
+                    else:
+                        # guid found in the processed_rel_dict
+                        # delete the old established relationships
+                        guid_old_source = processed_rel_dict[guid]
+                        if logger:
+                            logger.warning(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
+                            logger.warning(
+                                f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
+                            )
+                        print(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
+                        print(
+                            f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
+                        )
+
+                        guid_old_source_record = self.read_tsv_at_row_number(file_path=guid_old_source["file_path"], row_number=guid_old_source["row_number"])
+                        guid_old_rel_list = self.generate_del_rel_list_of_a_record(record_dict=guid_old_source_record, id_field=id_field, delimiter=delimiter)
+                        if len(guid_old_rel_list) > 0:
+                            del_rel_summary = self.remove_rel_of_record(rel_list=guid_old_rel_list, logger=logger)
+                            if logger:
+                                logger.warning(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                            print(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                            summary_list.append(del_rel_summary)
+                        else:
+                            if logger:
+                                logger.warning(f"Relationships deleted: 0")
+                            print(f"Relationships deleted: 0")
+                        processed_rel_dict[guid] = source # replace the source info using the guid information of the current chunk
 
                 chunk_relationships = self.generate_chunk_relationships(
                     chunk=chunk, id_field=id_field, model_parser=model_parser, delimiter=delimiter
@@ -422,27 +699,43 @@ class Loader:
                         try:
                             # with session.begin_transaction() as tx:
                             summary = self.upsert_chunk_relationships_with_tx(
-                                tx, edge_list=chunk_relationships
+                                tx, edge_list=chunk_relationships, logger=logger
                             )
                             summary_list.append(summary)
+                            if logger:
+                                logger.info(
+                                    f"Batch {batch_count} completed"
+                                )
                             print(
-                                f"Batch {batch_count} completed: {summary.get('relationships_created', 0)} relationships created"
+                                f"Batch {batch_count} completed"
                             )
                             break  # Success, exit retry loop
                         except Exception as e:
                             retry_count += 1
+                            if logger:
+                                logger.warning(
+                                    f"Batch {batch_count} failed (attempt {retry_count}/{max_retries}): {e}"
+                                )
                             print(
                                 f"Batch {batch_count} failed (attempt {retry_count}/{max_retries}): {e}"
                             )
                             if retry_count >= max_retries:
+                                if logger:
+                                    logger.error(
+                                        f"Batch {batch_count} failed after {max_retries} attempts, skipping..."
+                                    )
                                 print(
                                     f"Batch {batch_count} failed after {max_retries} attempts, skipping..."
                                 )
                                 # Optionally re-raise the exception or continue
                                 raise e
                             else:
+                                if logger:
+                                    logger.warning(f"Retrying batch {batch_count}...")
                                 print(f"Retrying batch {batch_count}...")
                 else:
+                    if logger:
+                        logger.info(f"Batch {batch_count} skipped: no relationships to create")
                     print(f"Batch {batch_count} skipped: no relationships to create")
 
         # if summary_list is empty
@@ -455,14 +748,14 @@ class Loader:
                 "properties_set": 0,
                 "relationships_created": 0,
                 "relationships_deleted": 0,
-            }
+            }, processed_rel_dict
         else:
             # combine counts in all summaries into one
             return_summary = {key: 0 for key in summary_list[0].keys()}
             for summary in summary_list:
                 for key, value in summary.items():
                     return_summary[key] += value
-            return return_summary
+            return return_summary, processed_rel_dict
 
     def _list_index(self) -> list:
         """List all indexes in the database.
