@@ -1,0 +1,3 @@
+type	consent_group.consent_group_id	participant_id	occupation	guid	crdc_id	extra_non_model_col
+participant	phs001234_GRU	PT_001	Physician		CRDC_PT_001	note_1
+participant	phs001234_GRU	PT_002			CRDC_PT_002	note_2

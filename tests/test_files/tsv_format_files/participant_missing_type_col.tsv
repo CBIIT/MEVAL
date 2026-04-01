@@ -1,0 +1,3 @@
+consent_group.consent_group_id	participant_id	race	sex_at_birth	occupation	guid	crdc_id	extra_non_model_col
+phs001234_GRU	PT_001	White	Female	Physician		CRDC_PT_001	note_1
+phs001234_GRU	PT_002	Asian	Male			CRDC_PT_002	note_2

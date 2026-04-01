@@ -157,7 +157,7 @@ class Validator:
         return None
 
     @staticmethod
-    def record_prep(record_dict: dict, mdf: MDF, subgraph_col: str = "subgraph",id_field: str = "guid", delimiter: str = ";") -> dict:
+    def record_prep(record_dict: dict, mdf: MDF, subgraph_col: str | None = None, id_field: str| None = None, delimiter: str = ";") -> dict:
         """
         Prepares a record dictionary for validation by removing certain keys and transform str to list for list type properties if needed
         Keys that need to be removed: "type",  "guid" and linkage keys which contain "."
@@ -350,7 +350,7 @@ class Validator:
         return type_file_dict
 
     @classmethod
-    def read_tsv_records(cls, tsv_file_path: str, mdf: MDF, subgraph_col: str = "subgraph", id_field: str = "guid", delimiter: str = ";") -> Iterator[tuple[str, dict[str, str]]]:
+    def read_tsv_records(cls, tsv_file_path: str, mdf: MDF, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> Iterator[tuple[str, dict[str, str]]]:
         """
         Reads a TSV file and yields each row as a dictionary keyed by column name.
         The file does not need to have subgraph column, but if it does, we want to remove it before validation since it's not part of the model definition.
@@ -402,7 +402,7 @@ class Validator:
             )
         return is_valid, warning_error_messages
 
-    def validate_tsv_records(self, file_path: str, subgraph_col: str = "subgraph", id_field: str = "guid", delimiter: str = ";") -> list[dict, Any]:
+    def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
         """
         Validates records from a TSV file and returns the validation results.
         although the validator_record can take a dict or a list of dict, we only validate one record at a time here.
@@ -631,7 +631,7 @@ class Validator:
 
                     rel_col_values = file_df[rel_col]
                     for i in rel_col_values.index:
-                        # row number is i+1
+                        # row number is i+2 since the index starts from 0 and the record starts from the second row in the file
                         if pd.isna(rel_col_values[i]) or rel_col_values[i].strip() == "":
                             continue
                         else:
@@ -645,7 +645,7 @@ class Validator:
                                             validation_results[str(file)] = []
                                         validation_results[str(file)].append(
                                             {
-                                                "row": i + 1, # add 1 to get the actual row number in the file since the index starts from 0
+                                                "row": i + 2, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                                 "edge_column": rel_col,
                                                 "invalid_value": item,
                                                 "edge_src": file_type,
@@ -661,7 +661,7 @@ class Validator:
                                         validation_results[str(file)] = []
                                     validation_results[str(file)].append(
                                         {
-                                            "row": i + 1, # add 1 to get the actual row number in the file since the index starts from 0
+                                            "row": i + 2, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                             "edge_column": rel_col,
                                             "invalid_value": rel_col_values[i],
                                             "edge_src": file_type,
@@ -741,8 +741,11 @@ class Validator:
         Validates the uniqueness of data entry within a list of tsv files for a subgraph submission.
         We ASSUME the provided files are from the SAME subgraph. In some cases, it can be from the same study, but in other cases, it can be from the same program with multiple studies under it.
         Because two entries of [same key property value] in the [same type] under the [same subgraph] will share the same UUID
+        
         The function will first look at the type of each files, and then look for duplicated entry (key property) within the same type files.  
-        For example, if a participant_id (key prop for participant node) value appear in two participant type files, it will be considered as duplicated entry
+        For example, if a participant_id (key prop for participant node) value appear in two participant type files, it will be considered as duplicated entry.
+        NOTE: It is okay to have identical prop key value of same type of data node under different rooted subgraph. 
+        For example, different studies can share same sample_id as long as they are from different studies, which means the guid/uuid would be different for these data nodes
 
         Args:
             file_path_list: A list of paths to TSV files to be validated for unique entries in the id field column.
@@ -775,3 +778,164 @@ class Validator:
             else:
                 pass
         return validation_results
+
+    def validate_tsv_format(self, file_path: str | PosixPath) -> list[dict[str, Any]]:
+        """
+        Validates the format of a TSV file
+        - if type column exist
+            - if no, error message and no further validation items
+            - if yes, is there any missing value in the "type" column
+            - if yes, are there more than one unique value found in the "type" column
+        - if so far no error for the file, it indicates the type column is valid.
+            - check if the type is a valid in the data model
+                - if no, error message and no further validation items
+                - if yes, check if all required properties for this type are found in the columns
+                - if yes, check if ther are any column that are not defined as properties for the type in the model definition.
+                - if yes, check relationship columns are valid
+                    - if no relationship column found, check if the type column is the root node. Error message if at least one rel is expected
+                    - if relationship column found, check if the relationship column value is valid based on the file type. If not valid, either the parent node is not specified in the model definition, or the parent node key prop is not correct
+
+        Args:
+            file_path: Path to the TSV file to be validated for format issues.
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries containing validation results for TSV format issues, including validity status and any warning/error messages.
+        """
+        validation_errors = []
+        encoding = Validator.check_encoding(str(file_path))
+        try:
+            file_df = pd.read_csv(
+                    str(file_path),
+                    sep="\t",
+                    encoding=encoding,
+                    quotechar='"',
+                    doublequote=True,
+                    escapechar="\\",  # add escape char to handle special characters
+                    keep_default_na=False,
+                    na_values=[""],  # treat empty strings as NaN
+                )
+            # check if "type" column exist
+            if "type" not in file_df.columns:
+                validation_errors.append({
+                        "level": "error",
+                        "type": "missing_column",
+                        "message": "Missing 'type' column in the TSV file, unable to determine file type for validation",
+                    })
+            else: # there is type column in the file
+                # check if there is any empty row at type column, and report any row missing type value as error
+                if file_df["type"].isna().any() or (file_df["type"].apply(lambda x: str(x).strip() == "")).any():
+                    empty_type_index = file_df[file_df["type"].isna() | (file_df["type"].apply(lambda x: str(x).strip() == ""))].index.tolist()
+                    empty_type_row = [index + 2 for index in empty_type_index]
+                    validation_errors.append({
+                            "level": "error",
+                            "type": "missing_type_value",
+                            "message": "Missing data type information in 'type' column, unable to validate this record",
+                            "row": empty_type_row, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                        })
+                else:
+                    pass
+                # if "type" column exist, after removing missing or empty value, is there only one unique value found under type column
+                type_values = file_df["type"]
+                filtered_type_values = type_values[~type_values.isna() & (type_values.apply(lambda x: str(x).strip() != ""))]
+                if filtered_type_values.nunique() > 1:
+                    validation_errors.append({
+                            "level": "error",
+                            "type": "multiple_type_value",
+                            "message": f"Multiple types found in 'type' column, unable to determine file type.",
+                            "input": filtered_type_values.unique().tolist()
+                        })
+                else:
+                    pass
+            # if no error of type column is found, str(file) is not found in validation_errors
+            if len(validation_errors) == 0:
+                # get the file type
+                file_type = file_df["type"].iloc[0]
+                if file_type not in self.model.nodes:
+                    validation_errors.append({
+                            "level": "error",
+                            "type": "invalid_file_type",
+                            "message": f"Invalid file type '{file_type}' in 'type' column, not found in the data model definition."
+                        })
+                else:
+                    # file_type is valid, we can further check if the rest of the columns are valid based on the model
+                    # check if all required properties are found in the columns of the files
+                    required_props_for_type = [
+                        i
+                        for i in self.model.nodes[file_type].props
+                        if self.model.nodes[file_type].props[i].is_required
+                    ]
+                    missing_required_props = [col for col in required_props_for_type if col not in file_df.columns]
+                    if len(missing_required_props) > 0:
+                        validation_errors.append({
+                                "level": "error",
+                                "type": "missing_required_column",
+                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(missing_required_props)}"
+                            })
+                    else:
+                        pass
+                    # check if the rest of columns other than "type" and relationship columns are valid based off model
+                    col_to_check = [col for col in file_df.columns if col != "type" and "." not in col]
+                    invalid_cols = [col for col in col_to_check if col not in self.model.nodes[file_type].props]
+                    if len(invalid_cols) > 0:
+                        validation_errors.append({
+                                "level": "error",
+                                "type": "invalid_property_column",
+                                "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(invalid_cols)}"
+                            })
+                    else:
+                        pass
+                    # check relationship columns if valid which contain "."
+                    rel_cols = [col for col in file_df.columns if "." in col]
+                    # if there is no relationship column, check if the file_type is root node, means there shouldn't be any relationship that src from this type
+                    if len(rel_cols) == 0:
+                        edges_list = [e.triplet for e in self.model.edges_by_src(self.model.nodes[file_type])]
+                        if len(edges_list) > 0:
+                            edges_dst_list = [e[2] for e in edges_list]
+                            validation_errors.append({
+                                    "level": "error",
+                                    "type": "missing_relationship_column",
+                                    "message": f"Missing relationship column for file type '{file_type}' which is expected to have relationship based on the data model definition. Dst type for {file_type} are: {', '.join(edges_dst_list)}"
+                                })
+                        else:
+                            # file_type is a root node which doesn't have any parent node
+                            pass
+                    else:
+                        invalid_rel_cols = [col for col in rel_cols if not self.if_rel_valid(child_type=file_type, mdf=self.mdf, rel_to_test=col)]
+                        if len(invalid_rel_cols) > 0:
+                            validation_errors.append({
+                                    "level": "error",
+                                    "type": "invalid_relationship_column",
+                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
+                                })
+                        else:
+                            pass
+            else:
+                # there type column either not found, missing value found in type column, or mnultiple values found in type column, unable to decide the file type
+                # no further format validation
+                pass
+        except Exception as e:
+            print(f"Error processing {str(file_path)}: {e}")
+            validation_errors.append({
+                    "level": "error",
+                    "type": "file_read_error",
+                    "message": f"Error reading the TSV file: {e}"
+                })
+            # not to raise error which stops format validation for the rest of the files
+        return validation_errors # validation_errors can be an empty list if not violation is found
+
+    def validate_tsv_files_format(self, file_path_list: list[str | PosixPath]) -> dict[str, list[dict[str, Any]]]:
+        """
+        Validates the format of TSV files in a specified list of file paths.
+
+        Args:
+            file_path_list: A list of paths to TSV files to be validated for format issues.
+        Returns:
+            dict[str, list[dict[str, Any]]]: A dictionary where the keys are file paths and the values are lists of dictionaries containing validation results for TSV format issues, including validity status and any warning/error messages.
+        """
+        validation_errors = {}
+        for file in file_path_list:
+            file_format_validation_errors = self.validate_tsv_format(file_path = file)
+            if len(file_format_validation_errors) > 0:
+                validation_errors[str(file)] = file_format_validation_errors
+            else:
+                pass
+        return validation_errors
