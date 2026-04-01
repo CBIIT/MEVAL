@@ -1,0 +1,4 @@
+type	consent_group.consent_group_id	participant_id	race	sex_at_birth	occupation	guid	crdc_id
+participant	phs001234_GRU	PT_001	White	Female	Physician		CRDC_PT_001
+participant	phs001234_GRU	PT_002	Asian	Male			CRDC_PT_002
+participant	phs001234_HMB	PT_003	Black or African American	Not Reported	Retired		CRDC_PT_003

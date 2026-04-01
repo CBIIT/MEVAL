@@ -66,7 +66,7 @@ class TestValidator(unittest.TestCase):
     def test_read_tsv_records_survival_file(self) -> None:
         tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
 
-        records = list(self.validator.read_tsv_records(str(tsv_path), self.mdf_reader))
+        records = list(self.validator.read_tsv_records(str(tsv_path), self.mdf_reader, id_field="guid"))
 
         self.assertIsInstance(records, list)
         self.assertEqual(len(records), 9)
@@ -219,6 +219,85 @@ class TestValidator(unittest.TestCase):
         self.assertIn(0, messages["warnings"])
         self.assertEqual(1, len(messages["warnings"][0]))
         self.assertEqual("enum", messages["warnings"][0][0]["type"])
+
+    def test_validate_tsv_format_participant_fixtures(self) -> None:
+        base_dir = PROJECT_ROOT / "tests" / "test_files" / "tsv_format_files"
+
+        valid_file = base_dir / "participant_valid_format.tsv"
+        missing_type_col_file = base_dir / "participant_missing_type_col.tsv"
+        missing_required_col_file = base_dir / "participant_missing_required_col.tsv"
+        invalid_rel_col_file = base_dir / "participant_invalid_rel_col.tsv"
+        missing_rel_col_file = base_dir / "participant_missing_rel_col.tsv"
+
+        # valid format file should return no errors
+        valid_errors = self.validator.validate_tsv_format(valid_file)
+        self.assertEqual(valid_errors, [])
+
+        # missing type column stops further checks
+        missing_type_errors = self.validator.validate_tsv_format(missing_type_col_file)
+        self.assertEqual(len(missing_type_errors), 1)
+        self.assertEqual(missing_type_errors[0]["type"], "missing_column")
+
+        # missing required columns and an unsupported property column
+        missing_required_errors = self.validator.validate_tsv_format(missing_required_col_file)
+        missing_required_error_types = {item["type"] for item in missing_required_errors}
+        self.assertIn("missing_required_column", missing_required_error_types)
+        self.assertIn("invalid_property_column", missing_required_error_types)
+
+        # wrong relationship column and an unsupported property column
+        invalid_rel_errors = self.validator.validate_tsv_format(invalid_rel_col_file)
+        invalid_rel_error_types = {item["type"] for item in invalid_rel_errors}
+        self.assertIn("invalid_relationship_column", invalid_rel_error_types)
+        self.assertIn("invalid_property_column", invalid_rel_error_types)
+
+        # no relationship column for non-root type and an unsupported property column
+        missing_rel_errors = self.validator.validate_tsv_format(missing_rel_col_file)
+        missing_rel_error_types = {item["type"] for item in missing_rel_errors}
+        self.assertIn("missing_relationship_column", missing_rel_error_types)
+        self.assertIn("invalid_property_column", missing_rel_error_types)
+
+    def test_validate_tsv_files_format_participant_fixtures(self) -> None:
+        base_dir = PROJECT_ROOT / "tests" / "test_files" / "tsv_format_files"
+
+        valid_file = base_dir / "participant_valid_format.tsv"
+        missing_type_col_file = base_dir / "participant_missing_type_col.tsv"
+        missing_required_col_file = base_dir / "participant_missing_required_col.tsv"
+        invalid_rel_col_file = base_dir / "participant_invalid_rel_col.tsv"
+        missing_rel_col_file = base_dir / "participant_missing_rel_col.tsv"
+
+        file_list = [
+            valid_file,
+            missing_type_col_file,
+            missing_required_col_file,
+            invalid_rel_col_file,
+            missing_rel_col_file,
+        ]
+
+        validation_result = self.validator.validate_tsv_files_format(file_list)
+
+        self.assertIsInstance(validation_result, dict)
+        self.assertNotIn(str(valid_file), validation_result)
+
+        self.assertIn(str(missing_type_col_file), validation_result)
+        self.assertEqual(validation_result[str(missing_type_col_file)][0]["type"], "missing_column")
+
+        self.assertIn(str(missing_required_col_file), validation_result)
+        self.assertIn(
+            "missing_required_column",
+            {item["type"] for item in validation_result[str(missing_required_col_file)]},
+        )
+
+        self.assertIn(str(invalid_rel_col_file), validation_result)
+        self.assertIn(
+            "invalid_relationship_column",
+            {item["type"] for item in validation_result[str(invalid_rel_col_file)]},
+        )
+
+        self.assertIn(str(missing_rel_col_file), validation_result)
+        self.assertIn(
+            "missing_relationship_column",
+            {item["type"] for item in validation_result[str(missing_rel_col_file)]},
+        )
 
     def test_validate_tsv_uniq_entry_with_duplicates_across_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
