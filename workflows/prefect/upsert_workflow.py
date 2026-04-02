@@ -33,7 +33,7 @@ def get_secret_task(account: str, secret_name_path: str, secret_key_name: str) -
         str: Secret hash/token
     """
     secret_value = get_secret_centralized_worker(
-        secret_path_name=secret_name_path, secret_key_name=secret_key_name, account=account
+        secret_name_path=secret_name_path, secret_key_name=secret_key_name, account=account
     )
     return secret_value
 
