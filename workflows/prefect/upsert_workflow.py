@@ -3,7 +3,7 @@ from prefect import flow, task
 from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
 from src.parser import ModelParser
-from src.utils import parse_file_url, get_secret, file_dl_s3, file_ul_s3, folder_dl_s3
+from src.utils import parse_file_url, get_secret_centralized_worker, file_dl_s3, file_ul_s3, folder_dl_s3
 from neo4j import GraphDatabase
 import os
 import pandas as pd
@@ -21,18 +21,19 @@ DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc"]
 
 
 @task(name="Get secret from AWS secrets manager")
-def get_secret_task(secret_name_path: str, secret_key_name: str):
+def get_secret_task(account: str, secret_name_path: str, secret_key_name: str) -> str:
     """Prefect task to retrieve a secret hash from AWS Secrets Manager
 
     Args:
+        account (str): AWS account identifier
         secret_name_path (str): Secrets name path, i.e. ccdi/storage/inventory/token
         secret_key_name (str): Secret key name associated with hash/token
 
     Returns:
         str: Secret hash/token
     """
-    secret_value = get_secret(
-        secret_name_path=secret_name_path, secret_key_name=secret_key_name
+    secret_value = get_secret_centralized_worker(
+        secret_path_name=secret_name_path, secret_key_name=secret_key_name, account=account
     )
     return secret_value
 
@@ -251,6 +252,7 @@ def get_logger(log_file: str) -> logging.Logger:
 
 @flow(log_prints=True, name="Dataloading Upsert Workflow")
 def upsert_files(
+    db_account_id: str,
     db_creds_secret_name: str,
     uri_secret_key: str,
     output_bucket_loc: str,
@@ -281,14 +283,14 @@ def upsert_files(
     """
     # retrieve db creds from AWS secrets manager
     uri = get_secret_task(
-        secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key
+        account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key
     )
     if username_secret_key is not None and password_secret_key is not None:
         username = get_secret_task(
-            secret_name_path=db_creds_secret_name,
-            secret_key_name=username_secret_key,
+            account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=username_secret_key
         )
         password = get_secret_task(
+            account=db_account_id,
             secret_name_path=db_creds_secret_name,
             secret_key_name=password_secret_key,
         )
