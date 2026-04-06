@@ -342,7 +342,7 @@ def upsert_files(
     ]
     file_list_names = [os.path.basename(f) for f in file_list]
     print(f"File list to be processed: {*file_list_names,}")
-    file_logger.info(f"Files counts to be processed: {len(file_list)}")
+    file_logger.info(f"File counts to be processed: {len(file_list)}")
 
     # upsert tsv files
     # first to load all the nodes
