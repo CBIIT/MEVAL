@@ -12,6 +12,7 @@ from workflows.prefect.upsert_workflow import get_secret_task
 
 @flow(log_prints=True, name="Find Anchored Traversals Flow")
 def find_anchored_traversals(
+    db_account_id: str,
     db_creds_secret_name: str,
     uri_secret_key: str,
     output_bucket: str,
@@ -24,11 +25,12 @@ def find_anchored_traversals(
     intermediate_root_node_property_value_list: list[str],
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
-) -> tuple[str, list[int]]:
+) -> None:
     """
     Find all descendant traversals from an intermediate root node within a larger rooted subgraph. A common use case is to identify all descendants/leaf nodes from a participant node (intermediate root node) within a study subgraph (root node).
 
     Args:
+        db_account_id (str): AWS account identifier for retrieving secrets.
         db_creds_secret_name (str): The name of the AWS Secrets Manager secret containing database credentials.
         uri_secret_key (str): The key for the database URI in the secret.
         output_bucket (str): The name of the S3 bucket to store the output files.
@@ -42,18 +44,16 @@ def find_anchored_traversals(
         username_secret_key (str | None): The key for the database username in the secret.
         password_secret_key (str | None): The key for the database password in the secret.
 
-    Returns:
-        tuple[str, list[int]]: 
     """
     print("Starting to retrieve database credentials from Secrets Manager...")
-    uri = get_secret_task(db_creds_secret_name, uri_secret_key)
+    uri = get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key)
     username = (
-        get_secret_task(db_creds_secret_name, username_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=username_secret_key)
         if username_secret_key
         else None
     )
     password = (
-        get_secret_task(db_creds_secret_name, password_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=password_secret_key)
         if password_secret_key
         else None
     )

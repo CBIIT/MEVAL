@@ -6,6 +6,7 @@ from workflows.prefect.upsert_workflow import get_secret_task
 
 @flow(log_prints=True, name="Wipe out Database Flow")
 def wipe_database(
+    db_account_id: str,
     db_creds_secret_name: str,
     uri_secret_key: str,
     username_secret_key: str | None = None,
@@ -15,6 +16,7 @@ def wipe_database(
     Wipe out the graph database by deleting all nodes and relationships.
 
     Args:
+        db_account_id (str): AWS account identifier for retrieving secrets.
         db_creds_secret_name (str): The name of the AWS Secrets Manager secret containing database credentials.
         uri_secret_key (str): The key for the database URI in the secret.
         username_secret_key (str | None): The key for the database username in the secret.
@@ -22,14 +24,14 @@ def wipe_database(
     """
     logger = get_run_logger()
     logger.info("Starting to retrieve database credentials from Secrets Manager...")
-    uri = get_secret_task(db_creds_secret_name, uri_secret_key)
+    uri = get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key)
     username = (
-        get_secret_task(db_creds_secret_name, username_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=username_secret_key)
         if username_secret_key
         else None
     )
     password = (
-        get_secret_task(db_creds_secret_name, password_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=password_secret_key)
         if password_secret_key
         else None
     )
