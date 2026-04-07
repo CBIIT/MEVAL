@@ -94,6 +94,7 @@ def validate_tsv_files(
 
     # validate records in tsv files that passed format validation
     if len(format_valid_files) > 0:
+        # Validate records in tsv files that passed format validation
         record_val_results = {}
         file_logger.info(f"Start record validation for files")
         flow_logger.info(f"Start record validation for files")
@@ -125,9 +126,41 @@ def validate_tsv_files(
         )
         flow_logger.info("Record validation results uploaded to s3")
         file_logger.info("Record validation results uploaded to s3")
-    
 
         # validate relationships between files that passed format validation
+        rel_val_results = validator.validate_tsv_rels(file_path_list=format_valid_files, rel_delimiter=delimiter)
+        rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(rel_val_filename, "w") as f:
+            json.dump(rel_val_results, f, indent=4)
+        flow_logger.info(f"Relationship validation results written to {rel_val_filename}")
+        file_logger.info(f"Relationship validation results written to {rel_val_filename}")
+        # upload the relationship validation results to s3
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder=output_subfolder,
+            newfile=rel_val_filename,
+        )
+        flow_logger.info("Relationship validation results uploaded to s3")
+        file_logger.info("Relationship validation results uploaded to s3")
+
+        # validation uniq entry based off key properties
+        uniq_entry_val_results = validator.validate_tsv_uniq_entry(file_path_list=format_valid_files)
+        uniq_entry_val_filename = f"uniq_entry_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(uniq_entry_val_filename, "w") as f:
+            json.dump(uniq_entry_val_results, f, indent=4)
+        flow_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
+        file_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
+        # upload the unique entry validation results to s3
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder=output_subfolder,
+            newfile=uniq_entry_val_filename,
+        )
+        flow_logger.info("Unique entry validation results uploaded to s3")
+        file_logger.info("Unique entry validation results uploaded to s3")
+
     else:
         flow_logger.info("No files passed tsv format validation, skipping further validations.")
         file_logger.info("No files passed tsv format validation, skipping further validations.")
