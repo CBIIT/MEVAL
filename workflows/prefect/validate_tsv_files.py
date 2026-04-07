@@ -101,7 +101,7 @@ def validate_tsv_files(
         for file in format_valid_files:
             file_logger.info(f"Validating records in file {file}")
             flow_logger.info(f"Validating records in file {file}")
-            file_record_val = validator.validate_tsv_records(file_path=file, sungraph_col=None, id_field=None, delimiter=delimiter)
+            file_record_val = validator.validate_tsv_records(file_path=file, subgraph_col=None, id_field=None, delimiter=delimiter)
             if len(file_record_val) > 0:
                 flow_logger.warning(f"Found record issues in file {file}")
                 file_logger.warning(f"Found record issues in file {file}")
