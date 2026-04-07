@@ -24,8 +24,8 @@ def validate_tsv_files(
     delimiter: str = ";"
 )-> None:
     """
-    Validates TSV files in a specified S3 location using the Validator class.
-    This workflow will validate 
+    Validates a set of TSV files for a study or a program using the Validator class. Please include all the files of a study/program when running the validation pipeline as partial files may have data issues overlooked.
+    Validation pipeline includes: tsv format checking, record validation, relationship validation, and uniqueness validation.
 
     Args:
         output_bucket_loc (str): The S3 URI of the output bucket where validation results will be stored.
