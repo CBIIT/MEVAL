@@ -429,9 +429,9 @@ class Validator:
             is_valid = True
         else:
             warning_error_messages["warnings"] = (
-                self.record_validator._validation_warnings["0"]
+                self.record_validator._validation_warnings[0]
             )
-            warning_error_messages["errors"] = self.record_validator._validation_errors["0"]
+            warning_error_messages["errors"] = self.record_validator._validation_errors[0]
         return is_valid, warning_error_messages
 
     def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
