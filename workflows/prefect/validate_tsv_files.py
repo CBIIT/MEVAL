@@ -61,15 +61,16 @@ def validate_tsv_files(
     folder_dl(tsv_bucket, tsv_folder) # this will create a folder path of tsv_folder locally
     tsv_file_list = Validator.find_tsv_files(folder_path=tsv_folder) # this returns a list of PosixPath obj of all tsv files under tsv_folder
     tsv_file_str_list = [str(file) for file in tsv_file_list]
-    flow_logger.info(f"Found TSV files under {tsv_folder}: {', '.join(tsv_file_str_list)}")
+    flow_logger.info(f"Found {len(tsv_file_str_list)} TSV files under {tsv_folder}")
+    file_logger.info(f"Found {len(tsv_file_str_list)} TSV files under {tsv_folder}: {', '.join(tsv_file_str_list)}")
 
     # Validate tsv files
     validator = Validator(mdf=model_mdf)
     # validate tsv format, format_val_results is a dict with file path as key, and format error list as value.
     format_val_results = validator.validate_tsv_files_format(file_path_list=tsv_file_list)
     if len(format_val_results) > 0:
-        flow_logger.warning(f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}")
-        file_logger.warning(f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}")
+        flow_logger.error(f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}")
+        file_logger.error(f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}")
         # write format validation results to as a json file
         format_val_filename = f"format_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(format_val_filename, "w") as f:
@@ -128,7 +129,17 @@ def validate_tsv_files(
         file_logger.info("Record validation results uploaded to s3")
 
         # validate relationships between files that passed format validation
+        flow_logger.info(f"Start relationship validation for files")
+        file_logger.info(f"Start relationship validation for files")
         rel_val_results = validator.validate_tsv_rels(file_path_list=format_valid_files, rel_delimiter=delimiter)
+        # find files wth relationship issues
+        files_with_rel_issues = list(rel_val_results.keys())
+        if len(files_with_rel_issues)>0:
+            flow_logger.warning(f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}")
+            file_logger.warning(f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}")
+        else:
+            flow_logger.info("All relationships between files passed relationship validation.")
+            file_logger.info("All relationships between files passed relationship validation.")
         rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(rel_val_filename, "w") as f:
             json.dump(rel_val_results, f, indent=4)
@@ -145,7 +156,15 @@ def validate_tsv_files(
         file_logger.info("Relationship validation results uploaded to s3")
 
         # validation uniq entry based off key properties
+        flow_logger.info(f"Start unique entry validation for files")
+        file_logger.info(f"Start unique entry validation for files")
         uniq_entry_val_results = validator.validate_tsv_uniq_entry(file_path_list=format_valid_files)
+        if len(uniq_entry_val_results) > 0:
+            flow_logger.warning(f"Found duplicate entries based on key properties: {len(uniq_entry_val_results)} entries.")
+            file_logger.warning(f"Found duplicate entries based on key properties: {len(uniq_entry_val_results)} entries.")
+        else:
+            flow_logger.info("All entries in files passed unique entry validation")
+            file_logger.info("All entries in files passed unique entry validation")
         uniq_entry_val_filename = f"uniq_entry_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(uniq_entry_val_filename, "w") as f:
             json.dump(uniq_entry_val_results, f, indent=4)
@@ -161,6 +180,10 @@ def validate_tsv_files(
         flow_logger.info("Unique entry validation results uploaded to s3")
         file_logger.info("Unique entry validation results uploaded to s3")
 
+        # validation pipeline completes
+        flow_logger.info("TSV validation pipeline completed.")
+        file_logger.info("TSV validation pipeline completed.")
+
     else:
-        flow_logger.info("No files passed tsv format validation, skipping further validations.")
-        file_logger.info("No files passed tsv format validation, skipping further validations.")
+        flow_logger.warning("No files passed tsv format validation, skipping further validations.")
+        file_logger.warning("No files passed tsv format validation, skipping further validations.")
