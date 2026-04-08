@@ -62,7 +62,7 @@ def validate_tsv_files(
     tsv_file_list = Validator.find_tsv_files(folder_path=tsv_folder) # this returns a list of PosixPath obj of all tsv files under tsv_folder
     tsv_file_str_list = [str(file) for file in tsv_file_list]
     flow_logger.info(f"Found {len(tsv_file_str_list)} TSV files under {tsv_folder}")
-    file_logger.info(f"Found {len(tsv_file_str_list)} TSV files under {tsv_folder}: {', '.join(tsv_file_str_list)}")
+    file_logger.info(f"Found {len(tsv_file_str_list)} TSV files under {tsv_folder}")
 
     # Validate tsv files
     validator = Validator(mdf=model_mdf)
@@ -90,8 +90,8 @@ def validate_tsv_files(
 
     # we can only perform further validation if the the file passes the format validation
     format_valid_files =[file for file in tsv_file_str_list if file not in format_val_results]
-    flow_logger.info(f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated: {', '.join(format_valid_files)}")
-    file_logger.info(f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated: {', '.join(format_valid_files)}")
+    flow_logger.info(f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated")
+    file_logger.info(f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated")
 
     # validate records in tsv files that passed format validation
     if len(format_valid_files) > 0:

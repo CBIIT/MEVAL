@@ -374,15 +374,18 @@ class Validator:
                 row_dict = cls.record_prep(row_dict, mdf, subgraph_col=subgraph_col, id_field=id_field, delimiter=delimiter)
                 yield row_type, row_dict
 
-    def validate_record(
-        self, node_name: str, list_of_records: dict | List[dict]
+    def validate_records(
+        self, node_name: str, list_of_records: List[dict]
     ) -> tuple[bool, dict[str, Any]]:
         """
-        Validates node level data entries, such as participant record, from a node in dict format using the MDFDataValidator.
+        Validates node level data entries (multiple), such as participant records, from a node in dict format using the MDFDataValidator.
 
+        Args:
+            node_name: The name of the node to validate.
+            list_of_records: A list of dictionaries representing the records to validate.
 
         Returns:
-            bool: True if the data is valid, False otherwise.
+            bool: True if the data is valid, False if at least one record is invalid.
             dict[str, Any]: A dictionary of validation warning/error messages, if any.
         """
 
@@ -400,6 +403,35 @@ class Validator:
             warning_error_messages["errors"] = (
                 self.record_validator._validation_errors
             )
+        return is_valid, warning_error_messages
+
+    def validate_one_record(
+        self, node_name: str, record: dict
+    ) -> tuple[bool, dict[str, Any]]:
+        """
+        Validates a single node level data entry, such as a participant record, from a node in dict format using the MDFDataValidator.
+
+        Args:
+            node_name: The name of the node to validate.
+            record: A dictionary representing the record to validate.
+
+        Returns:
+            bool: True if the data is valid, False otherwise.
+            dict[str, Any]: A dictionary of validation warning/error messages, if any.
+        """
+
+        is_valid = False
+        warning_error_messages = {}
+        validate_result = self.record_validator.validate(
+            handle_name=node_name, data=[record]
+        )
+        if validate_result:
+            is_valid = True
+        else:
+            warning_error_messages["warnings"] = (
+                self.record_validator._validation_warnings["0"]
+            )
+            warning_error_messages["errors"] = self.record_validator._validation_errors["0"]
         return is_valid, warning_error_messages
 
     def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
@@ -463,7 +495,7 @@ class Validator:
                     }
                 )
             else: # use the validator_record to validate
-                is_valid, messages = self.validate_record(node_name, record)
+                is_valid, messages = self.validate_one_record(node_name, record)
 
                 if not is_valid:
                     validation_results.append({
