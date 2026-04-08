@@ -428,11 +428,55 @@ class Validator:
         if validate_result:
             is_valid = True
         else:
-            warning_error_messages["warnings"] = (
-                self.record_validator._validation_warnings[0]
-            )
-            warning_error_messages["errors"] = self.record_validator._validation_errors[0]
+            # clean up enum error or warning messages to make them short
+            if len(self.record_validator._validation_warnings[0]) > 0:
+                short_warnings = self._validate_records_messages_cleanup(
+                    messages=self.record_validator._validation_warnings[0]
+                )
+                warning_error_messages["warnings"] = short_warnings
+            else:
+                warning_error_messages["warnings"] = self.record_validator._validation_warnings[0]
+            
+            if len(self.record_validator._validation_errors[0]) > 0:
+                short_errors = self._validate_records_messages_cleanup(
+                    messages=self.record_validator._validation_errors[0]
+                )
+                warning_error_messages["errors"] = short_errors
+            else:
+                warning_error_messages["errors"] = self.record_validator._validation_errors[0]
         return is_valid, warning_error_messages
+
+    def _validate_records_messages_cleanup(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A helper function that cleans up validation messages from validate_one_record
+        Enum warning or error generates redundant messages for each record, this function is to clean up the messages to only keep simplified messages for each enum validation failure.
+
+        Args:
+            messages (list[dict[str, Any]]): a list of warnings or errors
+
+        Returns:
+            list[dict[str, Any]]: 
+        """
+        cleaned_messages = []
+        for i in messages:
+            if i["type"] == "enum":
+                i_property = i["loc"][0] # only expect one property for each enum error or warning
+                if i["level"] == "warning":
+                    i["msg"] = (
+                        f"Input not found in the permissible value list for {i_property}, but a free string is Allowed. Please refer to the data model for the list of allowed enum values"
+                    )
+                elif i["level"] == "error":
+                    i["msg"] = (
+                        f"Input not found in the permissible value list for {i_property}, and a free string is Not Allowed. Please refer to the data model for the list of allowed enum values"
+                    )
+                else:
+                    raise ValueError(f"Unexpected message level {i['level']} found in validation messages, expected 'warning' or 'error'")
+                # remove "ctx" in i
+                if "ctx" in i:
+                    i.pop("ctx")
+                cleaned_messages.append(i)
+            else: # no change to other non-enum message
+                cleaned_messages.append(i)
+        return cleaned_messages
 
     def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
         """
@@ -456,9 +500,8 @@ class Validator:
                         "row": row_num,
                         "is_valid": False,
                         "messages": {
-                            "warnings": {},
-                            "errors": {
-                                "0": [
+                            "warnings": [],
+                            "errors": [
                                     {
                                         "level": "error",
                                         "type": "missing",
@@ -470,7 +513,6 @@ class Validator:
                                 ]
                             },
                         },
-                    }
                 )
             elif node_name == "" and record != {}: # this happens when the "type" column is empty but other columns have value
                 validation_results.append(
@@ -478,12 +520,11 @@ class Validator:
                         "row": row_num,
                         "is_valid": False,
                         "messages": {
-                            "warnings": {},
-                            "errors": {
-                                "0": [
-                                    {
-                                        "level": "error",
-                                        "type": "missing",
+                            "warnings": [],
+                            "errors": [
+                                {
+                                    "level": "error",
+                                    "type": "missing",
                                         "loc": ["type"],
                                         "msg": "Missing data type information in 'type' column, unable to validate this record",
                                         "input": None,
@@ -492,7 +533,6 @@ class Validator:
                                 ]
                             },
                         },
-                    }
                 )
             else: # use the validator_record to validate
                 is_valid, messages = self.validate_one_record(node_name, record)
