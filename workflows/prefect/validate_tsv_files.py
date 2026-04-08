@@ -35,7 +35,7 @@ def validate_tsv_files(
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
     """
     flow_logger = get_run_logger()
-    file_logger_name = f"validate_tsv_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    file_logger_name = f"MEVAL_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     file_logger = get_logger(file_logger_name)
 
     # output bucket and key prefix for validation results
@@ -81,7 +81,7 @@ def validate_tsv_files(
         file_ul(
             bucket=output_bucket,
             output_folder=output_key_prefix,
-            sub_folder=output_subfolder,
+            sub_folder=output_subfolder + "/validation_results",
             newfile=format_val_filename,
         )
     else:
@@ -109,24 +109,31 @@ def validate_tsv_files(
                 # write record validation results to as a json file
                 record_val_results[file] = file_record_val
             else:
-                record_val_results[file] = "Pass"
+                # record_val_results[file] = "Pass"
                 flow_logger.info(f"All records in file {file} passed record validation.")
                 file_logger.info(f"All records in file {file} passed record validation.")
-        # write record validation results to a json file
-        record_val_filename = f"record_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(record_val_filename, "w") as f:
-            json.dump(record_val_results, f, indent=4)
-        flow_logger.info(f"Record validation results written to {record_val_filename}")
-        file_logger.info(f"Record validation results written to {record_val_filename}")
-        # upload the record validation results to s3
-        file_ul(
-            bucket=output_bucket,
-            output_folder=output_key_prefix,
-            sub_folder=output_subfolder,
-            newfile=record_val_filename,
-        )
-        flow_logger.info("Record validation results uploaded to s3")
-        file_logger.info("Record validation results uploaded to s3")
+        
+        # if record_val_results is not empty, it means record issues were found
+        if len(record_val_results) > 0:
+            # write record validation results to a json file
+            record_val_filename = f"record_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(record_val_filename, "w") as f:
+                json.dump(record_val_results, f, indent=4)
+            flow_logger.info(f"Record validation results written to {record_val_filename}")
+            file_logger.info(f"Record validation results written to {record_val_filename}")
+            # upload the record validation results to s3
+            file_ul(
+                bucket=output_bucket,
+                output_folder=output_key_prefix,
+                sub_folder=output_subfolder + "/validation_results",
+                newfile=record_val_filename,
+            )
+            flow_logger.info("Record validation results uploaded to s3")
+            file_logger.info("Record validation results uploaded to s3")
+        else:
+            # no record issue found across all files, no record validation results uploaded, just log the status
+            flow_logger.info("All records in all files passed record validation.")
+            file_logger.info("All records in all files passed record validation.")
 
         # validate relationships between files that passed format validation
         flow_logger.info(f"Start relationship validation for files")
@@ -137,23 +144,24 @@ def validate_tsv_files(
         if len(files_with_rel_issues)>0:
             flow_logger.warning(f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}")
             file_logger.warning(f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}")
+            rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(rel_val_filename, "w") as f:
+                json.dump(rel_val_results, f, indent=4)
+            flow_logger.info(f"Relationship validation results written to {rel_val_filename}")
+            file_logger.info(f"Relationship validation results written to {rel_val_filename}")
+            # upload the relationship validation results to s3
+            file_ul(
+                bucket=output_bucket,
+                output_folder=output_key_prefix,
+                sub_folder=output_subfolder + "/validation_results",
+                newfile=rel_val_filename,
+            )
+            flow_logger.info("Relationship validation results uploaded to s3")
+            file_logger.info("Relationship validation results uploaded to s3")
         else:
+            # no rel issue found, no val results uploaded, just log the pass status
             flow_logger.info("All relationships between files passed relationship validation.")
             file_logger.info("All relationships between files passed relationship validation.")
-        rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(rel_val_filename, "w") as f:
-            json.dump(rel_val_results, f, indent=4)
-        flow_logger.info(f"Relationship validation results written to {rel_val_filename}")
-        file_logger.info(f"Relationship validation results written to {rel_val_filename}")
-        # upload the relationship validation results to s3
-        file_ul(
-            bucket=output_bucket,
-            output_folder=output_key_prefix,
-            sub_folder=output_subfolder,
-            newfile=rel_val_filename,
-        )
-        flow_logger.info("Relationship validation results uploaded to s3")
-        file_logger.info("Relationship validation results uploaded to s3")
 
         # validation uniq entry based off key properties
         flow_logger.info(f"Start unique entry validation for files")
@@ -162,28 +170,36 @@ def validate_tsv_files(
         if len(uniq_entry_val_results) > 0:
             flow_logger.warning(f"Found duplicate entries based on key properties: {len(uniq_entry_val_results)} entries.")
             file_logger.warning(f"Found duplicate entries based on key properties: {len(uniq_entry_val_results)} entries.")
+            uniq_entry_val_filename = f"uniq_entry_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(uniq_entry_val_filename, "w") as f:
+                json.dump(uniq_entry_val_results, f, indent=4)
+            flow_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
+            file_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
+            # upload the unique entry validation results to s3
+            file_ul(
+                bucket=output_bucket,
+                output_folder=output_key_prefix,
+                sub_folder=output_subfolder + "/validation_results",
+                newfile=uniq_entry_val_filename,
+            )
+            flow_logger.info("Unique entry validation results uploaded to s3")
+            file_logger.info("Unique entry validation results uploaded to s3")
         else:
+            # no uniq entry issue found, no val results uploaded, just log the pass status
             flow_logger.info("All entries in files passed unique entry validation")
             file_logger.info("All entries in files passed unique entry validation")
-        uniq_entry_val_filename = f"uniq_entry_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(uniq_entry_val_filename, "w") as f:
-            json.dump(uniq_entry_val_results, f, indent=4)
-        flow_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
-        file_logger.info(f"Unique entry validation results written to {uniq_entry_val_filename}")
-        # upload the unique entry validation results to s3
-        file_ul(
-            bucket=output_bucket,
-            output_folder=output_key_prefix,
-            sub_folder=output_subfolder,
-            newfile=uniq_entry_val_filename,
-        )
-        flow_logger.info("Unique entry validation results uploaded to s3")
-        file_logger.info("Unique entry validation results uploaded to s3")
-
-        # validation pipeline completes
-        flow_logger.info("TSV validation pipeline completed.")
-        file_logger.info("TSV validation pipeline completed.")
-
     else:
         flow_logger.warning("No files passed tsv format validation, skipping further validations.")
         file_logger.warning("No files passed tsv format validation, skipping further validations.")
+
+    # validation pipeline completes
+    flow_logger.info("TSV validation pipeline completed.")
+    file_logger.info("TSV validation pipeline completed.")
+    # upload the log file to s3
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder=output_subfolder,
+        newfile=file_logger_name,
+    )
+    flow_logger.info("Log file uploaded to s3")
