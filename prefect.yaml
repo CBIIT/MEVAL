@@ -17,11 +17,12 @@ deployments:
   - name: meval-dataloader
     version: null
     tags: ["MEVAL","dataloader"]
-    description: "Prefect test deployment for universal data loader upsert workflow"
+    description: |
+      MEVAL upsert workflow deployment. This workflow will UPSERT data, meaning it only creates if new and update if existing. Existing relationships in DB won't be touched. No deletion is performed.
     entrypoint: workflows/prefect/upsert_workflow.py:upsert_files
 
     parameters:
-      id_field: "id"
+      id_field: "guid"
       delimiter: ";"
 
     pull:

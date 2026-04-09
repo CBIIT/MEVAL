@@ -21,6 +21,7 @@ def timer(label: str=""):
 
 @flow(log_prints=True, name="Delete Database Study Subgraph Flow")
 def delete_database_study_subgraph(
+    db_account_id: str,
     db_creds_secret_name: str,
     uri_secret_key: str,
     root_node_label: str,
@@ -33,6 +34,7 @@ def delete_database_study_subgraph(
     Delete study subgraphs in the database by matching a root node and removing all connected nodes and relationships.
 
     Args:
+        db_account_id (str): AWS account identifier for retrieving secrets.
         db_creds_secret_name (str): The name of the AWS Secrets Manager secret containing database credentials.
         uri_secret_key (str): The key for the database URI in the secret.
         root_node_label (str): The label of the root node. It is the origin from which all other nodes in its tree structure descend. Root node has no other parent node it points to. In most cases, this root node label is 'study'
@@ -42,14 +44,14 @@ def delete_database_study_subgraph(
         password_secret_key (str | None): The key for the database password in the secret.
     """
     print("Starting to retrieve database credentials from Secrets Manager...")
-    uri = get_secret_task(db_creds_secret_name, uri_secret_key)
+    uri = get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key)
     username = (
-        get_secret_task(db_creds_secret_name, username_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=username_secret_key)
         if username_secret_key
         else None
     )
     password = (
-        get_secret_task(db_creds_secret_name, password_secret_key)
+        get_secret_task(account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=password_secret_key)
         if password_secret_key
         else None
     )
