@@ -427,23 +427,28 @@ class Validator:
         )
         if validate_result:
             is_valid = True
+            # if is_valid is true, self.record_validaotr._validation_warnings is None, and self.record_validaotr._validation_errors is None
         else:
             # clean up enum error or warning messages to make them short
-            if len(self.record_validator._validation_warnings[0]) > 0:
+            # is_valid = False
+            # self.record_validator._validation_warnings/_validation_errors is either [] or a dict with key 0 (because we are only testing one record)
+            if self.record_validator._validation_warnings is None:
+                warning_error_messages["warnings"] = []
+            elif len(self.record_validator._validation_warnings)>0:  # if self.record_validator._validation_warnings is not None
                 short_warnings = self._validate_records_messages_cleanup(
                     messages=self.record_validator._validation_warnings[0]
                 )
                 warning_error_messages["warnings"] = short_warnings
             else:
-                warning_error_messages["warnings"] = self.record_validator._validation_warnings[0]
-            
-            if len(self.record_validator._validation_errors[0]) > 0:
+                warning_error_messages["warnings"] = []
+
+            if len(self.record_validator._validation_errors)>0:  # if self.record_validator._validation_errors is not None
                 short_errors = self._validate_records_messages_cleanup(
                     messages=self.record_validator._validation_errors[0]
                 )
                 warning_error_messages["errors"] = short_errors
             else:
-                warning_error_messages["errors"] = self.record_validator._validation_errors[0]
+                warning_error_messages["errors"] = []
         return is_valid, warning_error_messages
 
     def _validate_records_messages_cleanup(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
