@@ -945,7 +945,7 @@ class Validator:
                         validation_errors.append({
                                 "level": "error",
                                 "type": "missing_required_column",
-                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(missing_required_props)}"
+                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(f"'{prop}'" for prop in missing_required_props)}"
                             })
                     else:
                         pass
@@ -969,11 +969,13 @@ class Validator:
                         edges_list = [e.triplet for e in self.model.edges_by_src(self.model.nodes[file_type])]
                         if len(edges_list) > 0:
                             edges_dst_list = [e[2] for e in edges_list]
-                            validation_errors.append({
+                            validation_errors.append(
+                                {
                                     "level": "error",
                                     "type": "missing_relationship_column",
-                                    "message": f"Missing relationship column for file type '{file_type}' which is expected to have relationship based on the data model definition. Dst type for {file_type} are: {', '.join(edges_dst_list)}"
-                                })
+                                    "message": f"Missing relationship column for file type '{file_type}' which is expected to have relationship based on the data model definition. Dst type for {file_type} are: {', '.join(f"'{dst}'" for dst in edges_dst_list)}",
+                                }
+                            )
                         else:
                             # file_type is a root node which doesn't have any parent node
                             pass
@@ -983,7 +985,7 @@ class Validator:
                             validation_errors.append({
                                     "level": "error",
                                     "type": "invalid_relationship_column",
-                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
+                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
                                 })
                         else:
                             pass
