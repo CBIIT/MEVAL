@@ -953,11 +953,13 @@ class Validator:
                     col_to_check = [col for col in file_df.columns if col != "type" and "." not in col]
                     invalid_cols = [col for col in col_to_check if col not in self.model.nodes[file_type].props]
                     if len(invalid_cols) > 0:
-                        validation_errors.append({
+                        validation_errors.append(
+                            {
                                 "level": "error",
                                 "type": "invalid_property_column",
-                                "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(invalid_cols)}"
-                            })
+                                "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_cols)}",
+                            }
+                        )
                     else:
                         pass
                     # check relationship columns if valid which contain "."
