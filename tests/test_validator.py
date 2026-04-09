@@ -58,10 +58,10 @@ class TestValidator(unittest.TestCase):
 
         # emtpy line check
         last_issue = results[-1]
-        self.assertIn("This line is empty", last_issue["messages"]["errors"]["0"][0]["msg"])
+        self.assertIn("This line is empty", last_issue["messages"]["errors"][0]["msg"])
 
         # enum check
-        self.assertIn("Eye Pain", results[6]["messages"]["warnings"][0][0]["input"])
+        self.assertIn("Eye Pain", results[6]["messages"]["warnings"][0]["input"])
 
     def test_read_tsv_records_survival_file(self) -> None:
         tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
@@ -212,13 +212,12 @@ class TestValidator(unittest.TestCase):
             "adverse_event": ["Back Pain", "Wrong enum value"],
         }
 
-        is_valid, messages = self.validator.validate_record("survival", test_record)
+        is_valid, messages = self.validator.validate_one_record("survival", test_record)
 
         self.assertFalse(is_valid)
         self.assertIn("errors", messages)
-        self.assertIn(0, messages["warnings"])
-        self.assertEqual(1, len(messages["warnings"][0]))
-        self.assertEqual("enum", messages["warnings"][0][0]["type"])
+        self.assertEqual(1, len(messages["warnings"]))
+        self.assertEqual("enum", messages["warnings"][0]["type"])
 
     def test_validate_tsv_format_participant_fixtures(self) -> None:
         base_dir = PROJECT_ROOT / "tests" / "test_files" / "tsv_format_files"
