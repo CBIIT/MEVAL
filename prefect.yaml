@@ -14,7 +14,7 @@ push: null
 
 # the deployments section allows you to provide configuration for deploying flows
 deployments:
-  - name: universal-dataloader
+  - name: meval-dataloader
     version: null
     tags: ["MEVAL","dataloader"]
     description: |
@@ -42,7 +42,7 @@ deployments:
       work_queue_name: null
       job_variables: {}
 
-  - name: universal-dataloader-wipe-db
+  - name: meval-wipe-db
     version: null
     tags: ["MEVAL","dataloader"]
     description: "Prefect test deployment for wiping out database workflow"
@@ -65,7 +65,7 @@ deployments:
       work_queue_name: null
       job_variables: {}
 
-  - name: universal-dataloader-delete-study
+  - name: meval-delete-study
     version: null
     tags: ["MEVAL","dataloader"]
     description: "Prefect test deployment for deleting subgraph in the database workflow"
@@ -90,7 +90,7 @@ deployments:
       work_queue_name: null
       job_variables: {}
 
-  - name: universal-dataloader-anchored-traversals-viz
+  - name: meval-anchored-traversals-viz
     version: null
     tags: ["MEVAL","dataloader"]
     description: "Prefect test deployment for visualizing anchored traversals workflow"
@@ -101,6 +101,30 @@ deployments:
       root_node_property: "study_id"
       output_bucket: "ccdi-validation"
 
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: main
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
+
+  - name: meval-validation
+    version: null
+    tags: ["MEVAL","dataloader", "validation"]
+    description: "Prefect test deployment for validation of a set of tsv files for a study or a program"
+    entrypoint: workflows/prefect/validate_tsv_files.py:validate_tsv_files
+    parameters:
+      delimiter: ";"
     pull:
       - prefect.deployments.steps.git_clone:
           id: main_repo_clone_step

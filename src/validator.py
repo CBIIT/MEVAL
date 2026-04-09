@@ -374,15 +374,18 @@ class Validator:
                 row_dict = cls.record_prep(row_dict, mdf, subgraph_col=subgraph_col, id_field=id_field, delimiter=delimiter)
                 yield row_type, row_dict
 
-    def validate_record(
-        self, node_name: str, list_of_records: dict | List[dict]
+    def validate_records(
+        self, node_name: str, list_of_records: List[dict]
     ) -> tuple[bool, dict[str, Any]]:
         """
-        Validates node level data entries, such as participant record, from a node in dict format using the MDFDataValidator.
+        Validates node level data entries (multiple), such as participant records, from a node in dict format using the MDFDataValidator.
 
+        Args:
+            node_name: The name of the node to validate.
+            list_of_records: A list of dictionaries representing the records to validate.
 
         Returns:
-            bool: True if the data is valid, False otherwise.
+            bool: True if the data is valid, False if at least one record is invalid.
             dict[str, Any]: A dictionary of validation warning/error messages, if any.
         """
 
@@ -401,6 +404,84 @@ class Validator:
                 self.record_validator._validation_errors
             )
         return is_valid, warning_error_messages
+
+    def validate_one_record(
+        self, node_name: str, record: dict
+    ) -> tuple[bool, dict[str, Any]]:
+        """
+        Validates a single node level data entry, such as a participant record, from a node in dict format using the MDFDataValidator.
+
+        Args:
+            node_name: The name of the node to validate.
+            record: A dictionary representing the record to validate.
+
+        Returns:
+            bool: True if the data is valid, False otherwise.
+            dict[str, Any]: A dictionary of validation warning/error messages, if any.
+        """
+
+        is_valid = False
+        warning_error_messages = {}
+        validate_result = self.record_validator.validate(
+            handle_name=node_name, data=[record]
+        )
+        if validate_result:
+            is_valid = True
+            # if is_valid is true, self.record_validaotr._validation_warnings is None, and self.record_validaotr._validation_errors is None
+        else:
+            # clean up enum error or warning messages to make them short
+            # is_valid = False
+            # self.record_validator._validation_warnings/_validation_errors is either [] or a dict with key 0 (because we are only testing one record)
+            if self.record_validator._validation_warnings is None:
+                warning_error_messages["warnings"] = []
+            elif len(self.record_validator._validation_warnings)>0:  # if self.record_validator._validation_warnings is not None
+                short_warnings = self._validate_records_messages_cleanup(
+                    messages=self.record_validator._validation_warnings[0]
+                )
+                warning_error_messages["warnings"] = short_warnings
+            else:
+                warning_error_messages["warnings"] = []
+
+            if len(self.record_validator._validation_errors)>0:  # if self.record_validator._validation_errors is not None
+                short_errors = self._validate_records_messages_cleanup(
+                    messages=self.record_validator._validation_errors[0]
+                )
+                warning_error_messages["errors"] = short_errors
+            else:
+                warning_error_messages["errors"] = []
+        return is_valid, warning_error_messages
+
+    def _validate_records_messages_cleanup(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A helper function that cleans up validation messages from validate_one_record
+        Enum warning or error generates redundant messages for each record, this function is to clean up the messages to only keep simplified messages for each enum validation failure.
+
+        Args:
+            messages (list[dict[str, Any]]): a list of warnings or errors
+
+        Returns:
+            list[dict[str, Any]]: 
+        """
+        cleaned_messages = []
+        for i in messages:
+            if i["type"] == "enum":
+                i_property = i["loc"][0] # only expect one property for each enum error or warning
+                if i["level"] == "warning":
+                    i["msg"] = (
+                        f"Input not found in the permissible value list for {i_property}, but a free string is Allowed. Please refer to the data model for the list of allowed enum values"
+                    )
+                elif i["level"] == "error":
+                    i["msg"] = (
+                        f"Input not found in the permissible value list for {i_property}, and a free string is Not Allowed. Please refer to the data model for the list of allowed enum values"
+                    )
+                else:
+                    raise ValueError(f"Unexpected message level {i['level']} found in validation messages, expected 'warning' or 'error'")
+                # remove "ctx" in i
+                if "ctx" in i:
+                    i.pop("ctx")
+                cleaned_messages.append(i)
+            else: # no change to other non-enum message
+                cleaned_messages.append(i)
+        return cleaned_messages
 
     def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
         """
@@ -424,9 +505,8 @@ class Validator:
                         "row": row_num,
                         "is_valid": False,
                         "messages": {
-                            "warnings": {},
-                            "errors": {
-                                "0": [
+                            "warnings": [],
+                            "errors": [
                                     {
                                         "level": "error",
                                         "type": "missing",
@@ -438,7 +518,6 @@ class Validator:
                                 ]
                             },
                         },
-                    }
                 )
             elif node_name == "" and record != {}: # this happens when the "type" column is empty but other columns have value
                 validation_results.append(
@@ -446,12 +525,11 @@ class Validator:
                         "row": row_num,
                         "is_valid": False,
                         "messages": {
-                            "warnings": {},
-                            "errors": {
-                                "0": [
-                                    {
-                                        "level": "error",
-                                        "type": "missing",
+                            "warnings": [],
+                            "errors": [
+                                {
+                                    "level": "error",
+                                    "type": "missing",
                                         "loc": ["type"],
                                         "msg": "Missing data type information in 'type' column, unable to validate this record",
                                         "input": None,
@@ -460,10 +538,9 @@ class Validator:
                                 ]
                             },
                         },
-                    }
                 )
             else: # use the validator_record to validate
-                is_valid, messages = self.validate_record(node_name, record)
+                is_valid, messages = self.validate_one_record(node_name, record)
 
                 if not is_valid:
                     validation_results.append({
@@ -868,7 +945,7 @@ class Validator:
                         validation_errors.append({
                                 "level": "error",
                                 "type": "missing_required_column",
-                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(missing_required_props)}"
+                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(f"'{prop}'" for prop in missing_required_props)}"
                             })
                     else:
                         pass
@@ -876,11 +953,13 @@ class Validator:
                     col_to_check = [col for col in file_df.columns if col != "type" and "." not in col]
                     invalid_cols = [col for col in col_to_check if col not in self.model.nodes[file_type].props]
                     if len(invalid_cols) > 0:
-                        validation_errors.append({
+                        validation_errors.append(
+                            {
                                 "level": "error",
                                 "type": "invalid_property_column",
-                                "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(invalid_cols)}"
-                            })
+                                "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_cols)}",
+                            }
+                        )
                     else:
                         pass
                     # check relationship columns if valid which contain "."
@@ -890,11 +969,13 @@ class Validator:
                         edges_list = [e.triplet for e in self.model.edges_by_src(self.model.nodes[file_type])]
                         if len(edges_list) > 0:
                             edges_dst_list = [e[2] for e in edges_list]
-                            validation_errors.append({
+                            validation_errors.append(
+                                {
                                     "level": "error",
                                     "type": "missing_relationship_column",
-                                    "message": f"Missing relationship column for file type '{file_type}' which is expected to have relationship based on the data model definition. Dst type for {file_type} are: {', '.join(edges_dst_list)}"
-                                })
+                                    "message": f"Missing relationship column for file type '{file_type}' which is expected to have relationship based on the data model definition. Dst type for {file_type} are: {', '.join(f"'{dst}'" for dst in edges_dst_list)}",
+                                }
+                            )
                         else:
                             # file_type is a root node which doesn't have any parent node
                             pass
@@ -904,7 +985,7 @@ class Validator:
                             validation_errors.append({
                                     "level": "error",
                                     "type": "invalid_relationship_column",
-                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
+                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
                                 })
                         else:
                             pass
