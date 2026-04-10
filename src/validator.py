@@ -655,6 +655,54 @@ class Validator:
                 )
                 file_type = file_df["type"].iloc[0]
                 rel_cols = [col for col in file_df.columns if "." in col]
+
+                # check if the file has the right format to check relationships
+                # the validation would raise ValueError if the file has relationship col for root node type, or no relationship for non-root node type
+                edges_list_by_model = [
+                    e.triplet
+                    for e in self.model.edges_by_src(self.model.nodes[file_type])
+                ]
+                if len(edges_list_by_model) == 0 and len(rel_cols) > 0:
+                    # this shouldn't happen if the file passes tsv format checking. The format checking will report error of invalid rel col
+                    raise ValueError(
+                        f"Invalid relationship column {rel_col} found in file {str(file)}. Either the parent node is not found in MDF or the parent node key prop isn't correct"
+                    )
+                elif len(edges_list_by_model) > 0 and len(rel_cols) == 0:
+                    # this shouldn't happen if the file passes tsv format checking
+                    raise ValueError(
+                        f"Missing relationship column for non-root node type {file_type} in the file. At least one edges is expected: {','.join(map(str, edges_list_by_model))}"
+                    )
+                elif len(edges_list_by_model) == 0 and len(rel_cols) == 0:
+                    # this is the case for root node which doesn't have relationship column, just pass the validation
+                    pass
+                else: # this is the case for non-root node, validate the relationship column value
+                    # this condition len(edges_list_by_model) > 0 and len(rel_cols) > 0 is expected to be true for non-root node
+                    pass
+
+                # If file_type is not root node, check if any row/entry has at least one linkage
+                # we want to avoid any floating data node in the graph
+                if len(rel_cols)>0: #only check when rel_col is not empty
+                    index_missing_linkage = file_df[
+                        file_df[rel_cols].isna().all(axis=1)
+                    ].index.tolist()
+                    if len(index_missing_linkage)>0: # only repot is missing rel is found
+                        row_missing_linkage = [i + 2 for i in index_missing_linkage] # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                        for row in row_missing_linkage:
+                            if str(file) not in validation_results:
+                                validation_results[str(file)] = []
+                            validation_results[str(file)].append(
+                                {
+                                    "row": row,
+                                    "edge_column": "N/A",
+                                    "invalid_value": "N/A",
+                                    "edge_src": file_type,
+                                    "edge_dst": "N/A",
+                                    "message": f"Missing relationship value for non-root node type {file_type} in the file. At least one edges is expected: {','.join(map(str, edges_list_by_model))}",
+                                }
+                            )
+                    else:
+                        pass
+
                 for rel_col in rel_cols:
                     # check if the relationship is valid base on the model definition
                     if not Validator.if_rel_valid(file_type, mdf, rel_col):
