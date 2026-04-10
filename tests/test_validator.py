@@ -349,5 +349,37 @@ class TestValidator(unittest.TestCase):
             duplicated = self.validator.validate_tsv_uniq_entry([str(file_a), str(file_b)])
 
             self.assertEqual(duplicated, [])
+
+    def test_validate_tsv_rels_reports_rows_without_any_relationship_values(self) -> None:
+        base_dir = PROJECT_ROOT / "tests" / "test_files" / "rel_test_files"
+
+        consent_group_file = base_dir / "test_rel_consent_group.tsv"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            participant_file = Path(tmp_dir) / "test_rel_participant_with_empty_relationship_row.tsv"
+            participant_file.write_text(
+                "type\tconsent_group.consent_group_id\tparticipant_id\trace\tsex_at_birth\toccupation\tcrdc_id\n"
+                "participant\tphs000123_GRU\tPT_VALID_001\tWhite\tFemale\t\t\n"
+                "participant\t\tPT_INVALID_002\tAsian\tMale\t\t\n",
+                encoding="utf-8",
+            )
+
+            rel_results = self.validator.validate_tsv_rels(
+                [consent_group_file, participant_file],
+                rel_delimiter=";",
+            )
+
+            self.assertIn(str(participant_file), rel_results)
+            missing_link_errors = [
+                item
+                for item in rel_results[str(participant_file)]
+                if "Missing relationship value" in item["message"]
+            ]
+
+            self.assertEqual(len(missing_link_errors), 1)
+            self.assertEqual(missing_link_errors[0]["row"], 3)
+            self.assertEqual(missing_link_errors[0]["edge_src"], "participant")
+            self.assertEqual(missing_link_errors[0]["edge_column"], "N/A")
+            self.assertEqual(missing_link_errors[0]["invalid_value"], "N/A")
 if __name__ == "__main__":
     unittest.main()
