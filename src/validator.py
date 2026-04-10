@@ -681,11 +681,11 @@ class Validator:
 
                 # If file_type is not root node, check if any row/entry has at least one linkage
                 # we want to avoid any floating data node in the graph
-                if len(rel_cols)>0: #only check when rel_col is not empty
+                if len(rel_cols)>0: # only check when rel_col is not empty
                     index_missing_linkage = file_df[
                         file_df[rel_cols].isna().all(axis=1)
                     ].index.tolist()
-                    if len(index_missing_linkage)>0: # only repot is missing rel is found
+                    if len(index_missing_linkage)>0: # only report if missing rel is found
                         row_missing_linkage = [i + 2 for i in index_missing_linkage] # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                         for row in row_missing_linkage:
                             if str(file) not in validation_results:
@@ -704,7 +704,7 @@ class Validator:
                         pass
 
                 for rel_col in rel_cols:
-                    # check if the relationship is valid base on the model definition
+                    # check if the relationship is valid based on the model definition
                     if not Validator.if_rel_valid(file_type, mdf, rel_col):
                         raise ValueError(f"Invalid relationship column {rel_col} found in file {str(file)}. Either the parent node is not found in MDF or the parent node key prop isn't correct")
                     else:
