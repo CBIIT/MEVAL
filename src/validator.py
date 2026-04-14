@@ -112,11 +112,13 @@ class Validator:
 
         Args:
             file_path (str): The path to the input TSV file.
-            project_name (str): The name of the project.
-            subgraph_value (str): The value to be added to the record dict for subgraph key, which is also used for uuid generation.
-            id_field_mapping (dict[str, str]): A dictionary mapping record types to their corresponding key field names. e.g. {"participant": "participant_id", "diagnosis": "diagnosis_id"}
-            output_file_path (str): The path to save the output TSV file with the added "guid" column.
+            project_name (str): The acrynom of the commons, e.g. "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci". This is used to generate project namespace for uuid5 generation.
+            mdf (MDF): The MDF object generates from data model files.
+            output_file_path (str): The path to the output TSV file with uuid column added.
+            uuid_column (str): The name of the uuid column to be added, default is "guid"
             delimiter (str | None): The delimiter to use for splitting multiple key values. Defaults to ";".
+            subgraph_value (str | None): The value of a subgraph key, such as "phs000123", which is also used for uuid generation. If not provided, the function will look for a "subgraph" column in the TSV file.
+            
         """
         file_path_str = str(file_path)
         encoding = Validator.check_encoding(file_path_str)
