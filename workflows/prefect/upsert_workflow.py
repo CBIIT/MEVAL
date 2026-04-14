@@ -306,7 +306,7 @@ def upsert_files(
         log_file=file_logger_name
     )
 
-    # test downloading model files
+    # download model files
     data_model_yaml, props_yaml = download_model_files(
         commons_acronym=commons_acronym, tag=tag
     )
