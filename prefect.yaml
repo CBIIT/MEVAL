@@ -141,3 +141,28 @@ deployments:
       name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
       work_queue_name: null
       job_variables: {}
+
+  - name: meval-uuid-creation
+    version: null
+    tags: ["MEVAL","dataloader", "uuid"]
+    description: "Prefect test deployment for adding uuid to a set of tsv files for a study or a program"
+    entrypoint: workflows/prefect/add_uuid_to_files.py:add_uuid_to_files
+    parameters:
+      uuid_col_name: "guid"
+      delimiter: ";"
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: main
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-curation-16gb-future-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}

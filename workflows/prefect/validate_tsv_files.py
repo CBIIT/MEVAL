@@ -44,8 +44,7 @@ def validate_tsv_files(
         "%Y%m%d_%H%M%S"
     )
 
-    # Download model files from S3
-    # test downloading model files
+    # Download model files from github model repo
     data_model_yaml, props_yaml = download_model_files(
         commons_acronym=commons_acronym, tag=tag
     )

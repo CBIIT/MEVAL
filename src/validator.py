@@ -9,6 +9,7 @@ import hashlib
 from collections.abc import Iterator
 from src.parser import ModelParser
 
+
 class Validator:
     def __init__(self, mdf: MDFReader):
         self.mdf = mdf
@@ -49,7 +50,13 @@ class Validator:
         return project_namespace
 
     @staticmethod
-    def generate_uuid5(project_name: str, subgraph_value: str, record_type: str, record_key_value: str, delimiter: str|None = ";") -> str:
+    def generate_uuid5(
+        project_name: str,
+        subgraph_value: str,
+        record_type: str,
+        record_key_value: str,
+        delimiter: str | None = ";",
+    ) -> str:
         """
         Generate a UUID5 based on the project namespace, record type, and record key value.
 
@@ -71,13 +78,17 @@ class Validator:
                 str_uuid = uuid5(project_namespace, str_input)
                 return str(str_uuid)
             else:
-                str_key_list = [str(item).strip() for item in str_key_value.split(delimiter)]
+                str_key_list = [
+                    str(item).strip() for item in str_key_value.split(delimiter)
+                ]
                 return_uuid_list = []
                 for item in str_key_list:
                     if pd.isna(item) or item.strip() == "":
                         pass
                     else:
-                        project_namespace = Validator.get_project_namespace(project_name)
+                        project_namespace = Validator.get_project_namespace(
+                            project_name
+                        )
                         str_input = f"{subgraph_value}::{record_type}::{item}"
                         str_uuid = uuid5(project_namespace, str_input)
                         return_uuid_list.append(str(str_uuid))
@@ -85,7 +96,15 @@ class Validator:
                 return return_uuid
 
     @staticmethod
-    def add_uuid_to_tsv_file(file_path: str | PosixPath, project_name: str, mdf: MDF, output_file_path: str, uuid_column: str = "guid", delimiter: str | None = ";") -> None:
+    def add_uuid_to_tsv_file(
+        file_path: str | PosixPath,
+        project_name: str,
+        mdf: MDF,
+        output_file_path: str,
+        uuid_column: str = "guid",
+        delimiter: str | None = ";",
+        subgraph_value: str | None = None,
+    ) -> None:
         """
         Add a "guid" column to the TSV file with generated UUID5 values based on the project namespace, record type, and record key value.
         The output TSV will have the UUID column, such as "guid", and all relationship columns will be converted to UUID based on the parent type.
@@ -93,11 +112,13 @@ class Validator:
 
         Args:
             file_path (str): The path to the input TSV file.
-            project_name (str): The name of the project.
-            subgraph_value (str): The value to be added to the record dict for subgraph key, which is also used for uuid generation.
-            id_field_mapping (dict[str, str]): A dictionary mapping record types to their corresponding key field names. e.g. {"participant": "participant_id", "diagnosis": "diagnosis_id"}
-            output_file_path (str): The path to save the output TSV file with the added "guid" column.
+            project_name (str): The acrynom of the commons, e.g. "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci". This is used to generate project namespace for uuid5 generation.
+            mdf (MDF): The MDF object generates from data model files.
+            output_file_path (str): The path to the output TSV file with uuid column added.
+            uuid_column (str): The name of the uuid column to be added, default is "guid"
             delimiter (str | None): The delimiter to use for splitting multiple key values. Defaults to ";".
+            subgraph_value (str | None): The value of a subgraph key, such as "phs000123", which is also used for uuid generation. If not provided, the function will look for a "subgraph" column in the TSV file.
+            
         """
         file_path_str = str(file_path)
         encoding = Validator.check_encoding(file_path_str)
@@ -109,28 +130,38 @@ class Validator:
             doublequote=True,
             escapechar="\\",  # add escape char to handle special characters
             keep_default_na=False,
-            na_values=[""], # treat empty strings as NaN
-            dtype=str, # read columns as str. This is to avoid infer columns full of numbers as float64
+            na_values=[""],  # treat empty strings as NaN
+            dtype=str,  # read columns as str. This is to avoid infer columns full of numbers as float64
         )
-        file_type = file_df["type"].iloc[0] # we only expect one type of a file
+        file_type = file_df["type"].iloc[0]  # we only expect one type of a file
 
         # test if the subgraph column has any NA or more than one unique value
-        if "subgraph" not in file_df.columns:
-            raise KeyError(f"No subgraph column found in {file_path_str}, unable to generate uuid without subgraph value for namespace, please add a subgraph column with value")
-        elif file_df["subgraph"].isna().any():
-            raise ValueError(f"subgraph column in {file_path_str} contains NA value, unable to generate uuid without subgraph value for namespace, please add any missing subgraph value")
-        elif file_df["subgraph"].nunique() > 1:
-            raise ValueError(
-                f"subgraph column in {file_path_str} contains more than one unique value. Only one unique subgraph value is expeted per file. Subgraph values found: {",".join(file_df["subgraph"].unique().tolist())}"
-            )
+        if (
+            subgraph_value is None
+        ):  # if no subgraph_value is provided, we will look for column "subgraph" in the file"
+            if "subgraph" not in file_df.columns:
+                raise KeyError(
+                    f"No subgraph column found in {file_path_str}, unable to generate uuid without subgraph value for namespace, please add a subgraph column with value"
+                )
+            elif file_df["subgraph"].isna().any():
+                raise ValueError(
+                    f"subgraph column in {file_path_str} contains NA value, unable to generate uuid without subgraph value for namespace, please add any missing subgraph value"
+                )
+            elif file_df["subgraph"].nunique() > 1:
+                raise ValueError(
+                    f"subgraph column in {file_path_str} contains more than one unique value. Only one unique subgraph value is expeted per file. Subgraph values found: {",".join(file_df["subgraph"].unique().tolist())}"
+                )
+            else:
+                # take the subgraph value from the first record
+                file_subgraph_value = file_df["subgraph"].iloc[0]
         else:
-            pass
+            file_subgraph_value = subgraph_value
 
-        # take the subgraph value from the first record
-        file_subgraph_value = file_df["subgraph"].iloc[0]
         # check if subgraph value is empty string or stirng with whitespace only
         if pd.isna(file_subgraph_value) or file_subgraph_value.strip() == "":
-            raise ValueError(f"No subgraph value found in {file_path_str} at first record, unable to generate uuid without subgraph value for namespace, please add a subgraph value")
+            raise ValueError(
+                f"No subgraph value found in {file_path_str} at first record, unable to generate uuid without subgraph value for namespace, please add a subgraph value"
+            )
         else:
             pass
 
@@ -138,7 +169,16 @@ class Validator:
 
         # first write uuid column
         # uuid column for the file type itself don't need delimiter since it's expected to be only one key value for each record
-        file_df[uuid_column] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=file_type, record_key_value=row[file_type_key_prop], delimiter=None), axis=1)
+        file_df[uuid_column] = file_df.apply(
+            lambda row: Validator.generate_uuid5(
+                project_name=project_name,
+                subgraph_value=file_subgraph_value,
+                record_type=file_type,
+                record_key_value=row[file_type_key_prop],
+                delimiter=None,
+            ),
+            axis=1,
+        )
 
         # second write guid for all relationship columns
         # relationship column might need delimiter if it is present
@@ -147,17 +187,34 @@ class Validator:
             parent_type = col.split(".")[0]
             new_rel_col = parent_type + "." + uuid_column
             # I'll leave delimiter available here for all multiplicity types. Because There might be use cases of project wanting to have many_to_many or one_to_many relationship before they were able to release model
-            file_df[new_rel_col] = file_df.apply(lambda row: Validator.generate_uuid5(project_name=project_name, subgraph_value=file_subgraph_value, record_type=parent_type, record_key_value=row[col], delimiter=delimiter), axis=1)
+            file_df[new_rel_col] = file_df.apply(
+                lambda row: Validator.generate_uuid5(
+                    project_name=project_name,
+                    subgraph_value=file_subgraph_value,
+                    record_type=parent_type,
+                    record_key_value=row[col],
+                    delimiter=delimiter,
+                ),
+                axis=1,
+            )
 
         # remove original relationship columns and subgraph column
-        cols_to_remove = rel_col + ["subgraph"] if "subgraph" in file_df.columns else rel_col
+        cols_to_remove = (
+            rel_col + ["subgraph"] if "subgraph" in file_df.columns else rel_col
+        )
         file_df.drop(columns=cols_to_remove, inplace=True)
         # write to new file in the given output file path
         file_df.to_csv(output_file_path, sep="\t", index=False)
         return None
 
     @staticmethod
-    def record_prep(record_dict: dict, mdf: MDF, subgraph_col: str | None = None, id_field: str| None = None, delimiter: str = ";") -> dict:
+    def record_prep(
+        record_dict: dict,
+        mdf: MDF,
+        subgraph_col: str | None = None,
+        id_field: str | None = None,
+        delimiter: str = ";",
+    ) -> dict:
         """
         Prepares a record dictionary for validation by removing certain keys and transform str to list for list type properties if needed
         Keys that need to be removed: "type",  "guid" and linkage keys which contain "."
@@ -176,16 +233,22 @@ class Validator:
         record_type = record_dict["type"]
 
         # remove keys that are irrelavant for validation, including type, guid/id, and linkage related keys which contain "."
-        remove_key_list = [key for key in record_dict.keys() if '.' in key or key in ["type", id_field, subgraph_col]]
+        remove_key_list = [
+            key
+            for key in record_dict.keys()
+            if "." in key or key in ["type", id_field, subgraph_col]
+        ]
         for key in remove_key_list:
             record_dict.pop(key)
 
         # remove key if value is empty or made of only whitespace
         key_to_remove = []
         for key in record_dict.keys():
-            if record_dict[key] is None: # this only happens when a short row is read
+            if record_dict[key] is None:  # this only happens when a short row is read
                 key_to_remove.append(key)
-            elif record_dict[key].strip() == "": # when there is only a placeholder or string made of whitespace
+            elif (
+                record_dict[key].strip() == ""
+            ):  # when there is only a placeholder or string made of whitespace
                 key_to_remove.append(key)
             else:
                 pass
@@ -269,7 +332,9 @@ class Validator:
         return subgraph_dict
 
     @staticmethod
-    def add_subgrapgh_value_to_tsv(file_path: str | PosixPath, subgraph_vlaue: str, output_file_path: str) -> str:
+    def add_subgrapgh_value_to_tsv(
+        file_path: str | PosixPath, subgraph_vlaue: str, output_file_path: str
+    ) -> str:
         """
         Adds a subgraph value to the "subgraph" column in the file. This is for the purpose of determining which subgraph the file belongs to when loading to graph db.
         This only applied to tsv file type
@@ -332,11 +397,17 @@ class Validator:
                     na_values=[""],  # treat empty strings as NaN
                 )
                 if "type" not in file_df.columns:
-                    raise KeyError(f"No 'type' column found in {str(file_path)}, unable to determine file type for categorization")
+                    raise KeyError(
+                        f"No 'type' column found in {str(file_path)}, unable to determine file type for categorization"
+                    )
                 elif file_df["type"].nunique() > 1:
-                    raise ValueError(f"Multiple types found in 'type' column of {str(file_path)}, unable to determine file type for categorization. Types found: {','.join(file_df['type'].unique().tolist())}")
+                    raise ValueError(
+                        f"Multiple types found in 'type' column of {str(file_path)}, unable to determine file type for categorization. Types found: {','.join(file_df['type'].unique().tolist())}"
+                    )
                 elif file_df["type"].isna().any():
-                    raise ValueError(f"'type' column in {str(file_path)} contains NA value, unable to determine file type for categorization, please add any missing type value")
+                    raise ValueError(
+                        f"'type' column in {str(file_path)} contains NA value, unable to determine file type for categorization, please add any missing type value"
+                    )
                 else:
                     file_type = file_df["type"].iloc[0]
                     if file_type not in type_file_dict:
@@ -350,7 +421,14 @@ class Validator:
         return type_file_dict
 
     @classmethod
-    def read_tsv_records(cls, tsv_file_path: str, mdf: MDF, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> Iterator[tuple[str, dict[str, str]]]:
+    def read_tsv_records(
+        cls,
+        tsv_file_path: str,
+        mdf: MDF,
+        subgraph_col: str | None = None,
+        id_field: str | None = None,
+        delimiter: str = ";",
+    ) -> Iterator[tuple[str, dict[str, str]]]:
         """
         Reads a TSV file and yields each row as a dictionary keyed by column name.
         The file does not need to have subgraph column, but if it does, we want to remove it before validation since it's not part of the model definition.
@@ -371,7 +449,13 @@ class Validator:
             for row in reader:
                 row_dict = dict(row)
                 row_type = row_dict["type"]
-                row_dict = cls.record_prep(row_dict, mdf, subgraph_col=subgraph_col, id_field=id_field, delimiter=delimiter)
+                row_dict = cls.record_prep(
+                    row_dict,
+                    mdf,
+                    subgraph_col=subgraph_col,
+                    id_field=id_field,
+                    delimiter=delimiter,
+                )
                 yield row_type, row_dict
 
     def validate_records(
@@ -400,9 +484,7 @@ class Validator:
             warning_error_messages["warnings"] = (
                 self.record_validator._validation_warnings
             )
-            warning_error_messages["errors"] = (
-                self.record_validator._validation_errors
-            )
+            warning_error_messages["errors"] = self.record_validator._validation_errors
         return is_valid, warning_error_messages
 
     def validate_one_record(
@@ -434,7 +516,9 @@ class Validator:
             # self.record_validator._validation_warnings/_validation_errors is either [] or a dict with key 0 (because we are only testing one record)
             if self.record_validator._validation_warnings is None:
                 warning_error_messages["warnings"] = []
-            elif len(self.record_validator._validation_warnings)>0:  # if self.record_validator._validation_warnings is not None
+            elif (
+                len(self.record_validator._validation_warnings) > 0
+            ):  # if self.record_validator._validation_warnings is not None
                 short_warnings = self._validate_records_messages_cleanup(
                     messages=self.record_validator._validation_warnings[0]
                 )
@@ -442,7 +526,9 @@ class Validator:
             else:
                 warning_error_messages["warnings"] = []
 
-            if len(self.record_validator._validation_errors)>0:  # if self.record_validator._validation_errors is not None
+            if (
+                len(self.record_validator._validation_errors) > 0
+            ):  # if self.record_validator._validation_errors is not None
                 short_errors = self._validate_records_messages_cleanup(
                     messages=self.record_validator._validation_errors[0]
                 )
@@ -451,7 +537,9 @@ class Validator:
                 warning_error_messages["errors"] = []
         return is_valid, warning_error_messages
 
-    def _validate_records_messages_cleanup(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _validate_records_messages_cleanup(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """A helper function that cleans up validation messages from validate_one_record
         Enum warning or error generates redundant messages for each record, this function is to clean up the messages to only keep simplified messages for each enum validation failure.
 
@@ -459,12 +547,14 @@ class Validator:
             messages (list[dict[str, Any]]): a list of warnings or errors
 
         Returns:
-            list[dict[str, Any]]: 
+            list[dict[str, Any]]:
         """
         cleaned_messages = []
         for i in messages:
             if i["type"] == "enum":
-                i_property = i["loc"][0] # only expect one property for each enum error or warning
+                i_property = i["loc"][
+                    0
+                ]  # only expect one property for each enum error or warning
                 if i["level"] == "warning":
                     i["msg"] = (
                         f"Input not found in the permissible value list for {i_property}, but a free string is Allowed. Please refer to the data model for the list of allowed enum values"
@@ -474,16 +564,24 @@ class Validator:
                         f"Input not found in the permissible value list for {i_property}, and a free string is Not Allowed. Please refer to the data model for the list of allowed enum values"
                     )
                 else:
-                    raise ValueError(f"Unexpected message level {i['level']} found in validation messages, expected 'warning' or 'error'")
+                    raise ValueError(
+                        f"Unexpected message level {i['level']} found in validation messages, expected 'warning' or 'error'"
+                    )
                 # remove "ctx" in i
                 if "ctx" in i:
                     i.pop("ctx")
                 cleaned_messages.append(i)
-            else: # no change to other non-enum message
+            else:  # no change to other non-enum message
                 cleaned_messages.append(i)
         return cleaned_messages
 
-    def validate_tsv_records(self, file_path: str, subgraph_col: str|None = None, id_field: str|None = None, delimiter: str = ";") -> list[dict, Any]:
+    def validate_tsv_records(
+        self,
+        file_path: str,
+        subgraph_col: str | None = None,
+        id_field: str | None = None,
+        delimiter: str = ";",
+    ) -> list[dict, Any]:
         """
         Validates records from a TSV file and returns the validation results.
         although the validator_record can take a dict or a list of dict, we only validate one record at a time here.
@@ -497,29 +595,17 @@ class Validator:
             dict[str, Any]: A dictionary containing validation results, including validity status and any warning/error messages.
         """
         validation_results = []
-        row_num = 2 # the record starts frm the second row in the file
-        for node_name, record in self.read_tsv_records(file_path, self.mdf, subgraph_col=subgraph_col, id_field=id_field, delimiter=delimiter):
-            if node_name =="" and record == {}: # this happens when there is an emoty line
-                validation_results.append(
-                    {
-                        "row": row_num,
-                        "is_valid": False,
-                        "messages": {
-                            "warnings": [],
-                            "errors": [
-                                    {
-                                        "level": "error",
-                                        "type": "missing",
-                                        "loc": None,
-                                        "msg": "This line is empty",
-                                        "input": None,
-                                        "url": "https://docs.pydantic.dev/2.12/errors/validation_errors/#missing",
-                                    }
-                                ]
-                            },
-                        },
-                )
-            elif node_name == "" and record != {}: # this happens when the "type" column is empty but other columns have value
+        row_num = 2  # the record starts frm the second row in the file
+        for node_name, record in self.read_tsv_records(
+            file_path,
+            self.mdf,
+            subgraph_col=subgraph_col,
+            id_field=id_field,
+            delimiter=delimiter,
+        ):
+            if (
+                node_name == "" and record == {}
+            ):  # this happens when there is an emoty line
                 validation_results.append(
                     {
                         "row": row_num,
@@ -530,24 +616,44 @@ class Validator:
                                 {
                                     "level": "error",
                                     "type": "missing",
-                                        "loc": ["type"],
-                                        "msg": "Missing data type information in 'type' column, unable to validate this record",
-                                        "input": None,
-                                        "url": "https://docs.pydantic.dev/2.12/errors/validation_errors/#missing",
-                                    }
-                                ]
-                            },
+                                    "loc": None,
+                                    "msg": "This line is empty",
+                                    "input": None,
+                                    "url": "https://docs.pydantic.dev/2.12/errors/validation_errors/#missing",
+                                }
+                            ],
                         },
+                    },
                 )
-            else: # use the validator_record to validate
+            elif (
+                node_name == "" and record != {}
+            ):  # this happens when the "type" column is empty but other columns have value
+                validation_results.append(
+                    {
+                        "row": row_num,
+                        "is_valid": False,
+                        "messages": {
+                            "warnings": [],
+                            "errors": [
+                                {
+                                    "level": "error",
+                                    "type": "missing",
+                                    "loc": ["type"],
+                                    "msg": "Missing data type information in 'type' column, unable to validate this record",
+                                    "input": None,
+                                    "url": "https://docs.pydantic.dev/2.12/errors/validation_errors/#missing",
+                                }
+                            ],
+                        },
+                    },
+                )
+            else:  # use the validator_record to validate
                 is_valid, messages = self.validate_one_record(node_name, record)
 
                 if not is_valid:
-                    validation_results.append({
-                        "row": row_num,
-                        "is_valid": is_valid,
-                        "messages": messages
-                    })
+                    validation_results.append(
+                        {"row": row_num, "is_valid": is_valid, "messages": messages}
+                    )
                 else:
                     pass
             row_num += 1
@@ -559,12 +665,12 @@ class Validator:
         return validation_results
 
     @staticmethod
-    def if_rel_valid(child_type : str, mdf: MDF, rel_to_test: str) -> bool:
+    def if_rel_valid(child_type: str, mdf: MDF, rel_to_test: str) -> bool:
         """
-        A helper function to test if a relationship value is valid based on the model definition. 
+        A helper function to test if a relationship value is valid based on the model definition.
         "rel_to_test" is expected to be in the format of <parent_node>.<parent_node_key_prop>, for example, participant.participant_id.
         This is used for validating relationship column value in the tsv file, which is expected to be in the format of <parent_node>.<parent_node_key_prop>, for example, participant.participant_id
-        The validation test two part, 
+        The validation test two part,
             - if the parent node is the real parent node
             - if the parent node key prop is the real key prop for parent node.
 
@@ -584,7 +690,9 @@ class Validator:
             if test_parent_node not in parent_node_list:
                 return False
             else:
-                test_parent_node_key_prop_mdf = mdf.model.nodes[test_parent_node].get_key_prop().handle
+                test_parent_node_key_prop_mdf = (
+                    mdf.model.nodes[test_parent_node].get_key_prop().handle
+                )
                 if test_parent_node_key_prop != test_parent_node_key_prop_mdf:
                     return False
                 else:
@@ -593,7 +701,7 @@ class Validator:
     @staticmethod
     def get_rel_multiplicity(node_type: str, parent_node_type: str, mdf: MDF) -> str:
         """
-        A helper function to get the relationship multiplicity based on the model definition. 
+        A helper function to get the relationship multiplicity based on the model definition.
         This is used for validating relationship column value in the tsv file. If "many_to_many" or "one_to_many" is found, the relationship value will be parsed by a deilmiter if a delimiter is present.
 
         Args:
@@ -601,7 +709,7 @@ class Validator:
             parent_node_type: The type of the parent node in the relationship
             mdf: MDF object containing the model definition, used for record preparation.
         Returns:
-            str: The relationship multiplicity, which can be 
+            str: The relationship multiplicity, which can be
         """
         rel_multi = None
         try:
@@ -613,17 +721,21 @@ class Validator:
             else:
                 pass
         except KeyError as e:
-            raise KeyError(f"Error when getting edges with {node_type} as source: {e}") from e
+            raise KeyError(
+                f"Error when getting edges with {node_type} as source: {e}"
+            ) from e
         except Exception as e:
             raise e
         return rel_multi
 
-    def validate_tsv_rels(self, file_path_list: list[str | PosixPath], rel_delimiter: str =";") -> dict[str, Any]:     
+    def validate_tsv_rels(
+        self, file_path_list: list[str | PosixPath], rel_delimiter: str = ";"
+    ) -> dict[str, Any]:
         """
         Validates relationship records from a set of TSV files in a specified folder and returns the validation results for crosslinks.
         This function assumes the provided file list only contains files from the SAME SUBGRAPH. For instance, submission file for phs002790 study.
-        
-        This function can ONLY be used before the uuid5 generaiton. The relationship column name shoud be <parent_node>.<parent_node_key_prop>. 
+
+        This function can ONLY be used before the uuid5 generaiton. The relationship column name shoud be <parent_node>.<parent_node_key_prop>.
         For instance, participant.participant_id
 
         Args:
@@ -675,18 +787,22 @@ class Validator:
                 elif len(edges_list_by_model) == 0 and len(rel_cols) == 0:
                     # this is the case for root node which doesn't have relationship column, just pass the validation
                     pass
-                else: # this is the case for non-root node, validate the relationship column value
+                else:  # this is the case for non-root node, validate the relationship column value
                     # this condition len(edges_list_by_model) > 0 and len(rel_cols) > 0 is expected to be true for non-root node
                     pass
 
                 # If file_type is not root node, check if any row/entry has at least one linkage
                 # we want to avoid any floating data node in the graph
-                if len(rel_cols)>0: # only check when rel_col is not empty
+                if len(rel_cols) > 0:  # only check when rel_col is not empty
                     index_missing_linkage = file_df[
                         file_df[rel_cols].isna().all(axis=1)
                     ].index.tolist()
-                    if len(index_missing_linkage)>0: # only report if missing rel is found
-                        row_missing_linkage = [i + 2 for i in index_missing_linkage] # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                    if (
+                        len(index_missing_linkage) > 0
+                    ):  # only report if missing rel is found
+                        row_missing_linkage = [
+                            i + 2 for i in index_missing_linkage
+                        ]  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                         for row in row_missing_linkage:
                             if str(file) not in validation_results:
                                 validation_results[str(file)] = []
@@ -706,7 +822,9 @@ class Validator:
                 for rel_col in rel_cols:
                     # check if the relationship is valid based on the model definition
                     if not Validator.if_rel_valid(file_type, mdf, rel_col):
-                        raise ValueError(f"Invalid relationship column {rel_col} found in file {str(file)}. Either the parent node is not found in MDF or the parent node key prop isn't correct")
+                        raise ValueError(
+                            f"Invalid relationship column {rel_col} found in file {str(file)}. Either the parent node is not found in MDF or the parent node key prop isn't correct"
+                        )
                     else:
                         pass
 
@@ -717,7 +835,9 @@ class Validator:
                         # not all values in the relationship column are empty
                         pass
 
-                    rel_multi = Validator.get_rel_multiplicity(file_type, rel_col.split(".")[0], mdf)
+                    rel_multi = Validator.get_rel_multiplicity(
+                        file_type, rel_col.split(".")[0], mdf
+                    )
                     rel_col_parent, rel_col_parent_key_prop = rel_col.split(".")
                     parent_files = type_file_dict.get(rel_col_parent)
                     # there is a chance that parent_files return None. Add an error message if this happens for rel_col
@@ -733,7 +853,7 @@ class Validator:
                                 "invalid_value": "N/A",
                                 "edge_src": file_type,
                                 "edge_dst": rel_col_parent,
-                                "message": f"Failed to find {rel_col_parent} type file for NONEMPTY relationship column '{rel_col}' in the provided file list: {[str(i) for i in file_path_list]}"
+                                "message": f"Failed to find {rel_col_parent} type file for NONEMPTY relationship column '{rel_col}' in the provided file list: {[str(i) for i in file_path_list]}",
                             }
                         )
                         continue
@@ -750,19 +870,27 @@ class Validator:
                             keep_default_na=False,
                             na_values=[""],  # treat empty strings as NaN
                         )
-                        parent_key_values += parent_file_df[rel_col_parent_key_prop].dropna().tolist()
+                        parent_key_values += (
+                            parent_file_df[rel_col_parent_key_prop].dropna().tolist()
+                        )
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
 
                     rel_col_values = file_df[rel_col]
                     for i in rel_col_values.index:
                         # row number is i+2 since the index starts from 0 and the record starts from the second row in the file
-                        if pd.isna(rel_col_values[i]) or rel_col_values[i].strip() == "":
+                        if (
+                            pd.isna(rel_col_values[i])
+                            or rel_col_values[i].strip() == ""
+                        ):
                             continue
                         else:
                             # only parse rel_col_values[i] when the relationship multiplicity is many_to_many or one_to_many, otherwise treat the whole value as one value
                             if rel_multi in ["many_to_many", "one_to_many"]:
-                                i_value_list = [item.strip() for item in rel_col_values[i].split(rel_delimiter)]
+                                i_value_list = [
+                                    item.strip()
+                                    for item in rel_col_values[i].split(rel_delimiter)
+                                ]
                                 for item in i_value_list:
                                     if item not in parent_key_values:
                                         # in case that key wasn't added to the validation result dict, initialize it with empty list
@@ -770,12 +898,13 @@ class Validator:
                                             validation_results[str(file)] = []
                                         validation_results[str(file)].append(
                                             {
-                                                "row": i + 2, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                                                "row": i
+                                                + 2,  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                                 "edge_column": rel_col,
                                                 "invalid_value": item,
                                                 "edge_src": file_type,
                                                 "edge_dst": rel_col_parent,
-                                                "message": f"Failed to find '{item}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}"
+                                                "message": f"Failed to find '{item}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
                                             }
                                         )
                                     else:
@@ -786,12 +915,13 @@ class Validator:
                                         validation_results[str(file)] = []
                                     validation_results[str(file)].append(
                                         {
-                                            "row": i + 2, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                                            "row": i
+                                            + 2,  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                             "edge_column": rel_col,
                                             "invalid_value": rel_col_values[i],
                                             "edge_src": file_type,
                                             "edge_dst": rel_col_parent,
-                                            "message": f"Failed to find '{rel_col_values[i]}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}"
+                                            "message": f"Failed to find '{rel_col_values[i]}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
                                         }
                                     )
                                 else:
@@ -802,7 +932,9 @@ class Validator:
         return validation_results
 
     @staticmethod
-    def read_tsv_key_prop_values(file_path: str | PosixPath, key_prop: str, chunk_size: int = 5000) -> Iterator[str]:
+    def read_tsv_key_prop_values(
+        file_path: str | PosixPath, key_prop: str, chunk_size: int = 5000
+    ) -> Iterator[str]:
         """Read the key prop values of a tsv file
 
         Args:
@@ -824,7 +956,7 @@ class Validator:
                 keep_default_na=False,
                 na_values=[""],  # treat empty strings as NaN
                 dtype=str,  # read columns as str. This is to avoid infer columns full of numbers as float64
-                chunksize=chunk_size
+                chunksize=chunk_size,
             ):
                 for index, val in chunk[key_prop].items():
                     yield index, ("" if pd.isna(val) else val.strip())
@@ -833,7 +965,9 @@ class Validator:
             raise e
 
     @staticmethod
-    def identify_duplicated_values(value_list: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    def identify_duplicated_values(
+        value_list: list[dict[str, Any]], key: str
+    ) -> list[dict[str, Any]]:
         """
         Identify duplicated values in a list of dictionaries based on a specified key.
         value_list is expected to be a list of dictionaries:
@@ -857,19 +991,23 @@ class Validator:
         # turn value_list in to a dataframe for easier manipulation
         value_df = pd.DataFrame(value_list)
         duplicated_df = value_df[value_df.duplicated(subset=[key], keep=False)].copy()
-        duplicated_df.sort_values(by=["type", "key_prop", "key_prop_value", "row"], inplace=True)
+        duplicated_df.sort_values(
+            by=["type", "key_prop", "key_prop_value", "row"], inplace=True
+        )
         duplicated_values = duplicated_df.to_dict(orient="records")
         return duplicated_values
 
-    def validate_tsv_uniq_entry(self, file_path_list: list[str | PosixPath]) -> list[dict[str, Any]]:
+    def validate_tsv_uniq_entry(
+        self, file_path_list: list[str | PosixPath]
+    ) -> list[dict[str, Any]]:
         """
         Validates the uniqueness of data entry within a list of tsv files for a subgraph submission.
         We ASSUME the provided files are from the SAME subgraph. In some cases, it can be from the same study, but in other cases, it can be from the same program with multiple studies under it.
         Because two entries of [same key property value] in the [same type] under the [same subgraph] will share the same UUID
-        
-        The function will first look at the type of each files, and then look for duplicated entry (key property) within the same type files.  
+
+        The function will first look at the type of each files, and then look for duplicated entry (key property) within the same type files.
         For example, if a participant_id (key prop for participant node) value appear in two participant type files, it will be considered as duplicated entry.
-        NOTE: It is okay to have identical prop key value of same type of data node under different rooted subgraph. 
+        NOTE: It is okay to have identical prop key value of same type of data node under different rooted subgraph.
         For example, different studies can share same sample_id as long as they are from different studies, which means the guid/uuid would be different for these data nodes
 
         Args:
@@ -878,7 +1016,7 @@ class Validator:
             list[dict[str, Any]]: A list of dictionaries containing validation results for duplicated entries in the id field column, including validity status and any warning/error messages.
         """
         validation_results = []
-        data_start_offset = 2 # data line starts at line 2
+        data_start_offset = 2  # data line starts at line 2
 
         type_file_dict = self.file_type_read(file_path_list)
         for type in type_file_dict:
@@ -887,7 +1025,9 @@ class Validator:
             key_prop = self.model.nodes[type].get_key_prop().handle
             key_prop_list = []
             for file in type_file_list:
-                for index, key_prop_value in self.read_tsv_key_prop_values(file, key_prop):
+                for index, key_prop_value in self.read_tsv_key_prop_values(
+                    file, key_prop
+                ):
                     key_prop_list.append(
                         {
                             "type": type,
@@ -897,7 +1037,9 @@ class Validator:
                             "row": index + data_start_offset,
                         }
                     )
-            duplicated_key_list = self.identify_duplicated_values(key_prop_list, "key_prop_value")
+            duplicated_key_list = self.identify_duplicated_values(
+                key_prop_list, "key_prop_value"
+            )
             if len(duplicated_key_list) > 0:
                 validation_results += duplicated_key_list
             else:
@@ -929,45 +1071,60 @@ class Validator:
         encoding = Validator.check_encoding(str(file_path))
         try:
             file_df = pd.read_csv(
-                    str(file_path),
-                    sep="\t",
-                    encoding=encoding,
-                    quotechar='"',
-                    doublequote=True,
-                    escapechar="\\",  # add escape char to handle special characters
-                    keep_default_na=False,
-                    na_values=[""],  # treat empty strings as NaN
-                )
+                str(file_path),
+                sep="\t",
+                encoding=encoding,
+                quotechar='"',
+                doublequote=True,
+                escapechar="\\",  # add escape char to handle special characters
+                keep_default_na=False,
+                na_values=[""],  # treat empty strings as NaN
+            )
             # check if "type" column exist
             if "type" not in file_df.columns:
-                validation_errors.append({
+                validation_errors.append(
+                    {
                         "level": "error",
                         "type": "missing_column",
                         "message": "Missing 'type' column in the TSV file, unable to determine file type for validation",
-                    })
-            else: # there is type column in the file
+                    }
+                )
+            else:  # there is type column in the file
                 # check if there is any empty row at type column, and report any row missing type value as error
-                if file_df["type"].isna().any() or (file_df["type"].apply(lambda x: str(x).strip() == "")).any():
-                    empty_type_index = file_df[file_df["type"].isna() | (file_df["type"].apply(lambda x: str(x).strip() == ""))].index.tolist()
+                if (
+                    file_df["type"].isna().any()
+                    or (file_df["type"].apply(lambda x: str(x).strip() == "")).any()
+                ):
+                    empty_type_index = file_df[
+                        file_df["type"].isna()
+                        | (file_df["type"].apply(lambda x: str(x).strip() == ""))
+                    ].index.tolist()
                     empty_type_row = [index + 2 for index in empty_type_index]
-                    validation_errors.append({
+                    validation_errors.append(
+                        {
                             "level": "error",
                             "type": "missing_type_value",
                             "message": "Missing data type information in 'type' column, unable to validate this record",
-                            "row": empty_type_row, # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
-                        })
+                            "row": empty_type_row,  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
+                        }
+                    )
                 else:
                     pass
                 # if "type" column exist, after removing missing or empty value, is there only one unique value found under type column
                 type_values = file_df["type"]
-                filtered_type_values = type_values[~type_values.isna() & (type_values.apply(lambda x: str(x).strip() != ""))]
+                filtered_type_values = type_values[
+                    ~type_values.isna()
+                    & (type_values.apply(lambda x: str(x).strip() != ""))
+                ]
                 if filtered_type_values.nunique() > 1:
-                    validation_errors.append({
+                    validation_errors.append(
+                        {
                             "level": "error",
                             "type": "multiple_type_value",
                             "message": f"Multiple types found in 'type' column, unable to determine file type.",
-                            "input": filtered_type_values.unique().tolist()
-                        })
+                            "input": filtered_type_values.unique().tolist(),
+                        }
+                    )
                 else:
                     pass
             # if no error of type column is found, str(file) is not found in validation_errors
@@ -975,11 +1132,13 @@ class Validator:
                 # get the file type
                 file_type = file_df["type"].iloc[0]
                 if file_type not in self.model.nodes:
-                    validation_errors.append({
+                    validation_errors.append(
+                        {
                             "level": "error",
                             "type": "invalid_file_type",
-                            "message": f"Invalid file type '{file_type}' in 'type' column, not found in the data model definition."
-                        })
+                            "message": f"Invalid file type '{file_type}' in 'type' column, not found in the data model definition.",
+                        }
+                    )
                 else:
                     # file_type is valid, we can further check if the rest of the columns are valid based on the model
                     # check if all required properties are found in the columns of the files
@@ -988,18 +1147,32 @@ class Validator:
                         for i in self.model.nodes[file_type].props
                         if self.model.nodes[file_type].props[i].is_required
                     ]
-                    missing_required_props = [col for col in required_props_for_type if col not in file_df.columns]
+                    missing_required_props = [
+                        col
+                        for col in required_props_for_type
+                        if col not in file_df.columns
+                    ]
                     if len(missing_required_props) > 0:
-                        validation_errors.append({
+                        validation_errors.append(
+                            {
                                 "level": "error",
                                 "type": "missing_required_column",
-                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(f"'{prop}'" for prop in missing_required_props)}"
-                            })
+                                "message": f"Missing required column(s) for file type '{file_type}' based on the data model definition: {', '.join(f"'{prop}'" for prop in missing_required_props)}",
+                            }
+                        )
                     else:
                         pass
                     # check if the rest of columns other than "type" and relationship columns are valid based off model
-                    col_to_check = [col for col in file_df.columns if col != "type" and "." not in col]
-                    invalid_cols = [col for col in col_to_check if col not in self.model.nodes[file_type].props]
+                    col_to_check = [
+                        col
+                        for col in file_df.columns
+                        if col != "type" and "." not in col
+                    ]
+                    invalid_cols = [
+                        col
+                        for col in col_to_check
+                        if col not in self.model.nodes[file_type].props
+                    ]
                     if len(invalid_cols) > 0:
                         validation_errors.append(
                             {
@@ -1014,7 +1187,12 @@ class Validator:
                     rel_cols = [col for col in file_df.columns if "." in col]
                     # if there is no relationship column, check if the file_type is root node, means there shouldn't be any relationship that src from this type
                     if len(rel_cols) == 0:
-                        edges_list = [e.triplet for e in self.model.edges_by_src(self.model.nodes[file_type])]
+                        edges_list = [
+                            e.triplet
+                            for e in self.model.edges_by_src(
+                                self.model.nodes[file_type]
+                            )
+                        ]
                         if len(edges_list) > 0:
                             edges_dst_list = [e[2] for e in edges_list]
                             validation_errors.append(
@@ -1028,13 +1206,21 @@ class Validator:
                             # file_type is a root node which doesn't have any parent node
                             pass
                     else:
-                        invalid_rel_cols = [col for col in rel_cols if not self.if_rel_valid(child_type=file_type, mdf=self.mdf, rel_to_test=col)]
+                        invalid_rel_cols = [
+                            col
+                            for col in rel_cols
+                            if not self.if_rel_valid(
+                                child_type=file_type, mdf=self.mdf, rel_to_test=col
+                            )
+                        ]
                         if len(invalid_rel_cols) > 0:
-                            validation_errors.append({
+                            validation_errors.append(
+                                {
                                     "level": "error",
                                     "type": "invalid_relationship_column",
-                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct."
-                                })
+                                    "message": f"Invalid relationship column(s) based on file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_rel_cols)}. Either the node type is not found as a parent node for {file_type} or the key property for linking the parent node is not correct.",
+                                }
+                            )
                         else:
                             pass
             else:
@@ -1043,15 +1229,19 @@ class Validator:
                 pass
         except Exception as e:
             print(f"Error processing {str(file_path)}: {e}")
-            validation_errors.append({
+            validation_errors.append(
+                {
                     "level": "error",
                     "type": "file_read_error",
-                    "message": f"Error reading the TSV file: {e}"
-                })
+                    "message": f"Error reading the TSV file: {e}",
+                }
+            )
             # not to raise error which stops format validation for the rest of the files
-        return validation_errors # validation_errors can be an empty list if not violation is found
+        return validation_errors  # validation_errors can be an empty list if not violation is found
 
-    def validate_tsv_files_format(self, file_path_list: list[str | PosixPath]) -> dict[str, list[dict[str, Any]]]:
+    def validate_tsv_files_format(
+        self, file_path_list: list[str | PosixPath]
+    ) -> dict[str, list[dict[str, Any]]]:
         """
         Validates the format of TSV files in a specified list of file paths.
 
@@ -1062,7 +1252,7 @@ class Validator:
         """
         validation_errors = {}
         for file in file_path_list:
-            file_format_validation_errors = self.validate_tsv_format(file_path = file)
+            file_format_validation_errors = self.validate_tsv_format(file_path=file)
             if len(file_format_validation_errors) > 0:
                 validation_errors[str(file)] = file_format_validation_errors
             else:
