@@ -21,7 +21,7 @@ class Loader:
         self.driver.close()
 
     @staticmethod
-    def chunks(lst: list, size:int) -> Generator[list, None, None]:
+    def chunks(lst: list, size: int) -> Generator[list, None, None]:
         """A generator which yields an input list by a given size
 
         Args:
@@ -73,12 +73,12 @@ class Loader:
             reader = pd.read_csv(
                 file_path,
                 sep="\t",
-                #dtype=str, # let pandas to infer data types
+                # dtype=str, # let pandas to infer data types
                 encoding=encoding,
                 chunksize=chunk_size,
                 quotechar='"',
                 doublequote=True,
-                escapechar="\\", # add escape char to handle special characters
+                escapechar="\\",  # add escape char to handle special characters
                 keep_default_na=False,
                 na_values=[""],  # treat empty strings as NaN
             )
@@ -91,7 +91,10 @@ class Loader:
 
     @staticmethod
     def generate_chunk_records(
-        chunk: pd.DataFrame, model_parser: "ModelParser",subgraph_col: str|None = None, delimiter: str = ";"
+        chunk: pd.DataFrame,
+        model_parser: "ModelParser",
+        subgraph_col: str | None = None,
+        delimiter: str = ";",
     ) -> tuple[str, list[dict]]:
         """
         Generate records from a given chunk of data based on the model parser.
@@ -131,7 +134,9 @@ class Loader:
                 else:
                     # let's not convert to string to preserve data types
                     pass
-            cleaned_record = {k: v for k, v in record.items() if k not in keys_to_remove}
+            cleaned_record = {
+                k: v for k, v in record.items() if k not in keys_to_remove
+            }
 
             # if the propery is a list type, convert the value to list by a delimiter, such as ";"
             if len(list_type_props) > 0:
@@ -142,7 +147,9 @@ class Loader:
                         if delimiter not in prop_value:
                             prop_list.append(prop_value.strip())
                         else:
-                            prop_list = [item.strip() for item in prop_value.split(delimiter)]
+                            prop_list = [
+                                item.strip() for item in prop_value.split(delimiter)
+                            ]
                         cleaned_record[prop] = prop_list
                     else:
                         pass
@@ -151,7 +158,9 @@ class Loader:
             # we have cases of str type property that are mis inferred as number/int during loading
             for u in cleaned_record:
                 if isinstance(cleaned_record[u], (int, float)):
-                    expected_type = model_parser.get_prop_type(node_name=chunk_type, prop_name=u)
+                    expected_type = model_parser.get_prop_type(
+                        node_name=chunk_type, prop_name=u
+                    )
                     if expected_type == "number" or expected_type == "integer":
                         # all good
                         pass
@@ -167,7 +176,11 @@ class Loader:
     # upsert records of a chunk with session.begin_transaction as input
     @staticmethod
     def upsert_chunk_records_with_tx(
-        tx, node_type: str, records: list[dict], id_field: str = "guid", logger: logging.Logger | None = None
+        tx,
+        node_type: str,
+        records: list[dict],
+        id_field: str = "guid",
+        logger: logging.Logger | None = None,
     ):
         """
         Upsert a list of records into a graph database using the provided transaction.
@@ -206,7 +219,7 @@ class Loader:
         id_field: str = "guid",
         chunk_size: int = 3000,
         delimiter: str = ";",
-        logger: logging.Logger | None = None
+        logger: logging.Logger | None = None,
     ) -> dict:
         """
         Upsert records from a TSV file into the graph database in chunks.
@@ -235,27 +248,24 @@ class Loader:
                 if logger:
                     logger.info(f"Processing Batch {batch_count}...")
                 print(f"Processing Batch {batch_count}...")
-                #batch_begin = timer()
-                chunk_type, records = self.generate_chunk_records(chunk=chunk, model_parser=model_parser,subgraph_col=subgraph_col, delimiter=delimiter)
+                # batch_begin = timer()
+                chunk_type, records = self.generate_chunk_records(
+                    chunk=chunk,
+                    model_parser=model_parser,
+                    subgraph_col=subgraph_col,
+                    delimiter=delimiter,
+                )
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field, logger=logger
                 )
-                #batch_end = timer()
+                # batch_end = timer()
                 if logger:
-                    logger.info(
-                        f"Created {result_summary['nodes_created']} nodes"
-                    )
-                    logger.info(
-                        f"Set {result_summary['properties_set']} properties"
-                    )
-                    #logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
-                print(
-                    f"Created {result_summary['nodes_created']} nodes"
-                )
-                print(
-                    f"Set {result_summary['properties_set']} properties"
-                )
-                #print("Batch loading time (seconds): ", batch_end - batch_begin)
+                    logger.info(f"Created {result_summary['nodes_created']} nodes")
+                    logger.info(f"Set {result_summary['properties_set']} properties")
+                    # logger.info("Batch loading time (seconds): %.2f", batch_end - batch_begin)
+                print(f"Created {result_summary['nodes_created']} nodes")
+                print(f"Set {result_summary['properties_set']} properties")
+                # print("Batch loading time (seconds): ", batch_end - batch_begin)
                 summary_list.append(result_summary)
 
         # combine counts in all summaries into one
@@ -267,7 +277,10 @@ class Loader:
 
     @staticmethod
     def generate_chunk_relationships(
-        chunk: pd.DataFrame, model_parser: "ModelParser", id_field: str = "guid", delimiter: str = ";"
+        chunk: pd.DataFrame,
+        model_parser: "ModelParser",
+        id_field: str = "guid",
+        delimiter: str = ";",
     ) -> list[dict]:
         """
         Generate a list of relationship records from a chunk of data.
@@ -333,7 +346,9 @@ class Loader:
         return edges_to_add
 
     @staticmethod
-    def upsert_chunk_relationships_with_tx(tx, edge_list: list[dict], logger: logging.Logger | None = None) -> dict:
+    def upsert_chunk_relationships_with_tx(
+        tx, edge_list: list[dict], logger: logging.Logger | None = None
+    ) -> dict:
         """Upsert relationships in the database with a list of dictionaries that specify the edges.
         A edge item example would be:
         {
@@ -370,16 +385,64 @@ class Loader:
                 # cypehr statement to upsert relationships in this group
                 cypher = f"""
                 UNWIND $edges AS edge
-                MATCH (src:{src_label} {{{src_prop}: edge.src_match}})
-                MATCH (dst:{dst_label} {{{dst_prop}: edge.dst_match}})
-                MERGE (src)-[r:{handle}]->(dst)
-                ON CREATE SET r.created = datetime()
-                ON MATCH SET r.updated = datetime()
+
+                OPTIONAL MATCH (src:{src_label} {{{src_prop}: edge.src_match}})
+                OPTIONAL MATCH (dst:{dst_label} {{{dst_prop}: edge.dst_match}})
+
+                // Only create/update relationship when both exist
+                FOREACH (_ IN CASE WHEN src IS NOT NULL AND dst IS NOT NULL THEN [1] ELSE [] END |
+                    MERGE (src)-[r:{handle}]->(dst)
+                    ON CREATE SET r.created = datetime()
+                    ON MATCH  SET r.updated = datetime()
+                )
+
+                WITH edge, src, dst,
+                    CASE
+                        WHEN src IS NULL AND dst IS NULL THEN "missing_both"
+                        WHEN src IS NULL THEN "missing_src"
+                        WHEN dst IS NULL THEN "missing_dst"
+                        ELSE "matched"
+                    END AS status
+                WHERE status <> "matched"
+                RETURN edge.src_match, edge.dst_match, status
                 """
                 params = {"edges": group}
                 try:
                     results = ts.run(cypher, **params)
+                    missing_pair = results.data()
+                    # add src label and dst label to the missing_pair
+                    # if there are missing pairs, we need to log them for trouble shooting
+                    if len(missing_pair) > 0:
+                        missing_pair_with_label = []
+                        desired_key_order = [
+                            "src_label",
+                            "src_match",
+                            "dst_label",
+                            "dst_match",
+                            "status",
+                        ]
+                        for item in missing_pair:
+                            item["src_label"] = src_label
+                            item["dst_label"] = dst_label
+                            # reorder the keys in the item dictionary
+                            item = {key: item[key] for key in desired_key_order}
+                            missing_pair_with_label.append(item)
+                        print(
+                            "Relationships failed to upsert due to unmatched nodes:\n%s"
+                            + json.dumps(missing_pair_with_label, indent=2, default=str)
+                        )
+                        if logger:
+                            logger.error(
+                                "Rel upsert ({src_label})-[{handle}]->({dst_label}) (partially) failed due to unmatched nodes:\n%s",
+                                json.dumps(
+                                    missing_pair_with_label, indent=2, default=str
+                                ),
+                            )
+                    else:
+                        pass
+
                     summary = results.consume()
+
                     if logger:
                         logger.info(
                             f"Rels ({src_label})-[{handle}]->({dst_label}) created: {summary.counters.relationships_created}"
@@ -388,6 +451,11 @@ class Loader:
                         f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
+                    if len(missing_pair_with_label) == len(group):
+                        print(
+                            f"All rels ({src_label})-[{handle}]->({dst_label}) failed to upsert."
+                        )
+                        print(vars(summary.counters))
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
                     if logger:
@@ -396,6 +464,7 @@ class Loader:
                     ts.rollback()
                     raise e
         # combine counts in all summaries into one
+        print(json.dumps(summary_list, indent=2))
         return_summary = {key: 0 for key in summary_list[0].keys()}
         for summary in summary_list:
             for key, value in summary.items():
@@ -420,7 +489,7 @@ class Loader:
         Returns:
             tuple: A tuple containing the updated chunk, a list of remaining row numbers, and a list of removed row numbers.
         """
-        return_remove_list = [] # if no duplicates, return an empty list
+        return_remove_list = []  # if no duplicates, return an empty list
         return_remain_list = []
         to_remove_index = chunk[chunk.duplicated(subset=[id_field], keep="last")]
         removed_indices = to_remove_index.index.tolist()
@@ -429,12 +498,16 @@ class Loader:
             chunk.drop(index=to_remove_index.index, inplace=True)
             return_remove_list = return_list
             if logger:
-                logger.warning(f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk.")
-            print(f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk.")
+                logger.warning(
+                    f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk."
+                )
+            print(
+                f"Removed duplicated rows with the same {id_field} within the chunk. Row numbers (in the file) removed: {return_list}. Only keep the last occurrence in the chunk."
+            )
         else:
             pass
         # get the row number of remaining rows in the chunk,
-        return_remain_list = [data_start_offset + idx for idx in chunk.index.tolist()]   
+        return_remain_list = [data_start_offset + idx for idx in chunk.index.tolist()]
         return chunk, return_remain_list, return_remove_list
 
     @staticmethod
@@ -450,7 +523,9 @@ class Loader:
         """
         encoding = Loader.check_encoding(file_path)
         if row_number < 2:
-            raise ValueError("Row number should be 2 or greater. Row 1 is expected to be the header.")
+            raise ValueError(
+                "Row number should be 2 or greater. Row 1 is expected to be the header."
+            )
         try:
             row_data = pd.read_csv(
                 file_path,
@@ -465,13 +540,17 @@ class Loader:
                 keep_default_na=False,
                 na_values=[""],  # treat empty strings as NaN
             )
-            return row_data.to_dict(orient="records")[0]  # return the single row as a dict
+            return row_data.to_dict(orient="records")[
+                0
+            ]  # return the single row as a dict
         except Exception as e:
             print(f"Error reading row {row_number} from {file_path}: {e}")
             raise e
 
     @staticmethod
-    def generate_del_rel_list_of_a_record(record_dict: dict, id_field: str = "guid", delimiter: str = ";") -> list[dict]:
+    def generate_del_rel_list_of_a_record(
+        record_dict: dict, id_field: str = "guid", delimiter: str = ";"
+    ) -> list[dict]:
         """
 
         Args:
@@ -508,7 +587,9 @@ class Loader:
                     rel_list.append(rel_item)
         return rel_list
 
-    def remove_rel_of_record(self, rel_list: list[dict], logger: logging.Logger|None=None) -> dict:
+    def remove_rel_of_record(
+        self, rel_list: list[dict], logger: logging.Logger | None = None
+    ) -> dict:
         """
         Delete relationships for a batch of node pairs.
 
@@ -570,7 +651,12 @@ class Loader:
         return return_summary
 
     @staticmethod
-    def turn_remain_row_list_to_dict(chunk: "pd.DataFrame", file_path: str, remain_row_list: list, id_field: str = "guid") -> dict:
+    def turn_remain_row_list_to_dict(
+        chunk: "pd.DataFrame",
+        file_path: str,
+        remain_row_list: list,
+        id_field: str = "guid",
+    ) -> dict:
         """Generates a dict which records each record's source from a chunk
         The dictionary will be in the format like this:
         {
@@ -596,7 +682,7 @@ class Loader:
             guid_row = row[id_field]
             return_dict[guid_row] = {
                 "file_path": file_path,
-                "row_number": remain_row_list[count]
+                "row_number": remain_row_list[count],
             }
             count += 1
         return return_dict
@@ -609,7 +695,7 @@ class Loader:
         id_field: str = "guid",
         chunk_size: int = 3000,
         delimiter: str = ";",
-        logger: logging.Logger | None = None
+        logger: logging.Logger | None = None,
     ) -> Tuple[dict, dict]:
         """Upsert relationships of a given file
         Relationships can only be done when both parent and child nodes have been created
@@ -630,10 +716,12 @@ class Loader:
 
         # Use a single session but separate transactions for each chunk
         if logger:
-            logger.info(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
+            logger.info(
+                f"(Rel Upsert) Start processing file {os.path.basename(file_path)}"
+            )
         print(f"(Rel Upsert) Start processing file {os.path.basename(file_path)}")
         with self.driver.session() as tx:
-            data_start_offset = 2 # data line starts at line 2
+            data_start_offset = 2  # data line starts at line 2
             for chunk in self.read_file_in_chunks(file_path, encoding, chunk_size):
                 batch_count += 1
                 if logger:
@@ -642,19 +730,32 @@ class Loader:
 
                 # remove duplicated records within the chunk based on id_field, e.g., guid
                 chunk, remain_list, remove_list = self.remove_chunk_duplicates(
-                    chunk=chunk, id_field=id_field, data_start_offset=data_start_offset, logger=logger
+                    chunk=chunk,
+                    id_field=id_field,
+                    data_start_offset=data_start_offset,
+                    logger=logger,
                 )
                 if len(remove_list) > 0:
                     if logger:
-                        logger.info(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
-                    print(f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}.")
+                        logger.info(
+                            f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}."
+                        )
+                    print(
+                        f"Batch {batch_count} removed {len(remove_list)} duplicated rows based on {id_field}. Row numbers (in the file) removed: {remove_list}."
+                    )
                 else:
                     if logger:
-                        logger.info(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
-                    print(f"Batch {batch_count} has no duplicated rows based on {id_field}.")
+                        logger.info(
+                            f"Batch {batch_count} has no duplicated rows based on {id_field}."
+                        )
+                    print(
+                        f"Batch {batch_count} has no duplicated rows based on {id_field}."
+                    )
 
                 # keep track of rows to be processed
-                processed_rel_chunk_records = self.turn_remain_row_list_to_dict(chunk, file_path, remain_list, id_field=id_field)
+                processed_rel_chunk_records = self.turn_remain_row_list_to_dict(
+                    chunk, file_path, remain_list, id_field=id_field
+                )
                 for guid, source in processed_rel_chunk_records.items():
                     if guid not in processed_rel_dict:
                         processed_rel_dict[guid] = source
@@ -663,31 +764,53 @@ class Loader:
                         # delete the old established relationships
                         guid_old_source = processed_rel_dict[guid]
                         if logger:
-                            logger.warning(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
+                            logger.warning(
+                                f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk"
+                            )
                             logger.warning(
                                 f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
                             )
-                        print(f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk")
+                        print(
+                            f"guid {guid} have been processed in the current loading job. Deleting the previous established relationships and replacing with the one from the current chunk"
+                        )
                         print(
                             f"guid {guid} was processed in {os.path.basename(guid_old_source['file_path'])} at row {guid_old_source['row_number']}. Deleting the relationships established by this record (if any)."
                         )
 
-                        guid_old_source_record = self.read_tsv_at_row_number(file_path=guid_old_source["file_path"], row_number=guid_old_source["row_number"])
-                        guid_old_rel_list = self.generate_del_rel_list_of_a_record(record_dict=guid_old_source_record, id_field=id_field, delimiter=delimiter)
+                        guid_old_source_record = self.read_tsv_at_row_number(
+                            file_path=guid_old_source["file_path"],
+                            row_number=guid_old_source["row_number"],
+                        )
+                        guid_old_rel_list = self.generate_del_rel_list_of_a_record(
+                            record_dict=guid_old_source_record,
+                            id_field=id_field,
+                            delimiter=delimiter,
+                        )
                         if len(guid_old_rel_list) > 0:
-                            del_rel_summary = self.remove_rel_of_record(rel_list=guid_old_rel_list, logger=logger)
+                            del_rel_summary = self.remove_rel_of_record(
+                                rel_list=guid_old_rel_list, logger=logger
+                            )
                             if logger:
-                                logger.warning(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
-                            print(f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}")
+                                logger.warning(
+                                    f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}"
+                                )
+                            print(
+                                f"Relationships deleted: {del_rel_summary.get('relationships_deleted', 0)}"
+                            )
                             summary_list.append(del_rel_summary)
                         else:
                             if logger:
                                 logger.warning(f"Relationships deleted: 0")
                             print(f"Relationships deleted: 0")
-                        processed_rel_dict[guid] = source # replace the source info using the guid information of the current chunk
+                        processed_rel_dict[guid] = (
+                            source  # replace the source info using the guid information of the current chunk
+                        )
 
                 chunk_relationships = self.generate_chunk_relationships(
-                    chunk=chunk, id_field=id_field, model_parser=model_parser, delimiter=delimiter
+                    chunk=chunk,
+                    id_field=id_field,
+                    model_parser=model_parser,
+                    delimiter=delimiter,
                 )
                 # for study/root node tsv, there shouldn't be any edges.
                 if len(chunk_relationships) > 0:
@@ -703,12 +826,8 @@ class Loader:
                             )
                             summary_list.append(summary)
                             if logger:
-                                logger.info(
-                                    f"Batch {batch_count} completed"
-                                )
-                            print(
-                                f"Batch {batch_count} completed"
-                            )
+                                logger.info(f"Batch {batch_count} completed")
+                            print(f"Batch {batch_count} completed")
                             break  # Success, exit retry loop
                         except Exception as e:
                             retry_count += 1
@@ -735,7 +854,9 @@ class Loader:
                                 print(f"Retrying batch {batch_count}...")
                 else:
                     if logger:
-                        logger.info(f"Batch {batch_count} skipped: no relationships to create")
+                        logger.info(
+                            f"Batch {batch_count} skipped: no relationships to create"
+                        )
                     print(f"Batch {batch_count} skipped: no relationships to create")
 
         # if summary_list is empty
@@ -865,7 +986,11 @@ class Loader:
         return delete_nodes
 
     def wipe_rooted_subgraph(
-        self, root_node_label: str, root_node_prop: str, subgraph_value: str, chunk_threshold: int = 10000
+        self,
+        root_node_label: str,
+        root_node_prop: str,
+        subgraph_value: str,
+        chunk_threshold: int = 10000,
     ) -> dict:
         """Wipe a rooted subgraph by deleting all nodes and relationships connected within.
         Args:
@@ -873,7 +998,7 @@ class Loader:
             root_node_prop (str): root node property for matching, such as study_id, dbgap_accession
             subgraph_value (str): the value of root node property to identify the subgraph, such as a study accession phs002790.
             chunk_threshold (int): threshold to determine if the subgraph is large and needs to be deleted in batches. Default to 10,000 nodes.
-            
+
         Returns:
             dict: summary of deleted nodes and relationships
         """
@@ -885,29 +1010,45 @@ class Loader:
         deleted_nodes = 0
         detached_rels = 0
         if len(node_ids) == 0:
-            print(f"No nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Nothing to delete.")
+            print(
+                f"No nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Nothing to delete."
+            )
         # found nodes belonging to the subgraph
         else:
-            print(f"{len(node_ids)} nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Start deleting...")
+            print(
+                f"{len(node_ids)} nodes found in root node {root_node_label} with {root_node_prop}={subgraph_value}. Start deleting..."
+            )
             if len(node_ids) > chunk_threshold:
                 # large subgraph to delete, print warning and delete in batches
-                print(f"Warning: large subgraph detected with {len(node_ids)} nodes, deletion may take a while...")
+                print(
+                    f"Warning: large subgraph detected with {len(node_ids)} nodes, deletion may take a while..."
+                )
                 # first detach relationships in batches
                 print("Start detaching relationships...")
                 rel_batch_count = 0
-                for batch in self.chunks(node_ids, 5000): # chunk it for 5000 by default
+                for batch in self.chunks(
+                    node_ids, 5000
+                ):  # chunk it for 5000 by default
                     rel_batch_count += 1
                     detached_nodes_count = self._detach_nodes_by_ids(node_ids=batch)
-                    print(f"Detached rels count for batch {rel_batch_count}: ", detached_nodes_count)
+                    print(
+                        f"Detached rels count for batch {rel_batch_count}: ",
+                        detached_nodes_count,
+                    )
                     detached_rels += detached_nodes_count
                 print(f"Total relationships detached: {detached_rels}")
                 # then delete nodes in batches
                 print("Start deleting nodes...")
                 node_batch_count = 0
-                for batch in self.chunks(node_ids, 5000): # chunk it for 5000 by default
+                for batch in self.chunks(
+                    node_ids, 5000
+                ):  # chunk it for 5000 by default
                     node_batch_count += 1
                     deleted_nodes_count = self._delete_nodes_by_ids(node_ids=batch)
-                    print(f"Deleted nodes count for batch {node_batch_count}: ", deleted_nodes_count)
+                    print(
+                        f"Deleted nodes count for batch {node_batch_count}: ",
+                        deleted_nodes_count,
+                    )
                     deleted_nodes += deleted_nodes_count
                 print(f"Total nodes deleted: {deleted_nodes}")
             else:
@@ -921,7 +1062,9 @@ class Loader:
                 print(f"Total nodes deleted: {deleted_nodes}")
         return {"nodes_deleted": deleted_nodes, "relationships_detached": detached_rels}
 
-    def _get_rooted_subgraph_nodes_ids(self, root_node_label: str, root_node_property: str, subgraph_value: str) -> list[int]:
+    def _get_rooted_subgraph_nodes_ids(
+        self, root_node_label: str, root_node_property: str, subgraph_value: str
+    ) -> list[int]:
         """Returns a list of node id property values in a rooted subgraph defined by the root node, such as study node.
 
         Args:
@@ -944,7 +1087,7 @@ class Loader:
             return record["node_ids"] if record else []
 
     def _detach_nodes_by_ids(self, node_ids: list[int]) -> int:
-        """detach any relationship of matched nodes using a list of IDs 
+        """detach any relationship of matched nodes using a list of IDs
 
         Args:
             node_ids (list[int]): A list of IDs of nodes
@@ -996,7 +1139,7 @@ class Loader:
         intermediate_root_node_label: str,
         intermediate_root_node_prop: str,
         intermediate_root_node_prop_value: str,
-        viz_filename: str|None = "intermediate_anchored_traversals.html",
+        viz_filename: str | None = "intermediate_anchored_traversals.html",
     ) -> str:
         """Identify all possible descendant traversals from an intermedaite root node which sits in within a larger rooted subgraph.
         A common use case is to identify all traversals from a participant node (intermediate root node) within a study subgraph (root node). For example we havean ineligible participant that we want to delete from the a study subgraph, we first need to identify all the descendant traversals from this participant node that we want to delete.
@@ -1028,11 +1171,13 @@ class Loader:
             print("No graph data found for the given intermediate anchored traversal.")
             return None
         if len(graph_obj.nodes) > 1000:
-            print("Warning: large graph deteted with more than 1000 nodes, graph too large to render safely.")
+            print(
+                "Warning: large graph deteted with more than 1000 nodes, graph too large to render safely."
+            )
             return None
         else:
             VG = from_neo4j(graph_obj)
-            html_obj = VG.render(layout="forcedirected",height="900px")
+            html_obj = VG.render(layout="forcedirected", height="900px")
             html_str = getattr(html_obj, "data", None)
             if html_str is None:
                 html_str = str(html_obj)
@@ -1110,13 +1255,15 @@ class Loader:
         return output_filename
 
     @staticmethod
-    def cypher_path_to_compact_dict(p:Path, model_parser: "ModelParser", id_field: str = "guid") -> Dict[str, Any]:
+    def cypher_path_to_compact_dict(
+        p: Path, model_parser: "ModelParser", id_field: str = "guid"
+    ) -> Dict[str, Any]:
         """Extracts selected fields from Path object and returns a compact dict
 
         Args:
             p (Path): A neo4j.graph.Path object from neo4j cypger query with path reutrn
             model_parser (ModelParser): A model parser instance
-            id_field (str, optional): The unique identifier field. Defaults to "guid". 
+            id_field (str, optional): The unique identifier field. Defaults to "guid".
 
         Returns:
             Dict[str, Any]: a compact dictionary representing the path with two keys, "nodes" and "relationships"
@@ -1129,10 +1276,10 @@ class Loader:
             node_key_prop = model_parser.get_node_key_prop(node_name=node_type)
 
             node_dict = {
-                            "ID": getattr(node, "element_id", None) or getattr(node, "id", None),
-                            "type": node_type,
-                            "properties": {},
-                        }
+                "ID": getattr(node, "element_id", None) or getattr(node, "id", None),
+                "type": node_type,
+                "properties": {},
+            }
             if node_key_prop:
                 node_dict["properties"][node_key_prop] = node.get(node_key_prop)
             node_dict["properties"][id_field] = node.get(id_field)
@@ -1140,19 +1287,19 @@ class Loader:
         # process relationships
         for rel in p.relationships:
             rel_dict = {
-                            "ID": getattr(rel, "element_id", None) or getattr(rel, "id", None),
-                            "type": rel.type,
-                            "start_node": {
-                                "ID": getattr(rel.start_node, "element_id", None)
-                                      or getattr(rel.start_node, "id", None),
-                                "type": next(iter(rel.start_node.labels), None),
-                            },
-                            "end_node": {
-                                "ID": getattr(rel.end_node, "element_id", None)
-                                      or getattr(rel.end_node, "id", None),
-                                "type": next(iter(rel.end_node.labels), None),
-                            },
-                        }
+                "ID": getattr(rel, "element_id", None) or getattr(rel, "id", None),
+                "type": rel.type,
+                "start_node": {
+                    "ID": getattr(rel.start_node, "element_id", None)
+                    or getattr(rel.start_node, "id", None),
+                    "type": next(iter(rel.start_node.labels), None),
+                },
+                "end_node": {
+                    "ID": getattr(rel.end_node, "element_id", None)
+                    or getattr(rel.end_node, "id", None),
+                    "type": next(iter(rel.end_node.labels), None),
+                },
+            }
             path_dict["relationships"].append(rel_dict)
         return path_dict
 
@@ -1202,7 +1349,9 @@ class Loader:
         if len(return_nodes) != 0:
             for node in return_nodes:
                 out = {"ID": None, "type": None, "properties": None}
-                out["ID"] = getattr(node, "element_id", None) or getattr(node, "id", None)
+                out["ID"] = getattr(node, "element_id", None) or getattr(
+                    node, "id", None
+                )
                 out["type"] = next(iter(node.labels), None)
                 node_type = out["type"]
                 node_key_prop = model_parser.get_node_key_prop(node_name=node_type)
