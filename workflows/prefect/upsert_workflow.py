@@ -336,11 +336,7 @@ def upsert_files(
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
     folder_dl(tsv_bucket, tsv_folder)
-    #file_list = [
-    #    os.path.join(tsv_folder, f)
-    #    for f in os.listdir(tsv_folder)
-    #    if f.endswith(".tsv")
-    #]
+    # search for tsv files recursively under tsv_folder
     file_list = Validator.find_tsv_files(tsv_folder)
     file_list_names = [os.path.basename(f) for f in file_list]
     print(f"File list to be processed: {*file_list_names,}")
