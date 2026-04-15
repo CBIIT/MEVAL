@@ -269,11 +269,11 @@ class Loader:
                 summary_list.append(result_summary)
 
         # combine counts in all summaries into one
-        return_summary = {key: 0 for key in summary_list[0].keys()}
+        return_summary = defaultdict(int)
         for summary in summary_list:
             for key, value in summary.items():
                 return_summary[key] += value
-        return return_summary
+        return dict(return_summary)
 
     @staticmethod
     def generate_chunk_relationships(
@@ -471,11 +471,11 @@ class Loader:
                     raise e
         # combine counts in all summaries into one
         print(json.dumps(summary_list, indent=2))
-        return_summary = {key: 0 for key in summary_list[0].keys()}
+        return_summary = defaultdict(int)
         for summary in summary_list:
             for key, value in summary.items():
                 return_summary[key] += value
-        return return_summary
+        return dict(return_summary)
 
     @staticmethod
     def remove_chunk_duplicates(
@@ -650,11 +650,11 @@ class Loader:
                         print("Error deleting relationships: ", e)
                     raise e
         # combine counts in all summaries into one
-        return_summary = {key: 0 for key in counters_list[0].keys()}
+        return_summary = defaultdict(int)
         for summary in counters_list:
             for key, value in summary.items():
                 return_summary[key] += value
-        return return_summary
+        return dict(return_summary)
 
     @staticmethod
     def turn_remain_row_list_to_dict(
@@ -878,11 +878,11 @@ class Loader:
             }, processed_rel_dict
         else:
             # combine counts in all summaries into one
-            return_summary = {key: 0 for key in summary_list[0].keys()}
+            return_summary = defaultdict(int)
             for summary in summary_list:
                 for key, value in summary.items():
                     return_summary[key] += value
-            return return_summary, processed_rel_dict
+            return dict(return_summary), processed_rel_dict
 
     def _list_index(self) -> list:
         """List all indexes in the database.
