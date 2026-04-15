@@ -2,6 +2,7 @@ from datetime import datetime
 from prefect import flow, task
 from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
+from src.validator import Validator
 from src.parser import ModelParser
 from src.utils import parse_file_url, get_secret_centralized_worker, file_dl_s3, file_ul_s3, folder_dl_s3
 from neo4j import GraphDatabase
@@ -335,11 +336,8 @@ def upsert_files(
     # download tsv folder
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
     folder_dl(tsv_bucket, tsv_folder)
-    file_list = [
-        os.path.join(tsv_folder, f)
-        for f in os.listdir(tsv_folder)
-        if f.endswith(".tsv")
-    ]
+    # search for tsv files recursively under tsv_folder
+    file_list = Validator.find_tsv_files(tsv_folder)
     file_list_names = [os.path.basename(f) for f in file_list]
     print(f"File list to be processed: {*file_list_names,}")
     file_logger.info(f"File counts to be processed: {len(file_list)}")
