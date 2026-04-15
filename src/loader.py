@@ -404,7 +404,7 @@ class Loader:
                         ELSE "matched"
                     END AS status
                 WHERE status <> "matched"
-                RETURN edge.src_match, edge.dst_match, status
+                RETURN edge.src_match as src_match, edge.dst_match as dst_match, status
                 """
                 params = {"edges": group}
                 try:
@@ -422,6 +422,7 @@ class Loader:
                             "status",
                         ]
                         for item in missing_pair:
+                            print(json.dumps(item, indent=2))
                             item["src_label"] = src_label
                             item["dst_label"] = dst_label
                             # reorder the keys in the item dictionary
