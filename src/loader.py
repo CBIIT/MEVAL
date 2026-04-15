@@ -437,7 +437,15 @@ class Loader:
                                 json.dumps(
                                     missing_pair_with_label, indent=2, default=str
                                 ),
+                            )  
+                        print(
+                            f"{len(missing_pair_with_label)} out of {len(group)} rels ({src_label})-[{handle}]->({dst_label}) failed to upsert."
+                        )
+                        if logger:
+                            logger.error(
+                                f"{len(missing_pair_with_label)} out of {len(group)} rels ({src_label})-[{handle}]->({dst_label}) failed to upsert due to unmatched nodes"
                             )
+
                     else:
                         pass
 
@@ -451,11 +459,8 @@ class Loader:
                         f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
-                    if len(missing_pair_with_label) == len(group):
-                        print(
-                            f"All rels ({src_label})-[{handle}]->({dst_label}) failed to upsert."
-                        )
-                        print(vars(summary.counters))
+                    print("print vars(summary.counters):")
+                    print(vars(summary.counters))
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
                     if logger:
