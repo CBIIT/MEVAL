@@ -428,10 +428,10 @@ class Loader:
                             # reorder the keys in the item dictionary
                             item = {key: item[key] for key in desired_key_order}
                             missing_pair_with_label.append(item)
-                        print(
-                            "Relationships failed to upsert due to unmatched nodes:\n%s"
-                            + json.dumps(missing_pair_with_label, indent=2, default=str)
-                        )
+                        #print(
+                        #    "Relationships failed to upsert due to unmatched nodes:\n%s"
+                        #    + json.dumps(missing_pair_with_label, indent=2, default=str)
+                        #)
                         if logger:
                             logger.error(
                                 f"Rel upsert ({src_label})-[{handle}]->({dst_label}) (partially) failed due to unmatched nodes:\n",
@@ -440,7 +440,7 @@ class Loader:
                                 ),
                             )  
                         print(
-                            f"{len(missing_pair_with_label)} out of {len(group)} rels ({src_label})-[{handle}]->({dst_label}) failed to upsert."
+                            f"{len(missing_pair_with_label)} out of {len(group)} rels ({src_label})-[{handle}]->({dst_label}) failed to upsert due to unmatched nodes."
                         )
                         if logger:
                             logger.error(
