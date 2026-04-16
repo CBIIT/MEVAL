@@ -422,16 +422,11 @@ class Loader:
                             "status",
                         ]
                         for item in missing_pair:
-                            # print(json.dumps(item, indent=2))
                             item["src_label"] = src_label
                             item["dst_label"] = dst_label
                             # reorder the keys in the item dictionary
                             item = {key: item[key] for key in desired_key_order}
                             missing_pair_with_label.append(item)
-                        # print(
-                        #    "Relationships failed to upsert due to unmatched nodes:\n%s"
-                        #    + json.dumps(missing_pair_with_label, indent=2, default=str)
-                        # )
                         if logger:
                             logger.error(
                                 "Rel upsert (%s)-[%s]->(%s) (partially) failed due to unmatched nodes:\n%s",
