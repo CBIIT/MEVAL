@@ -434,7 +434,7 @@ class Loader:
                         )
                         if logger:
                             logger.error(
-                                "Rel upsert ({src_label})-[{handle}]->({dst_label}) (partially) failed due to unmatched nodes:\n%s",
+                                f"Rel upsert ({src_label})-[{handle}]->({dst_label}) (partially) failed due to unmatched nodes:\n",
                                 json.dumps(
                                     missing_pair_with_label, indent=2, default=str
                                 ),
@@ -460,8 +460,8 @@ class Loader:
                         f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
-                    print("print vars(summary.counters):")
-                    print(vars(summary.counters))
+                    #print("print vars(summary.counters):")
+                    #print(vars(summary.counters))
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
                     if logger:
@@ -470,7 +470,7 @@ class Loader:
                     ts.rollback()
                     raise e
         # combine counts in all summaries into one
-        print(json.dumps(summary_list, indent=2))
+        #print(json.dumps(summary_list, indent=2))
         return_summary = defaultdict(int)
         for summary in summary_list:
             for key, value in summary.items():
@@ -633,6 +633,8 @@ class Loader:
         counters_list = []
         with self.driver.session() as session:
             for (src_label, src_prop, dst_label, dst_prop), pairs in grouped.items():
+                # This cypher query won't return any unmatched rel, if eitehr src or dst node is missing, there won't be a match and thus no delete
+                # it also means, when this record was procecssed before, there wasn't any relationship established either
                 cypher = f"""
                 UNWIND $pairs AS pair
                 MATCH (src:{src_label} {{{src_prop}: pair.src_match}})
@@ -793,6 +795,7 @@ class Loader:
                             delimiter=delimiter,
                         )
                         if len(guid_old_rel_list) > 0:
+                            # even with guid_old_rel_list >0, there still might not be any relationship to delete if the previous processing didn't establish any relationship when a src or dst node not found
                             del_rel_summary = self.remove_rel_of_record(
                                 rel_list=guid_old_rel_list, logger=logger
                             )
