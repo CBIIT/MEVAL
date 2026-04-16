@@ -422,23 +422,26 @@ class Loader:
                             "status",
                         ]
                         for item in missing_pair:
-                            #print(json.dumps(item, indent=2))
+                            # print(json.dumps(item, indent=2))
                             item["src_label"] = src_label
                             item["dst_label"] = dst_label
                             # reorder the keys in the item dictionary
                             item = {key: item[key] for key in desired_key_order}
                             missing_pair_with_label.append(item)
-                        #print(
+                        # print(
                         #    "Relationships failed to upsert due to unmatched nodes:\n%s"
                         #    + json.dumps(missing_pair_with_label, indent=2, default=str)
-                        #)
+                        # )
                         if logger:
                             logger.error(
-                                f"Rel upsert ({src_label})-[{handle}]->({dst_label}) (partially) failed due to unmatched nodes:\n",
+                                "Rel upsert (%s)-[%s]->(%s) (partially) failed due to unmatched nodes:\n%s",
+                                src_label,
+                                handle,
+                                dst_label,
                                 json.dumps(
                                     missing_pair_with_label, indent=2, default=str
                                 ),
-                            )  
+                            )
                         print(
                             f"{len(missing_pair_with_label)} out of {len(group)} rels ({src_label})-[{handle}]->({dst_label}) failed to upsert due to unmatched nodes."
                         )
@@ -460,8 +463,8 @@ class Loader:
                         f"Rels ({src_label})-[{handle}]->({dst_label}) created:",
                         summary.counters.relationships_created,
                     )
-                    #print("print vars(summary.counters):")
-                    #print(vars(summary.counters))
+                    # print("print vars(summary.counters):")
+                    # print(vars(summary.counters))
                     summary_list.append(vars(summary.counters))
                 except Exception as e:
                     if logger:
@@ -470,7 +473,7 @@ class Loader:
                     ts.rollback()
                     raise e
         # combine counts in all summaries into one
-        #print(json.dumps(summary_list, indent=2))
+        # print(json.dumps(summary_list, indent=2))
         return_summary = defaultdict(int)
         for summary in summary_list:
             for key, value in summary.items():
