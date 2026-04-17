@@ -22,7 +22,7 @@ deployments:
     entrypoint: workflows/prefect/upsert_workflow.py:upsert_files
 
     parameters:
-      id_field: "guid"
+      uuid_field: "guid"
       delimiter: ";"
 
     pull:

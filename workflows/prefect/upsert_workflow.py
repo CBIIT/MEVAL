@@ -260,7 +260,7 @@ def upsert_files(
     tsv_folder_s3uri: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
-    id_field: str = "id",
+    uuid_field: str = "guid",
     delimiter: str = ";",
     subgraph_col: str | None = None,
     username_secret_key: str | None = None,
@@ -276,7 +276,7 @@ def upsert_files(
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files, e.g., s3://data-bucket/tsv-folder/.
         commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
-        id_field (str, optional): The field to use as the unique identifier for nodes. Defaults to "id".
+        uuid_field (str, optional): The field to use as the unique identifier for each data entry. Defaults to "guid".
         delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
         username_secret_key (str, optional): The secret key name for the username to access the DB instance within the secret. Defaults to None.
@@ -324,7 +324,7 @@ def upsert_files(
     )
 
     # create index in memgraph instance if not exist
-    index_in_db = myloader.create_index(model_parser=model_parser, id_field=id_field)
+    index_in_db = myloader.create_index(model_parser=model_parser, id_field=uuid_field)
     index_df = pd.DataFrame(index_in_db)
     print(
         f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
@@ -350,7 +350,7 @@ def upsert_files(
         loader=myloader,
         model_parser=model_parser,
         file_list=file_list,
-        id_field=id_field,
+        id_field=uuid_field,
         subgraph_col=subgraph_col,
         chunk_size=3000,
         delimiter=delimiter,
@@ -376,7 +376,7 @@ def upsert_files(
         loader=myloader,
         file_list=file_list,
         model_parser=model_parser,
-        id_field=id_field,
+        id_field=uuid_field,
         chunk_size=3000,
         delimiter=delimiter,
         logger=file_logger,
