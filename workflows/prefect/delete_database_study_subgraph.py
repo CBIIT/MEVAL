@@ -65,7 +65,7 @@ def delete_database_study_subgraph(
     for value in root_node_property_value:
         print(f"Preparing to delete subgraph with root node {root_node_label} of {root_node_property} = {value}...")
         with timer("Deleting subgraph"):
-            subgraph_deletion_summary = myloader.wipe_subgraph(root_node_label=root_node_label, root_node_prop=root_node_property, subgraph_value=value)
+            subgraph_deletion_summary = myloader.wipe_rooted_subgraph(root_node_label=root_node_label, root_node_prop=root_node_property, subgraph_value=value)
             deletion_summary[value] = subgraph_deletion_summary
         print(f"Completed deletion of subgraph with root node {root_node_label} of {root_node_property} = {value}. Summary: {subgraph_deletion_summary}")
     print("Summary of all deletions:", json.dumps(deletion_summary, indent=2))
