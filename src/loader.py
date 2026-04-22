@@ -968,29 +968,28 @@ class Loader:
 
     def wipe_database(self, batch_size: int = 10000) -> int:
         """Wipe the entire database.
-        Delete in batches
+        Delete in batches, committing each batch independently.
+        Can not rollback when error happens in the middle, but it is more efficient and less likely to run into transaction timeout issue than deleting all at once for large database.
         """
-        delete_nodes = 0
+        deleted_nodes = 0
         with self.driver.session() as session:
-            with session.begin_transaction() as tx:
-                while True:
-                    cypher = """
-                    MATCH (n)
-                    WITH n LIMIT $batch_size
-                    DETACH DELETE n
-                    RETURN count(n) AS deleted_count
-                    """
-                    try:
-                        result = tx.run(cypher, batch_size=batch_size)
-                        deleted_count = result.single()["deleted_count"]
-                        delete_nodes += deleted_count
-                        if deleted_count == 0:
-                            break
-                    except Exception as e:
-                        print("Error wiping database: ", e)
-                        tx.rollback()
-                        raise e
-        return delete_nodes
+            while True:
+                cypher = """
+                MATCH (n)
+                WITH n LIMIT $batch_size
+                DETACH DELETE n
+                RETURN count(n) AS deleted_count
+                """
+                try:
+                    result = session.run(cypher, batch_size=batch_size)
+                    deleted_count = result.single()["deleted_count"]
+                    deleted_nodes += deleted_count
+                    if deleted_count == 0:
+                        break
+                except Exception as e:
+                    print("Error wiping database: ", e)
+                    raise e
+        return deleted_nodes
 
     def wipe_rooted_subgraph(
         self,
