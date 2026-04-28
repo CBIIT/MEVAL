@@ -180,12 +180,12 @@ def upsert_rels_file_list(
 
 
 @task(name="Combine node and relationship upsert summaries", log_prints=True)
-def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dict:
+def combine_summaries(upsert_node_summary: dict, upsert_rel_summary: dict) -> dict:
     """Combines node upsert summary dict with relationship upsert summary dict
 
     Args:
         upsert_node_summary (dict): summary dictionary from node upsert
-        upser_rel_summary (dict): summary dictionary from relationship upsert
+        upsert_rel_summary (dict): summary dictionary from relationship upsert
 
     Returns:
         dict: a combined summary dictionary
@@ -195,7 +195,7 @@ def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dic
     keys = upsert_node_summary.keys()
     for key in keys:
         upsert_key_dict = upsert_node_summary[key]
-        rel_key_dict = upser_rel_summary.get(key, {})  # graceful missing key
+        rel_key_dict = upsert_rel_summary.get(key, {})  # graceful missing key
         key_dict = {}
         for subkey in upsert_key_dict.keys():
             if subkey == "properties_set":
