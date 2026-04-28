@@ -180,8 +180,17 @@ def upsert_rels_file_list(
 
 
 @task(name="Combine node and relationship upsert summaries", log_prints=True)
-@task(name="Combine node and relationship upsert summaries", log_prints=True)
 def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dict:
+    """Combines node upsert summary dict with relationship upsert summary dict
+
+    Args:
+        upsert_node_summary (dict): summary dictionary from node upsert
+        upser_rel_summary (dict): summary dictionary from relationship upsert
+
+    Returns:
+        dict: a combined summary dictionary
+
+    """
     return_dict = {}
     keys = upsert_node_summary.keys()
     for key in keys:
@@ -191,7 +200,7 @@ def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dic
         for subkey in upsert_key_dict.keys():
             if subkey == "properties_set":
                 key_dict["node_properties_set"] = upsert_key_dict[subkey]
-                key_dict["rel_properties_set"] = rel_key_dict.get(subkey, 0)
+                key_dict["rel_properties_set"] = rel_key_dict.get(subkey, 0) # in case of missing key
             else:
                 # use .get() with 0 default for keys that don't exist in rel_key_dict
                 # e.g. labels_added, nodes_created are node-only keys
