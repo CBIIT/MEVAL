@@ -180,29 +180,35 @@ def upsert_rels_file_list(
 
 
 @task(name="Combine node and relationship upsert summaries", log_prints=True)
-def combine_summaries(upsert_node_summary: dict, upser_rel_summary: dict) -> dict:
-    """Combines node upsert summary with relationship upsert summary
+def combine_summaries(upsert_node_summary: dict, upsert_rel_summary: dict) -> dict:
+    """Combines node upsert summary dict with relationship upsert summary dict
 
     Args:
         upsert_node_summary (dict): summary dictionary from node upsert
-        upser_rel_summary (dict): summary dictionary from relationship upsert
+        upsert_rel_summary (dict): summary dictionary from relationship upsert
 
     Returns:
         dict: a combined summary dictionary
+
     """
     return_dict = {}
-    # both summaries should have the same keys
     keys = upsert_node_summary.keys()
     for key in keys:
         upsert_key_dict = upsert_node_summary[key]
-        rel_key_dict = upser_rel_summary[key]
+        rel_key_dict = upsert_rel_summary.get(key, {})  # graceful missing key
         key_dict = {}
         for subkey in upsert_key_dict.keys():
             if subkey == "properties_set":
                 key_dict["node_properties_set"] = upsert_key_dict[subkey]
-                key_dict["rel_properties_set"] = rel_key_dict[subkey]
+                key_dict["rel_properties_set"] = rel_key_dict.get(subkey, 0) # in case of missing key
             else:
-                key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict[subkey]
+                # use .get() with 0 default for keys that don't exist in rel_key_dict
+                # e.g. labels_added, nodes_created are node-only keys
+                key_dict[subkey] = upsert_key_dict[subkey] + rel_key_dict.get(subkey, 0)
+        # also capture rel-only keys like relationships_created
+        for subkey in rel_key_dict.keys():
+            if subkey not in upsert_key_dict and subkey != "properties_set":
+                key_dict[subkey] = rel_key_dict[subkey]
         return_dict[key] = key_dict
     return return_dict
 
