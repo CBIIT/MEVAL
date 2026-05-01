@@ -1145,7 +1145,7 @@ class Validator:
                     required_props_for_type = [
                         i
                         for i in self.model.nodes[file_type].props
-                        if self.model.nodes[file_type].props[i].is_required
+                        if self.model.nodes[file_type].props[i].is_required is True
                     ]
                     missing_required_props = [
                         col
