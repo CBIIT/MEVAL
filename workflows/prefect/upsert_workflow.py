@@ -4,7 +4,14 @@ from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
 from src.validator import Validator
 from src.parser import ModelParser
-from src.utils import parse_file_url, get_secret_centralized_worker, file_dl_s3, file_ul_s3, folder_dl_s3
+from src.utils import (
+    parse_file_url,
+    get_secret_centralized_worker,
+    file_dl_s3,
+    file_ul_s3,
+    folder_dl_s3,
+    get_time,
+)
 from neo4j import GraphDatabase
 import os
 import pandas as pd
@@ -16,7 +23,6 @@ import json
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
-
 
 DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci"]
 
@@ -34,7 +40,9 @@ def get_secret_task(account: str, secret_name_path: str, secret_key_name: str) -
         str: Secret hash/token
     """
     secret_value = get_secret_centralized_worker(
-        secret_name_path=secret_name_path, secret_key_name=secret_key_name, account=account
+        secret_name_path=secret_name_path,
+        secret_key_name=secret_key_name,
+        account=account,
     )
     return secret_value
 
@@ -124,9 +132,9 @@ def upsert_records_file_list(
             subgraph_col=subgraph_col,
             chunk_size=chunk_size,
             delimiter=delimiter,
-            logger=logger
+            logger=logger,
         )
-        proc_end=timer()
+        proc_end = timer()
         if logger:
             logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
@@ -169,9 +177,9 @@ def upsert_rels_file_list(
             id_field=id_field,
             chunk_size=chunk_size,
             delimiter=delimiter,
-            logger=logger
+            logger=logger,
         )
-        proc_end=timer()
+        proc_end = timer()
         if logger:
             logger.info(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
         print(f"Time consumed (sec): {proc_end - proc_begin:.2f}")
@@ -200,7 +208,9 @@ def combine_summaries(upsert_node_summary: dict, upsert_rel_summary: dict) -> di
         for subkey in upsert_key_dict.keys():
             if subkey == "properties_set":
                 key_dict["node_properties_set"] = upsert_key_dict[subkey]
-                key_dict["rel_properties_set"] = rel_key_dict.get(subkey, 0) # in case of missing key
+                key_dict["rel_properties_set"] = rel_key_dict.get(
+                    subkey, 0
+                )  # in case of missing key
             else:
                 # use .get() with 0 default for keys that don't exist in rel_key_dict
                 # e.g. labels_added, nodes_created are node-only keys
@@ -257,7 +267,11 @@ def get_logger(log_file: str) -> logging.Logger:
     return logger
 
 
-@flow(log_prints=True, name="Dataloading Upsert Workflow")
+@flow(
+    log_prints=True,
+    name="Dataloading Upsert Workflow",
+    flow_run_name="loading_{commons_acronym}_{tag}_" + f"{get_time()}",
+)
 def upsert_files(
     db_account_id: str,
     db_creds_secret_name: str,
@@ -290,11 +304,15 @@ def upsert_files(
     """
     # retrieve db creds from AWS secrets manager
     uri = get_secret_task(
-        account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=uri_secret_key
+        account=db_account_id,
+        secret_name_path=db_creds_secret_name,
+        secret_key_name=uri_secret_key,
     )
     if username_secret_key is not None and password_secret_key is not None:
         username = get_secret_task(
-            account=db_account_id, secret_name_path=db_creds_secret_name, secret_key_name=username_secret_key
+            account=db_account_id,
+            secret_name_path=db_creds_secret_name,
+            secret_key_name=username_secret_key,
         )
         password = get_secret_task(
             account=db_account_id,
@@ -309,9 +327,7 @@ def upsert_files(
 
     # create a logger instance to record logger info in a file
     file_logger_name = f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    file_logger = get_logger(
-        log_file=file_logger_name
-    )
+    file_logger = get_logger(log_file=file_logger_name)
 
     # download model files
     data_model_yaml, props_yaml = download_model_files(
