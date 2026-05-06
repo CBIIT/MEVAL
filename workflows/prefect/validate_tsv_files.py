@@ -5,9 +5,10 @@ from bento_mdf import MDFReader
 import os
 import pandas as pd
 import json
-from typing import Literal
+from typing import Literal, List
+from typing_extensions import Annotated
 from src.utils import parse_file_url, get_time
-import logging
+from pydantic import AfterValidator
 from upsert_workflow import get_secret_task, file_dl, folder_dl, file_ul, get_logger
 import sys
 
@@ -18,6 +19,15 @@ DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "po
 ValidationItems = Literal["tsv_format_check", "record_check", "linkage_check", "unique_key_check"]
 
 
+def must_include_tsv(items: List[ValidationItems]) -> List[ValidationItems]:
+    if "tsv_format_check" not in items:
+        raise ValueError(
+            "'tsv_format_check' must always be included in the validation list"
+        )
+    return items
+
+ValidatedList = Annotated[List[ValidationItems], AfterValidator(must_include_tsv)]
+
 @flow(name="Validate TSV Files", log_prints=True, flow_run_name="validate_{commons_acronym}_{tag}_" + f"{get_time()}")
 def validate_tsv_files(
     output_bucket_loc: str,
@@ -25,7 +35,7 @@ def validate_tsv_files(
     commons_acronym: DropDownChoices,
     tag: str = "",
     delimiter: str = ";",
-    validation_items: list[ValidationItems] = [
+    validation_items: ValidatedList = [
         "tsv_format_check",
         "record_check",
         "linkage_check",
@@ -39,10 +49,10 @@ def validate_tsv_files(
     Args:
         output_bucket_loc (str): The S3 URI of a output bucket location where validation results will be uploaded.
         tsv_folder_s3uri (str): The S3 URI of a folder containing the TSV files to be validated. The workflow will look for all tsv files under this folder path and its subfolders.
-        commons_acronym (DropDownChoices): The acronym of the commons for which the TSV files are being validated. Pleasae select one from the dropdown list.
+        commons_acronym (DropDownChoices): The acronym of the commons for which the TSV files are being validated. Please select one from the dropdown list.
         tag (str, optional): An release tag of the commons data model. Defaults to "". If left empty, the workflow will download the model files from the main branch.
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
-        validation_items (list[ValidationItems], optional): A list of validation items to perform. Defaults to all validation checks. Unclick any item to skip the corresponding validation check.
+        validation_items (ValidatedList, optional): A list of validation items to perform. Defaults to all validation checks. Unclick any item to skip the corresponding validation check. Note that "tsv_format_check" must always be included as other validation checks depend on the files passing the format check.
     """
     flow_logger = get_run_logger()
     file_logger_name = (
