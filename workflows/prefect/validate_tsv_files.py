@@ -22,7 +22,7 @@ ValidationItems = Literal["tsv_format_check", "record_check", "linkage_check", "
 def must_include_tsv(items: List[ValidationItems]) -> List[ValidationItems]:
     if "tsv_format_check" not in items:
         raise ValueError(
-            "'tsv_format_check' must always be included in the validation list"
+            "'tsv_format_check' must always be included as other validation items depend on its results. Please include 'tsv_format_check' in the validation items list and rerun."
         )
     return items
 
@@ -43,8 +43,8 @@ def validate_tsv_files(
     ],
 ) -> None:
     """
-    Validates a set of TSV files for a study or a program using the Validator class. Please include all the files of a study/program when running the validation pipeline as partial files may have data issues overlooked.
-    Validation pipeline includes: tsv format checking, record validation, relationship validation, and uniqueness validation.
+    Validates a set of TSV files for a study or a program using the Validator class. Please include all the files of a study/program when running the validation pipeline as validating partial files may have data issues overlooked.
+    Validation pipeline includes: tsv format check, record check, relationship check, and unique key check.
 
     Args:
         output_bucket_loc (str): The S3 URI of a output bucket location where validation results will be uploaded.
@@ -52,7 +52,7 @@ def validate_tsv_files(
         commons_acronym (DropDownChoices): The acronym of the commons for which the TSV files are being validated. Please select one from the dropdown list.
         tag (str, optional): An release tag of the commons data model. Defaults to "". If left empty, the workflow will download the model files from the main branch.
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
-        validation_items (ValidatedList, optional): A list of validation items to perform. Defaults to all validation checks. Unclick any item to skip the corresponding validation check. Note that "tsv_format_check" must always be included as other validation checks depend on the files passing the format check.
+        validation_items (ValidatedList, optional): A list of validation items to perform. NOTE that "tsv_format_check" is mandatory and cannot be unselected.
     """
     flow_logger = get_run_logger()
     file_logger_name = (
