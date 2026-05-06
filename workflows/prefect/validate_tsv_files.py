@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
 
 DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci"]
+ValidationItems = Literal["tsv_format_check", "record_check", "linkage_check", "unique_key_check"]
 
 
 @flow(name="Validate TSV Files", log_prints=True, flow_run_name="validate_{commons_acronym}_{tag}_" + f"{get_time()}")
@@ -24,17 +25,24 @@ def validate_tsv_files(
     commons_acronym: DropDownChoices,
     tag: str = "",
     delimiter: str = ";",
+    validation_items: list[ValidationItems] = [
+        "tsv_format_check",
+        "record_check",
+        "linkage_check",
+        "unique_key_check",
+    ],
 ) -> None:
     """
     Validates a set of TSV files for a study or a program using the Validator class. Please include all the files of a study/program when running the validation pipeline as partial files may have data issues overlooked.
     Validation pipeline includes: tsv format checking, record validation, relationship validation, and uniqueness validation.
 
     Args:
-        output_bucket_loc (str): The S3 URI of the output bucket where validation results will be stored.
-        tsv_folder_s3uri (str): The S3 URI of the folder containing the TSV files to be validated.
-        commons_acronym (DropDownChoices): The acronym of the commons for which the TSV files are being validated.
-        tag (str, optional): An optional tag to append to the output file name. Defaults to "".
+        output_bucket_loc (str): The S3 URI of a output bucket location where validation results will be uploaded.
+        tsv_folder_s3uri (str): The S3 URI of a folder containing the TSV files to be validated. The workflow will look for all tsv files under this folder path and its subfolders.
+        commons_acronym (DropDownChoices): The acronym of the commons for which the TSV files are being validated. Pleasae select one from the dropdown list.
+        tag (str, optional): An release tag of the commons data model. Defaults to "". If left empty, the workflow will download the model files from the main branch.
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
+        validation_items (list[ValidationItems], optional): A list of validation items to perform. Defaults to all validation checks. Unclick any item to skip the corresponding validation check.
     """
     flow_logger = get_run_logger()
     file_logger_name = (
