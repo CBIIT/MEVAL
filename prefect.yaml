@@ -120,8 +120,11 @@ deployments:
 
   - name: meval-validation
     version: null
-    tags: ["MEVAL","dataloader", "validation"]
-    description: "Prefect test deployment for validation of a set of tsv files for a study or a program"
+    tags: ["MEVAL", "dataloader", "validation"]
+    description: |
+      Validates a set of TSV files for a study or a program using the Validator class. Please include all the files of a study/program when running the validation pipeline as validating partial files may have data issues overlooked.
+      Validation pipeline includes: tsv format check, record check, relationship check, and unique key check.
+      NOTE: "tsv_format_check" is mandatory as other validation checks depend on the files passing the format check.
     entrypoint: workflows/prefect/validate_tsv_files.py:validate_tsv_files
     parameters:
       delimiter: ";"
