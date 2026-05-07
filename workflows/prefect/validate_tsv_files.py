@@ -86,10 +86,10 @@ def validate_tsv_files(
     )
     if len(format_val_results) > 0:
         flow_logger.error(
-            f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}"
+            f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
         )
         file_logger.error(
-            f"Format validation found issues in the following files: {', '.join(format_val_results.keys())}"
+            f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
         )
         # write format validation results to as a json file
         format_val_filename = (
@@ -126,8 +126,10 @@ def validate_tsv_files(
         if "record_check" in validation_items:
             # Validate records in tsv files that passed format validation
             record_val_results = {}
-            file_logger.info(f"Start record validation for files")
-            flow_logger.info(f"Start record validation for files")
+            file_logger.info(f"Start record validation for {len(format_valid_files)} files")
+            flow_logger.info(
+                f"Start record validation for {len(format_valid_files)} files"
+            )
             for file in format_valid_files:
                 file_logger.info(f"Validating records in file {file}")
                 flow_logger.info(f"Validating records in file {file}")
@@ -179,8 +181,8 @@ def validate_tsv_files(
 
         if "linkage_check" in validation_items:
             # validate relationships between files that passed format validation
-            flow_logger.info(f"Start relationship validation for files")
-            file_logger.info(f"Start relationship validation for files")
+            flow_logger.info(f"Start relationship validation for {len(format_valid_files)} files")
+            file_logger.info(f"Start relationship validation for {len(format_valid_files)} files")
             rel_val_results = validator.validate_tsv_rels(
                 file_path_list=format_valid_files, rel_delimiter=delimiter
             )
@@ -225,8 +227,8 @@ def validate_tsv_files(
 
         if "unique_key_check" in validation_items:
             # validation uniq entry based off key properties
-            flow_logger.info(f"Start unique key validation for files")
-            file_logger.info(f"Start unique key validation for files")
+            flow_logger.info(f"Start unique key validation for {len(format_valid_files)} files")
+            file_logger.info(f"Start unique key validation for {len(format_valid_files)} files")
             uniq_key_val_results = validator.validate_tsv_uniq_entry(
                 file_path_list=format_valid_files
             )
