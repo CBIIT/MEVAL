@@ -881,12 +881,12 @@ class Validator:
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
 
-                    rel_col_values = file_df[rel_col].astype(str)
+                    rel_col_values = file_df[rel_col]
                     for i in rel_col_values.index:
                         # row number is i+2 since the index starts from 0 and the record starts from the second row in the file
                         if (
                             pd.isna(rel_col_values[i])
-                            or rel_col_values[i].strip() == ""
+                            or str(rel_col_values[i]).strip() == ""
                         ):
                             continue
                         else:
@@ -894,7 +894,7 @@ class Validator:
                             if rel_multi in ["many_to_many", "one_to_many"]:
                                 i_value_list = [
                                     item.strip()
-                                    for item in rel_col_values[i].split(rel_delimiter)
+                                    for item in str(rel_col_values[i]).split(rel_delimiter)
                                 ]
                                 for item in i_value_list:
                                     if item not in parent_key_values:
@@ -915,7 +915,7 @@ class Validator:
                                     else:
                                         pass
                             else:
-                                if rel_col_values[i].strip() not in parent_key_values:
+                                if str(rel_col_values[i]).strip() not in parent_key_values:
                                     if str(file) not in validation_results:
                                         validation_results[str(file)] = []
                                     validation_results[str(file)].append(
@@ -923,10 +923,10 @@ class Validator:
                                             "row": i
                                             + 2,  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                             "edge_column": rel_col,
-                                            "invalid_value": rel_col_values[i],
+                                            "invalid_value": str(rel_col_values[i]),
                                             "edge_src": file_type,
                                             "edge_dst": rel_col_parent,
-                                            "message": f"Failed to find '{rel_col_values[i]}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
+                                            "message": f"Failed to find '{str(rel_col_values[i])}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
                                         }
                                     )
                                 else:
