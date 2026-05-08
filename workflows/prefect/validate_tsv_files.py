@@ -200,10 +200,10 @@ def validate_tsv_files(
             files_with_rel_issues = list(rel_val_results.keys())
             if len(files_with_rel_issues) > 0:
                 flow_logger.warning(
-                    f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}"
+                    f"Found relationship issues in the following {len(files_with_rel_issues)} files: {', '.join(files_with_rel_issues)}"
                 )
                 file_logger.warning(
-                    f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}"
+                    f"Found relationship issues in the following {len(files_with_rel_issues)} files: {', '.join(files_with_rel_issues)}"
                 )
                 rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 with open(rel_val_filename, "w") as f:
