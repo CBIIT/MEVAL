@@ -1176,7 +1176,7 @@ class Validator:
                     if len(invalid_cols) > 0:
                         validation_errors.append(
                             {
-                                "level": "error",
+                                "level": "warning",
                                 "type": "invalid_property_column",
                                 "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_cols)}",
                             }

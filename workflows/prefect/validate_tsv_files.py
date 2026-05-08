@@ -108,9 +108,17 @@ def validate_tsv_files(
         flow_logger.info("All files passed tsv format validation.")
         file_logger.info("All files passed tsv format validation.")
 
-    # we can only perform further validation if the the file passes the format validation
+    # A file is format-valid for downstream checks if it has no format results
+    # or only warning-level items (no error-level items).
     format_valid_files = [
-        file for file in tsv_file_str_list if file not in format_val_results
+        file
+        for file in tsv_file_str_list
+        if file not in format_val_results
+        or not any(
+            str(item.get("level", "")).lower() == "error"
+            for item in format_val_results.get(file, [])
+            if isinstance(item, dict)
+        )
     ]
     flow_logger.info(
         f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated"
