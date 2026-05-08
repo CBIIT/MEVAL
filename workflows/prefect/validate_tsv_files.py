@@ -83,11 +83,15 @@ def validate_tsv_files(
         file_path_list=tsv_file_list
     )
     if len(format_val_results) > 0:
-        flow_logger.error(
+        flow_logger.warning(
             f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
         )
-        file_logger.error(
+        flow_logger.warning("Files with only warning level format issue are still considered format-valid for downstream validation checks.")
+        file_logger.warning(
             f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
+        )
+        file_logger.warning(
+            "Files with only warning level format issue are still considered format-valid for downstream validation checks."
         )
         # write format validation results to as a json file
         format_val_filename = (
