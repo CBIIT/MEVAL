@@ -876,12 +876,12 @@ class Validator:
                             na_values=[""],  # treat empty strings as NaN
                         )
                         parent_key_values += (
-                            parent_file_df[rel_col_parent_key_prop].dropna().tolist()
+                            parent_file_df[rel_col_parent_key_prop].dropna().astype(str).tolist()
                         )
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
 
-                    rel_col_values = file_df[rel_col]
+                    rel_col_values = file_df[rel_col].astype(str)
                     for i in rel_col_values.index:
                         # row number is i+2 since the index starts from 0 and the record starts from the second row in the file
                         if (
