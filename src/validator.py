@@ -258,14 +258,19 @@ class Validator:
         # convert str to list if property type is list
         # the record_dict should only contain value that is not empty string
         for key in record_dict.keys():
-            key_prop = mdf.model.nodes[record_type].props[key]
-            key_prop_type = key_prop.value_domain
-            if key_prop_type == "list":
-                key_value = record_dict[key]
-                key_value_list = [item.strip() for item in key_value.split(delimiter)]
-                record_dict[key] = key_value_list
+            # there is a chance that a property is not defined in the model
+            if key not in mdf.model.nodes[record_type].props:
+                continue
+            # if the key_prop is defined in the model, check if it's a list.
             else:
-                pass
+                key_prop = mdf.model.nodes[record_type].props[key]
+                key_prop_type = key_prop.value_domain
+                if key_prop_type == "list":
+                    key_value = record_dict[key]
+                    key_value_list = [item.strip() for item in key_value.split(delimiter)]
+                    record_dict[key] = key_value_list
+                else:
+                    pass
 
         return record_dict
 
