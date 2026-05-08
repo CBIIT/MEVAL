@@ -769,6 +769,8 @@ class Validator:
                     escapechar="\\",  # add escape char to handle special characters
                     keep_default_na=False,
                     na_values=[""],  # treat empty strings as NaN
+                    dtype=str, # enforce all the columns read as str to avoid miss interpretion of rel columns as float type 
+                    # this change won't affect record valdiation, as this method is only reading relationship cols
                 )
                 file_type = file_df["type"].iloc[0]
                 rel_cols = [col for col in file_df.columns if "." in col]
@@ -874,6 +876,7 @@ class Validator:
                             escapechar="\\",  # add escape char to handle special characters
                             keep_default_na=False,
                             na_values=[""],  # treat empty strings as NaN
+                            dtype=str, # Also only reads df as str type as we only need information of key prop col
                         )
                         parent_key_values += (
                             parent_file_df[rel_col_parent_key_prop].dropna().astype(str).tolist()
