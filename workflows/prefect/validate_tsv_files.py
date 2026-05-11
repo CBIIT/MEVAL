@@ -83,11 +83,15 @@ def validate_tsv_files(
         file_path_list=tsv_file_list
     )
     if len(format_val_results) > 0:
-        flow_logger.error(
+        flow_logger.warning(
             f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
         )
-        file_logger.error(
+        flow_logger.warning("Files with only warning level format issue are still considered format-valid for downstream validation checks.")
+        file_logger.warning(
             f"Format validation found issues in the following {len(format_val_results)} files: {', '.join(format_val_results.keys())}"
+        )
+        file_logger.warning(
+            "Files with only warning level format issue are still considered format-valid for downstream validation checks."
         )
         # write format validation results to as a json file
         format_val_filename = (
@@ -108,9 +112,17 @@ def validate_tsv_files(
         flow_logger.info("All files passed tsv format validation.")
         file_logger.info("All files passed tsv format validation.")
 
-    # we can only perform further validation if the the file passes the format validation
+    # A file is format-valid for downstream checks if it has no format results
+    # or only warning-level items (no error-level items).
     format_valid_files = [
-        file for file in tsv_file_str_list if file not in format_val_results
+        file
+        for file in tsv_file_str_list
+        if file not in format_val_results
+        or not any(
+            str(item.get("level", "")).lower() == "error"
+            for item in format_val_results.get(file, [])
+            if isinstance(item, dict)
+        )
     ]
     flow_logger.info(
         f"A total of {len(format_valid_files)} files passed tsv format validation and will be further validated"
@@ -188,10 +200,10 @@ def validate_tsv_files(
             files_with_rel_issues = list(rel_val_results.keys())
             if len(files_with_rel_issues) > 0:
                 flow_logger.warning(
-                    f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}"
+                    f"Found relationship issues in the following {len(files_with_rel_issues)} files: {', '.join(files_with_rel_issues)}"
                 )
                 file_logger.warning(
-                    f"Found relationship issues in the following files: {', '.join(files_with_rel_issues)}"
+                    f"Found relationship issues in the following {len(files_with_rel_issues)} files: {', '.join(files_with_rel_issues)}"
                 )
                 rel_val_filename = f"relationship_validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 with open(rel_val_filename, "w") as f:

@@ -258,14 +258,19 @@ class Validator:
         # convert str to list if property type is list
         # the record_dict should only contain value that is not empty string
         for key in record_dict.keys():
-            key_prop = mdf.model.nodes[record_type].props[key]
-            key_prop_type = key_prop.value_domain
-            if key_prop_type == "list":
-                key_value = record_dict[key]
-                key_value_list = [item.strip() for item in key_value.split(delimiter)]
-                record_dict[key] = key_value_list
+            # there is a chance that a property is not defined in the model
+            if key not in mdf.model.nodes[record_type].props:
+                continue
+            # if the key_prop is defined in the model, check if it's a list.
             else:
-                pass
+                key_prop = mdf.model.nodes[record_type].props[key]
+                key_prop_type = key_prop.value_domain
+                if key_prop_type == "list":
+                    key_value = record_dict[key]
+                    key_value_list = [item.strip() for item in key_value.split(delimiter)]
+                    record_dict[key] = key_value_list
+                else:
+                    pass
 
         return record_dict
 
@@ -764,6 +769,8 @@ class Validator:
                     escapechar="\\",  # add escape char to handle special characters
                     keep_default_na=False,
                     na_values=[""],  # treat empty strings as NaN
+                    dtype=str, # enforce all the columns read as str to avoid miss interpretion of rel columns as float type 
+                    # this change won't affect record valdiation, as this method is only reading relationship cols
                 )
                 file_type = file_df["type"].iloc[0]
                 rel_cols = [col for col in file_df.columns if "." in col]
@@ -869,9 +876,10 @@ class Validator:
                             escapechar="\\",  # add escape char to handle special characters
                             keep_default_na=False,
                             na_values=[""],  # treat empty strings as NaN
+                            dtype=str, # Also only reads df as str type as we only need information of key prop col
                         )
                         parent_key_values += (
-                            parent_file_df[rel_col_parent_key_prop].dropna().tolist()
+                            parent_file_df[rel_col_parent_key_prop].dropna().astype(str).tolist()
                         )
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
@@ -881,7 +889,7 @@ class Validator:
                         # row number is i+2 since the index starts from 0 and the record starts from the second row in the file
                         if (
                             pd.isna(rel_col_values[i])
-                            or rel_col_values[i].strip() == ""
+                            or str(rel_col_values[i]).strip() == ""
                         ):
                             continue
                         else:
@@ -889,7 +897,7 @@ class Validator:
                             if rel_multi in ["many_to_many", "one_to_many"]:
                                 i_value_list = [
                                     item.strip()
-                                    for item in rel_col_values[i].split(rel_delimiter)
+                                    for item in str(rel_col_values[i]).split(rel_delimiter)
                                 ]
                                 for item in i_value_list:
                                     if item not in parent_key_values:
@@ -910,7 +918,7 @@ class Validator:
                                     else:
                                         pass
                             else:
-                                if rel_col_values[i].strip() not in parent_key_values:
+                                if str(rel_col_values[i]).strip() not in parent_key_values:
                                     if str(file) not in validation_results:
                                         validation_results[str(file)] = []
                                     validation_results[str(file)].append(
@@ -918,10 +926,10 @@ class Validator:
                                             "row": i
                                             + 2,  # add 2 to get the actual row number in the file since the index starts from 0 and the record starts from the second row in the file
                                             "edge_column": rel_col,
-                                            "invalid_value": rel_col_values[i],
+                                            "invalid_value": str(rel_col_values[i]),
                                             "edge_src": file_type,
                                             "edge_dst": rel_col_parent,
-                                            "message": f"Failed to find '{rel_col_values[i]}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
+                                            "message": f"Failed to find '{str(rel_col_values[i])}' in '{rel_col_parent}' file at column '{rel_col_parent_key_prop}': {', '.join(parent_files)}",
                                         }
                                     )
                                 else:
@@ -1176,7 +1184,7 @@ class Validator:
                     if len(invalid_cols) > 0:
                         validation_errors.append(
                             {
-                                "level": "error",
+                                "level": "warning",
                                 "type": "invalid_property_column",
                                 "message": f"Invalid column(s) found in the file that are not defined as properties for file type '{file_type}' in the data model definition: {', '.join(f"'{col}'" for col in invalid_cols)}",
                             }
