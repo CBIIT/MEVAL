@@ -87,7 +87,7 @@ def find_floating_db_nodes(
     file_ul_s3(
         bucket=output_bucket,
         output_folder=output_folder,
-        sub_folder=None,
+        sub_folder="",
         newfile=output_filename,
     )
     logger.info(f"Finished uploading {output_filename} to s3://{output_bucket}/{output_folder}/")
