@@ -77,7 +77,9 @@ def find_floating_db_nodes(
     output_bucket, output_folder = parse_file_url(output_bucket_loc)
     loader = Loader(driver=driver)
     logger.info("Finding floating nodes in the database...")
-    floating_nodes_generator = loader.find_floating_nodes(root_node_label=root_node_label)
+    floating_nodes_generator = loader.find_nodes_without_path_to_root(
+        root_node_label=root_node_label
+    )
 
     output_filename = f"node_no_path_to_{root_node_label}_{get_time()}.json"
     write_json_streaming(floating_nodes_generator, output_filename)
