@@ -1,6 +1,6 @@
 from time import time
 import pandas as pd
-from typing import Dict, Generator, Any, Optional, Tuple
+from typing import Dict, Generator, Any, Optional, Tuple, Generator
 from operator import itemgetter
 from itertools import groupby
 import os
@@ -1369,3 +1369,34 @@ class Loader:
         else:
             pass
         return return_node_list
+
+    def find_nodes_without_path_to_root(
+        self,
+        root_node_label: str,
+    ) -> Generator[dict[str, Any], None, None]:
+        """Find nodes that do not have a path to any root node. A common use case is to find nodes that are not connected to any study/program node in the graph, which means they are orphan nodes or they are connected to some other nodes but the path to root node is missing in the graph database.
+
+        Args:
+            root_node_label (str): The label of the root node, such as "study" or "program". Root nodes deosn't have OUTGOING relationship to any other nodes.
+
+        Returns:
+            Generator[dict[str, Any], None, None]: A generator of dictionaries representing the nodes without path to root.
+        """
+        query = f"""
+        MATCH (n)
+        WHERE NOT n:{root_node_label}
+        AND NOT EXISTS ((n)-[*]->(:{root_node_label}))
+        RETURN n
+        """
+        with self.driver.session() as session:
+            result = session.run(query)
+            nodes_without_path_to_root = []
+            for record in result:
+                node = record["n"]
+                yield {
+                    "db_internal_id": getattr(node, "id", None)
+                    or getattr(node, "element_id", None),
+                    "type": next(iter(node.labels), None),
+                    "properties": {k: node.get(k) for k in node.keys()},
+                }
+
