@@ -21,6 +21,14 @@ def write_json_streaming(generator, filepath):
         f.write(']')
 
 
+def is_json_empty(filepath: str) -> bool:
+    with open(filepath, "r") as f:
+        data = json.load(f)
+    if len(data) == 0:
+        return True
+    return False
+
+
 @flow(log_prints=True, name="Find floating nodes in the database")
 def find_floating_db_nodes(
     db_account_id: str,
@@ -81,14 +89,19 @@ def find_floating_db_nodes(
         root_node_label=root_node_label
     )
 
-    output_filename = f"node_no_path_to_{root_node_label}_{get_time()}.json"
+    output_filename = f"nodes_no_path_to_{root_node_label}_{get_time()}.json"
     write_json_streaming(floating_nodes_generator, output_filename)
-    logger.info(f"Finished writing floating nodes to {output_filename}. Uploading to S3...")
-    file_ul_s3(
-        bucket=output_bucket,
-        output_folder=output_folder,
-        sub_folder="",
-        newfile=output_filename,
-    )
-    logger.info(f"Finished uploading {output_filename} to s3://{output_bucket}/{output_folder}/")
+    if is_json_empty(output_filename):
+        logger.info("No floating nodes found in the database. Nothing to upload to s3.")
+        logger.info("Finished finding floating nodes in the database.")
+    else:
+        logger.warning(f"Found floating nodes in the database. Writing to {output_filename} and uploading to S3...")
+        file_ul_s3(
+            bucket=output_bucket,
+            output_folder=output_folder,
+            sub_folder="",
+            newfile=output_filename,
+        )
+        logger.info(f"Finished uploading {output_filename} to s3://{output_bucket}/{output_folder}/")
+        logger.info("Finished finding floating nodes in the database.")
     return None
