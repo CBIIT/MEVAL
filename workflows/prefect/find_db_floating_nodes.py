@@ -28,6 +28,22 @@ def is_json_empty(filepath: str) -> bool:
         return True
     return False
 
+def find_json_length(filepath: str) -> int:
+    with open(filepath, "r") as f:
+        data = json.load(f)
+    return len(data)
+
+def extract_internal_id_from_json(json_filepath: str, internal_id_key: str) -> str:
+    with open(json_filepath, "r") as f:
+        data = json.load(f)
+    internal_ids = []
+    for item in data:
+        if internal_id_key in item:
+            internal_ids.append(item[internal_id_key])
+        else:
+            pass
+    return internal_ids
+
 
 @flow(log_prints=True, name="Find floating nodes in the database")
 def find_floating_db_nodes(
@@ -36,6 +52,7 @@ def find_floating_db_nodes(
     uri_secret_key: str,
     output_bucket_loc: str,
     root_node_label: str = "study",
+    delete_floating_nodes_if_found: bool = False,
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
 ):
@@ -49,6 +66,7 @@ def find_floating_db_nodes(
         uri_secret_key (str): The key for the database URI in the secret.
         output_bucket_loc (str): The S3 bucket location to store the output list of floating nodes.
         root_node_label (str, optional): The label of the root node, such as "study" or "program". Defaults to "study".
+        delete_floating_nodes_if_found (bool, optional): Whether to delete the floating nodes found in the database. Defaults to False.
         username_secret_key (str | None, optional): The key for the database username in the secret. Defaults to None.
         password_secret_key (str | None, optional): The key for the database password in the secret. Defaults to None.
     """
@@ -102,6 +120,23 @@ def find_floating_db_nodes(
             sub_folder="",
             newfile=output_filename,
         )
-        logger.info(f"Finished uploading {output_filename} to s3://{output_bucket}/{output_folder}/")
+        file_length = find_json_length(output_filename)
+        logger.warning(f"Found {file_length} floating nodes in the database. Uploaded to s3://{output_bucket}/{output_folder}/{output_filename}")
         logger.info("Finished finding floating nodes in the database.")
+
+        # if runner decides to delete the floating nodes
+        if delete_floating_nodes_if_found:
+            logger.warning("deleting_floating_nodes_if_found flag is set to True. Deleting floating nodes from the database...")
+            internal_id_key = "db_internal_id"
+            internal_ids_to_delete = extract_internal_id_from_json(output_filename, internal_id_key)
+            deleted_count = loader.delete_nodes_by_internal_id(
+                identifier_list=internal_ids_to_delete
+            )
+            logger.info(f"Deleted {deleted_count} floating nodes from the database.")
+        else:
+            logger.info("deleting_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database.")
+
+        logger.info("Workflow finished.")
+
+    loader.close()
     return None

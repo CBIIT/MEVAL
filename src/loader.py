@@ -1390,13 +1390,103 @@ class Loader:
         """
         with self.driver.session() as session:
             result = session.run(query)
-            nodes_without_path_to_root = []
             for record in result:
                 node = record["n"]
+                db_internal_id = getattr(node, "id", None) or getattr(
+                    node, "element_id", None
+                )
                 yield {
-                    "db_internal_id": getattr(node, "id", None)
-                    or getattr(node, "element_id", None),
-                    "type": next(iter(node.labels), None),
-                    "properties": {k: node.get(k) for k in node.keys()},
+                    "db_internal_id": db_internal_id,
+                    "type": next(iter(node.labels), None), # there should be only one label of a data node
+                    "properties": {k: node.get(k) for k in node.keys()}
                 }
+    
+    def delete_nodes_by_internal_id(
+        self, identifier_list: list[str], batch_size: int = 5000
+    ) -> int:
+        """Delete nodes by internal node ID using `id(n)` in batches.
 
+        Args:
+            identifier_list (list[str]): Internal node IDs as strings, e.g. ["1", "42"].
+            batch_size (int, optional): Maximum number of IDs to delete per query.
+                Defaults to 5000.
+
+        Returns:
+            int: Number of nodes deleted.
+
+        Raises:
+            ValueError: If any identifier is not a valid integer.
+            ValueError: If batch_size is less than 1.
+            ClientError: If Neo4j query execution fails.
+        """
+        if not identifier_list:
+            return 0
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+
+        invalid_ids = []
+        node_ids = []
+        for identifier in identifier_list:
+            try:
+                node_ids.append(int(identifier))
+            except (TypeError, ValueError):
+                invalid_ids.append(identifier)
+
+        if invalid_ids:
+            raise ValueError(
+                f"All identifiers must be numeric internal IDs for either Neo4j 4+ or Memgraph instance. Invalid values: {invalid_ids}"
+            )
+
+        query = """
+        UNWIND $node_ids AS nid
+        MATCH (n)
+        WHERE id(n) = nid
+        WITH DISTINCT n
+        DETACH DELETE n
+        RETURN count(n) AS deleted_nodes
+        """
+        total_deleted = 0
+        with self.driver.session() as session:
+            for node_ids_batch in self.chunks(node_ids, batch_size):
+                result = session.run(query, node_ids=node_ids_batch)
+                record = result.single()
+                total_deleted += record["deleted_nodes"] if record else 0
+        return total_deleted
+    
+    def delete_nodes_by_prop_value(
+        self, identifier_list: list[str], property_name: str, batch_size: int = 5000
+    ) -> int:
+        """Delete nodes by property value in batches. We expect this property to be a universal unique identifier (UUID) property, such as "guid", or "id".
+
+        Args:
+            identifier_list (list[str]): A list of property values to match for deletion, e.g. ["uuid1", "uuid2"].
+            property_name (str): The property name to match.
+            batch_size (int, optional): Maximum number of nodes to delete per query.
+                Defaults to 5000.
+
+        Returns:
+            int: Number of nodes deleted.
+
+        Raises:
+            ValueError: If batch_size is less than 1.
+            ClientError: If Neo4j query execution fails.
+        """
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+
+        query = f"""
+        UNWIND $property_value AS prop_val
+        MATCH (n)
+        WHERE n.{property_name} = prop_val
+        WITH DISTINCT n
+        DETACH DELETE n
+        RETURN count(n) AS deleted_nodes
+        """
+        total_deleted = 0
+        with self.driver.session() as session:
+            for property_value_batch in self.chunks(identifier_list, batch_size):
+                result = session.run(query, property_value=property_value_batch)
+                record = result.single()
+                total_deleted += record["deleted_nodes"] if record else 0
+        return total_deleted
