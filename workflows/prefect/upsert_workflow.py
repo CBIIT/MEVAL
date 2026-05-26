@@ -288,10 +288,10 @@ def upsert_files(
     tag: str = "",
     uuid_field: str = "guid",
     delimiter: str = ";",
+    delete_floating_nodes_if_found: bool = False,
     subgraph_col: str | None = None,
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
-    delete_floating_nodes_if_found: bool = False,
 ):
     """
     Upsert data from TSV files into a graph database.
