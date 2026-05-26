@@ -310,7 +310,7 @@ def upsert_files(
         password_secret_key (str, optional): The secret key name for the password to access the DB instance within the secret. Defaults to None.
     """
     logger = get_run_logger()
-    
+
     # retrieve db creds from AWS secrets manager
     uri = get_secret_task(
         account=db_account_id,
@@ -435,14 +435,14 @@ def upsert_files(
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
-        sub_folder="MEVAL_upsert_summaries",
+        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
         newfile=tsv_output,
     )
     # upload the log file to s3
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
-        sub_folder="MEVAL_upsert_summaries",
+        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
         newfile=file_logger_name,
     )
 
@@ -464,7 +464,7 @@ def upsert_files(
         file_ul(
             bucket=output_bucket,
             output_folder=output_key_prefix,
-            sub_folder="MEVAL_upsert_summaries",
+            sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
             newfile=floating_nodes_filename,
         )
         if delete_floating_nodes_if_found:
