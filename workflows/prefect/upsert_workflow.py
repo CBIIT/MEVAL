@@ -1,5 +1,5 @@
 from datetime import datetime
-from prefect import flow, task
+from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 from src.loader import Loader
 from src.validator import Validator
@@ -11,6 +11,12 @@ from src.utils import (
     file_ul_s3,
     folder_dl_s3,
     get_time,
+)
+from workflows.prefect.find_db_floating_nodes import (
+    find_floating_db_nodes_flow,
+    delete_nodes_by_internal_id_flow,
+    find_json_length,
+    extract_internal_id_from_json,
 )
 from neo4j import GraphDatabase
 import os
@@ -285,6 +291,7 @@ def upsert_files(
     subgraph_col: str | None = None,
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
+    delete_floating_nodes_if_found: bool = False,
 ):
     """
     Upsert data from TSV files into a graph database.
@@ -302,6 +309,8 @@ def upsert_files(
         username_secret_key (str, optional): The secret key name for the username to access the DB instance within the secret. Defaults to None.
         password_secret_key (str, optional): The secret key name for the password to access the DB instance within the secret. Defaults to None.
     """
+    logger = get_run_logger()
+    
     # retrieve db creds from AWS secrets manager
     uri = get_secret_task(
         account=db_account_id,
@@ -336,8 +345,8 @@ def upsert_files(
     file_logger.info(
         f"Downloaded data model, props yaml: {data_model_yaml}, {props_yaml}"
     )
-    print(f"Downloaded data model yaml: {data_model_yaml}")
-    print(f"Downloaded properties yaml: {props_yaml}")
+    logger.info(f"Downloaded data model yaml: {data_model_yaml}")
+    logger.info(f"Downloaded properties yaml: {props_yaml}")
     # create model parser
     model_parser = ModelParser(
         model_file=data_model_yaml,
@@ -348,7 +357,7 @@ def upsert_files(
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=uuid_field)
     index_df = pd.DataFrame(index_in_db)
-    print(
+    logger.info(
         f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
     )
     file_logger.info(
@@ -361,12 +370,12 @@ def upsert_files(
     # search for tsv files recursively under tsv_folder
     file_list = Validator.find_tsv_files(tsv_folder)
     file_list_names = [os.path.basename(f) for f in file_list]
-    print(f"File list to be processed: {*file_list_names,}")
+    logger.info(f"File list to be processed: {*file_list_names,}")
     file_logger.info(f"File counts to be processed: {len(file_list)}")
 
     # upsert tsv files
     # first to load all the nodes
-    print("Starting node upsert...")
+    logger.info("Starting node upsert...")
     file_logger.info("(Node Upsert) Starting node upsert...")
     node_upsert_summary = upsert_records_file_list(
         loader=myloader,
@@ -384,15 +393,15 @@ def upsert_files(
     total_node_prop_set = sum(
         [value["properties_set"] for value in node_upsert_summary.values()]
     )
-    print("Node Upsert is complete.")
-    print(f"Nodes created: {total_nodes_created}")
-    print(f"Node properties set: {total_node_prop_set}")
+    logger.info("Node Upsert is complete.")
+    logger.info(f"Nodes created: {total_nodes_created}")
+    logger.info(f"Node properties set: {total_node_prop_set}")
     file_logger.info("Node Upsert is complete.")
     file_logger.info(f"Nodes created: {total_nodes_created}")
     file_logger.info(f"Node properties set: {total_node_prop_set}")
 
     # second to load all the relationships
-    print("Starting relationship upsert...")
+    logger.info("Starting relationship upsert...")
     file_logger.info("Starting relationship upsert...")
     rel_upsert_summary, _ = upsert_rels_file_list(
         loader=myloader,
@@ -410,9 +419,9 @@ def upsert_files(
     total_rel_prop_set = sum(
         [value["properties_set"] for value in rel_upsert_summary.values()]
     )
-    print("Relationship Upsert is complete.")
-    print(f"Relationships created: {total_rels_created}")
-    print(f"Relationship properties set: {total_rel_prop_set}")
+    logger.info("Relationship Upsert is complete.")
+    logger.info(f"Relationships created: {total_rels_created}")
+    logger.info(f"Relationship properties set: {total_rel_prop_set}")
     file_logger.info("Relationship Upsert is complete.")
     file_logger.info(f"Relationships created: {total_rels_created}")
     file_logger.info(f"Relationship properties set: {total_rel_prop_set}")
@@ -436,5 +445,39 @@ def upsert_files(
         sub_folder="MEVAL_upsert_summaries",
         newfile=file_logger_name,
     )
+
+    # check floating nodes in the database and delete if needed
+    root_node_label = model_parser.get_root_node()
+    floating_nodes_filename = f"nodes_no_path_to_{root_node_label}_{get_time()}.json"
+    find_floating_db_nodes_flow(
+        loader=myloader, output_filename=floating_nodes_filename, root_node_label=root_node_label
+    )
+    floating_nodes_length = find_json_length(floating_nodes_filename)
+    if floating_nodes_length == 0:
+        logger.info("No floating nodes found in the database.")
+        file_logger.info("No floating nodes found in the database.")
+    else:
+        logger.warning(f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database.")
+        file_logger.warning(f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database.")
+        logger.warning("Uploading the floating nodes info to s3...")
+        file_logger.warning("Uploading the floating nodes info to s3...")
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder="MEVAL_upsert_summaries",
+            newfile=floating_nodes_filename,
+        )
+        if delete_floating_nodes_if_found:
+            logger.warning("delete_floating_nodes_if_found flag is set to True. Deleting floating nodes from the database...")
+            internal_id_key = "db_internal_id"
+            internal_ids_to_delete = extract_internal_id_from_json(floating_nodes_filename, internal_id_key)
+            deleted_count = delete_nodes_by_internal_id_flow(loader=myloader, internal_ids_to_delete=internal_ids_to_delete)
+            logger.info(f"Deleted {deleted_count} floating nodes from the database.")
+            file_logger.info(f"Deleted {deleted_count} floating nodes from the database.")
+        else:
+            logger.info("delete_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database.")
+            file_logger.info("delete_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database.")
+    logger.info("Workflow finished.")
+    file_logger.info("Workflow finished.")
     # close myloader instance when the upload is done
     myloader.close()

@@ -45,7 +45,7 @@ def extract_internal_id_from_json(json_filepath: str, internal_id_key: str) -> s
     return internal_ids
 
 @flow(log_prints=True, name="Find floating nodes in the database prefect flow")
-def find_floating_db_nodes_flow(loader, output_filename: str, root_node_label: str = "study") -> None:
+def find_floating_db_nodes_flow(loader: Loader, output_filename: str, root_node_label: str = "study") -> None:
     floating_nodes_generator = loader.find_nodes_without_path_to_root(
         root_node_label=root_node_label
     )
@@ -53,7 +53,7 @@ def find_floating_db_nodes_flow(loader, output_filename: str, root_node_label: s
     return None
 
 @flow(log_prints=True, name="delete nodes in the database by internal db identifier")
-def delete_nodes_by_internal_id_flow(loader, internal_ids_to_delete: list[int]) -> int:
+def delete_nodes_by_internal_id_flow(loader: Loader, internal_ids_to_delete: list[int]) -> int:
     deleted_count = loader.delete_nodes_by_internal_id(
         identifier_list=internal_ids_to_delete
     )
