@@ -1,12 +1,11 @@
 from datetime import datetime
-from prefect import flow, get_run_logger
+from prefect import flow, task, get_run_logger
 import time
 import json
 from contextlib import contextmanager
 from src.loader import Loader
 from neo4j import GraphDatabase
-from workflows.prefect.upsert_workflow import get_secret_task
-from src.utils import parse_file_url, get_time, file_ul_s3
+from src.utils import parse_file_url, get_time, file_ul_s3, get_secret_centralized_worker
 
 
 def write_json_streaming(generator, filepath):
@@ -43,6 +42,27 @@ def extract_internal_id_from_json(json_filepath: str, internal_id_key: str) -> s
         else:
             pass
     return internal_ids
+
+
+@task(name="Get secret from AWS secrets manager")
+def get_secret_task(account: str, secret_name_path: str, secret_key_name: str) -> str:
+    """Prefect task to retrieve a secret hash from AWS Secrets Manager
+
+    Args:
+        account (str): AWS account identifier
+        secret_name_path (str): Secrets name path, i.e. ccdi/storage/inventory/token
+        secret_key_name (str): Secret key name associated with hash/token
+
+    Returns:
+        str: Secret hash/token
+    """
+    secret_value = get_secret_centralized_worker(
+        secret_name_path=secret_name_path,
+        secret_key_name=secret_key_name,
+        account=account,
+    )
+    return secret_value
+
 
 @flow(log_prints=True, name="Find floating nodes in the database prefect flow")
 def find_floating_db_nodes_flow(loader: Loader, output_filename: str, root_node_label: str = "study") -> None:
