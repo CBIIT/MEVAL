@@ -438,14 +438,7 @@ def upsert_files(
         sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
         newfile=tsv_output,
     )
-    # upload the log file to s3
-    file_ul(
-        bucket=output_bucket,
-        output_folder=output_key_prefix,
-        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
-        newfile=file_logger_name,
-    )
-
+    
     # check floating nodes in the database and delete if needed
     root_node_label = model_parser.get_root_node()
     floating_nodes_filename = f"nodes_no_path_to_{root_node_label}_{get_time()}.json"
@@ -479,5 +472,14 @@ def upsert_files(
             file_logger.info("delete_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database.")
     logger.info("Workflow finished.")
     file_logger.info("Workflow finished.")
+
+    # upload the log file to s3
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
+        newfile=file_logger_name,
+    )
     # close myloader instance when the upload is done
     myloader.close()
+    return None
