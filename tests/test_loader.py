@@ -2,6 +2,7 @@ import sys
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pandas as pd
 
@@ -30,6 +31,15 @@ class FakeModelParser:
 
 
 class TestLoader(unittest.TestCase):
+	@staticmethod
+	def _build_loader_with_mock_session(session: MagicMock) -> Loader:
+		driver = MagicMock()
+		session_cm = MagicMock()
+		session_cm.__enter__.return_value = session
+		session_cm.__exit__.return_value = None
+		driver.session.return_value = session_cm
+		return Loader(driver=driver)
+
 	def test_chunks(self) -> None:
 		data = [1, 2, 3, 4, 5]
 		result = list(Loader.chunks(data, size=2))
@@ -165,6 +175,94 @@ class TestLoader(unittest.TestCase):
 
 		self.assertEqual(out["g1"]["row_number"], 10)
 		self.assertEqual(out["g2"]["file_path"], "folder/sample.tsv")
+
+	def test_find_nodes_without_path_to_root(self) -> None:
+		class DummyNode:
+			def __init__(self, node_id: int, labels: set[str], props: dict) -> None:
+				self.id = node_id
+				self.labels = labels
+				self._props = props
+
+			def keys(self):
+				return self._props.keys()
+
+			def get(self, key, default=None):
+				return self._props.get(key, default)
+
+		session = MagicMock()
+		node = DummyNode(
+			node_id=101,
+			labels={"sample"},
+			props={"guid": "g-101", "name": "S1"},
+		)
+		session.run.return_value = [{"n": node}]
+		loader = self._build_loader_with_mock_session(session)
+
+		rows = list(loader.find_nodes_without_path_to_root(root_node_label="study"))
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["db_internal_id"], 101)
+		self.assertEqual(rows[0]["type"], "sample")
+		self.assertEqual(rows[0]["properties"]["guid"], "g-101")
+		session.run.assert_called_once()
+		self.assertIn(":study", session.run.call_args.args[0])
+
+	def test_delete_nodes_by_internal_id_batches_and_sums_deleted(self) -> None:
+		session = MagicMock()
+
+		def run_side_effect(_query, node_ids):
+			result = MagicMock()
+			result.single.return_value = {"deleted_nodes": len(node_ids)}
+			return result
+
+		session.run.side_effect = run_side_effect
+		loader = self._build_loader_with_mock_session(session)
+
+		deleted = loader.delete_nodes_by_internal_id(
+			identifier_list=["1", "2", "3"],
+			batch_size=2,
+		)
+
+		self.assertEqual(deleted, 3)
+		self.assertEqual(session.run.call_count, 2)
+		first_call = session.run.call_args_list[0]
+		second_call = session.run.call_args_list[1]
+		self.assertEqual(first_call.kwargs["node_ids"], [1, 2])
+		self.assertEqual(second_call.kwargs["node_ids"], [3])
+
+	def test_delete_nodes_by_internal_id_invalid_identifier_raises(self) -> None:
+		session = MagicMock()
+		loader = self._build_loader_with_mock_session(session)
+
+		with self.assertRaises(ValueError):
+			loader.delete_nodes_by_internal_id(identifier_list=["1", "abc"], batch_size=2)
+
+		session.run.assert_not_called()
+
+	def test_delete_nodes_by_prop_value_batches_and_sums_deleted(self) -> None:
+		session = MagicMock()
+
+		def run_side_effect(query, property_value):
+			self.assertIn("WHERE n.guid = prop_val", query)
+			result = MagicMock()
+			result.single.return_value = {"deleted_nodes": len(property_value)}
+			return result
+
+		session.run.side_effect = run_side_effect
+		loader = self._build_loader_with_mock_session(session)
+
+		deleted = loader.delete_nodes_by_prop_value(
+			identifier_list=["g1", "g2", "g3"],
+			property_name="guid",
+			batch_size=2,
+		)
+
+		self.assertEqual(deleted, 3)
+		self.assertEqual(session.run.call_count, 2)
+		first_call = session.run.call_args_list[0]
+		second_call = session.run.call_args_list[1]
+		self.assertEqual(first_call.kwargs["property_value"], ["g1", "g2"])
+		self.assertEqual(second_call.kwargs["property_value"], ["g3"])
 
 
 if __name__ == "__main__":
