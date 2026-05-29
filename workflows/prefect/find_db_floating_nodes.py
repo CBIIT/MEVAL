@@ -3,9 +3,9 @@ from prefect import flow, task, get_run_logger
 import time
 import json
 from contextlib import contextmanager
-from src.loader import Loader
+from meval.loader import Loader
 from neo4j import GraphDatabase
-from src.utils import parse_file_url, get_time, file_ul_s3, get_secret_centralized_worker
+from meval.utils import parse_file_url, get_time, file_ul_s3, get_secret_centralized_worker
 
 
 def write_json_streaming(generator, filepath):

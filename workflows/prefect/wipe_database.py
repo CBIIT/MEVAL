@@ -1,6 +1,6 @@
 from datetime import datetime
 from prefect import flow, get_run_logger
-from src.loader import Loader
+from meval.loader import Loader
 from neo4j import GraphDatabase
 from workflows.prefect.upsert_workflow import get_secret_task
 

@@ -1,10 +1,10 @@
 from datetime import datetime
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
-from src.loader import Loader
-from src.validator import Validator
-from src.parser import ModelParser
-from src.utils import (
+from meval.loader import Loader
+from meval.validator import Validator
+from meval.parser import ModelParser
+from meval.utils import (
     parse_file_url,
     get_secret_centralized_worker,
     file_dl_s3,

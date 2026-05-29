@@ -1,12 +1,12 @@
 from prefect import flow, get_run_logger
 from datetime import datetime
-from src.validator import Validator
+from meval.validator import Validator
 from bento_mdf import MDFReader
 import os
 import pandas as pd
 import json
 from typing import Literal
-from src.utils import get_time, parse_file_url
+from meval.utils import get_time, parse_file_url
 from upsert_workflow import folder_dl, file_ul
 import sys
 

@@ -3,7 +3,7 @@ from prefect import flow
 import time
 import json
 from contextlib import contextmanager
-from src.loader import Loader
+from meval.loader import Loader
 from neo4j import GraphDatabase
 from workflows.prefect.upsert_workflow import get_secret_task
 
