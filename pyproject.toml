@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meval"
+version = "0.0.0"
+description = "MDF Enforced Validator and Loader"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bento-mdf==0.13.1",
+    "boto3==1.36.11",
+    "pandas==2.3.3",
+    "neo4j-viz==1.0.0",
+    "tabulate==0.9.0",
+]
+
+[tool.setuptools]
+packages = ["meval", "src"]
