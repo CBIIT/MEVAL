@@ -4,8 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meval"
-version = "1.0.0"
+version = "1.1.0"
 description = "MDF Enforced Validator and Loader"
+authors = [
+  { name = "Qiong Liu", email = "qiong.liu@nih.gov" },
+]
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
@@ -15,6 +18,10 @@ dependencies = [
     "neo4j-viz==1.0.0",
     "tabulate==0.9.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/CBIIT/MEVAL"
+"Bug Tracker" = "https://github.com/CBIIT/MEVAL/issues"
 
 [tool.setuptools]
 packages = ["meval"]
