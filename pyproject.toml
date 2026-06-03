@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctos-meval"
+version = "1.1.0"
+description = "MDF Enforced Validator and Loader"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Qiong Liu", email = "qiong.liu@nih.gov" },
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "bento-mdf>=0.13.1",
+  "boto3>=1.36.11,<2.0",
+  "pandas>=2.3.3,<3.0",
+  "neo4j-viz>=1.0.0,<2.0",
+  "neo4j>=6.2.0,<7.0",
+  "tabulate>=0.9.0,<1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/CBIIT/MEVAL"
+"Bug Tracker" = "https://github.com/CBIIT/MEVAL/issues"
+
+[tool.setuptools]
+packages = ["meval"]

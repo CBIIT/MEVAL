@@ -7,7 +7,7 @@ import pandas as pd
 from uuid import UUID, uuid5
 import hashlib
 from collections.abc import Iterator
-from src.parser import ModelParser
+from meval.parser import ModelParser
 
 
 class Validator:
