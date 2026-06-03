@@ -6,7 +6,8 @@ MDF Enforced Validator and Loader is a lightweight and modular framework designe
 MEVAL includes three core classes under the `meval` package that work together to support model-aware validation and graph loading workflows:
 
 ### `ModelParser` (`meval/parser.py`)
-`ModelParser` wraps `bento_mdf.MDFReader` and provides easy access to MDF model metadata.
+`ModelParser` wraps `bento_mdf.MDFReader` and provides easy access to MDF model metadata.(`bento_mdf` repository: https://github.com/CBIIT/bento-mdf)
+
 It is used to inspect node definitions, key properties, required fields, parent-child relationships, property types, and permissible values.
 This class is the model introspection layer used by both validation and loading logic.
 
@@ -32,5 +33,31 @@ It also provides utilities such as deterministic UUID generation and adding UUID
    - `pip install -r requirements_python3.13.txt`
 4. Install the package:
    - `pip install .`
+
+## Example Usage (Imports and Instances)
+
+```python
+from neo4j import GraphDatabase
+from meval.loader import Loader
+from meval.parser import ModelParser
+from meval.validator import Validator
+
+# Create ModelParser
+model_parser = ModelParser(
+   model_file="tests/test_files/ccdi-dcc-model-test.yml",
+   props_file="tests/test_files/ccdi-dcc-model-props-test.yml",
+   handle="ccdi_dcc",
+)
+
+# Create Validator (uses MDF object from ModelParser)
+validator = Validator(mdf=model_parser.mdf)
+
+# Create Loader
+driver = GraphDatabase.driver(
+   "bolt://localhost:7687",
+   auth=("neo4j", "your_password"),
+)
+loader = Loader(driver=driver)
+```
 
 
