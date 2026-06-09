@@ -150,7 +150,7 @@ def precision_deletion_guid(
             guid_to_delete.append(guid) # guid is up for deltion
             upstream_nodes = myloader.find_upstream_nodes(property_value=guid, property_name=uuid_property_name)
             if len(upstream_nodes) > 0: # if children/upstream nodes found
-                logger.warning(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found upstream/children nodes pointing to target node")
+                logger.warning(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found {len(upstream_nodes)} upstream/children nodes pointing to target node")
                 # there is a change that children/upstream nodes already included in the guid_list
                 for upstream_node in upstream_nodes:
                     if (
@@ -158,23 +158,20 @@ def precision_deletion_guid(
                         not in guid_list
                     ):
                         logger.error(
-                            f"Node with {uuid_property_name}={guid} has an upstream node not included in the deletion list. \nUpstream node info: \n{json.dumps(upstream_node, indent=2, default=str)}"
+                            f"Node with {uuid_property_name}={guid} has an upstream node (guid: {upstream_node['upstream_node']['properties'][uuid_property_name]}) not included in the deletion list."
                         )
                         guid_inspections.append(upstream_node) # add error information to the guid inspections
                         guid_to_delete.append(upstream_node["upstream_node"]["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
                     else:
                         # upstream_node already in the guid_list, no action needed
-                        logger.info(
-                            f"Node with {uuid_property_name}={guid} has an upstream node but that node is also included in the deletion list. \nUpstream node info: \n{json.dumps(upstream_node, indent=2, default=str)}"
-                        )
+                        #logger.info(
+                        #    f"Node with {uuid_property_name}={guid} has an upstream node but that node is also included in the deletion list. \nUpstream node info: \n{json.dumps(upstream_node, indent=2, default=str)}"
+                        #)
+                        pass
                         # because it is already in the guid_list, no need to be added to the guid_to_delete
             else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
                 logger.info(f"Node with {uuid_property_name}={guid} passed upstream/children node check. It is safe to be deleted without causing orphan nodes issue.")
                 pass
-
-    # print out guid_inspection, guid_to_delete list
-    print(f"guid inspection list:\n{json.dumps(guid_inspections, indent=2, default=str)}")
-    print(f"guid to delete list:\n{json.dumps(guid_to_delete, indent=2, default=str)}")
 
     # parse output bucket location
     output_bucket, output_folder = parse_file_url(output_bucket_loc)
