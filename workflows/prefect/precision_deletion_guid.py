@@ -70,7 +70,7 @@ def precision_deletion_guid(
     output_bucket_loc: str,
     uuid_value_input: list[str] | str,
     uuid_property_name: str = "guid",
-    dry_run: bool = False,
+    dry_run: bool = True,
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
 ) -> None:
@@ -84,7 +84,7 @@ def precision_deletion_guid(
         output_bucket_loc (str): S3 bucket location to store the output results.
         uuid_value_input (list[str] | str): Either a list of UUID strings or a file path (S3 URI) containing the UUIDs to be deleted. A file contains a list of UUIDs in JSON format, e.g. ["uuid1", "uuid2", ...].
         uuid_property_name (str, optional): The property name that holds the UUID value in the nodes. Defaults to "guid".
-        dry_run (bool, optional): If True, will not perform actual deletion but will log the nodes that would be deleted. Defaults to False.
+        dry_run (bool, optional): If True, will not perform actual deletion but will log the nodes that would be deleted. Defaults to True.
         username_secret_key (str | None, optional): Key in the secret for the database username, if applicable. Defaults to None.
         password_secret_key (str | None, optional): Key in the secret for the database password, if applicable. Defaults to None.
     
