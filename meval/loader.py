@@ -1572,9 +1572,11 @@ class Loader:
                 {
                     "leaf_node_check": "Fail", # there are upstream nodes pointing to the target nodes
                     "target_node_uuid": {property_name: property_value},
-                    "labels": list(node.labels),  # frozenset → list
-                    "properties": {
-                        k: self.serialize_datetime(v) for k, v in dict(node).items()
+                    "upstream_node": {
+                        "labels": list(node.labels),  # frozenset → list
+                        "properties": {
+                            k: self.serialize_datetime(v) for k, v in dict(node).items()
+                        }
                     },
                 }
                 for node in upstream_nodes
