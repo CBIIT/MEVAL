@@ -7,6 +7,7 @@ import os
 from neo4j.exceptions import ClientError, ServiceUnavailable, TransientError
 from neo4j_viz.neo4j import from_neo4j
 from neo4j.graph import Path
+from neo4j.time import DateTime
 from timeit import default_timer as timer
 import json
 import logging
@@ -19,6 +20,21 @@ class Loader:
 
     def close(self):
         self.driver.close()
+
+    @staticmethod
+    def serialize_datetime(dt: DateTime) -> str:
+        """Serialize a Neo4j DateTime object to ISO format string.
+
+        Args:
+            dt (DateTime): The DateTime object to serialize.
+
+        Returns:
+            str: The ISO format string representation of the DateTime.
+        """
+        if isinstance(dt, DateTime):
+            return dt.iso_format()
+        else:
+            return str(dt)
 
     @staticmethod
     def chunks(lst: list, size: int) -> Generator[list, None, None]:
@@ -1400,7 +1416,7 @@ class Loader:
                     "type": next(iter(node.labels), None), # there should be only one label of a data node
                     "properties": {k: node.get(k) for k in node.keys()}
                 }
-    
+
     def delete_nodes_by_internal_id(
         self, identifier_list: list[str], batch_size: int = 5000
     ) -> int:
@@ -1453,7 +1469,7 @@ class Loader:
                 record = result.single()
                 total_deleted += record["deleted_nodes"] if record else 0
         return total_deleted
-    
+
     def delete_nodes_by_prop_value(
         self, identifier_list: list[str], property_name: str, batch_size: int = 5000
     ) -> int:
@@ -1490,3 +1506,77 @@ class Loader:
                 record = result.single()
                 total_deleted += record["deleted_nodes"] if record else 0
         return total_deleted
+
+    def check_unique_node(self, property_value: str, property_name: str = "guid") -> Tuple[bool, dict]:
+        """Check if a node with the given property(usually guid) name and value exists in the database, and if yes, if it is unique.
+        We only expect this function to be used for checking the uniqueness of a data node through a guid value
+        If exactly one node exists with the given property value, return True; if no node exist or more than one node exist with the given property value, return False. The second item in the returned tuple is a dictionary containing details of failure.
+
+        Args:
+            property_name (str): The property name to check, e.g. "guid".
+            property_value (str): The property value to check, e.g. "uuid1".
+
+        Returns:
+            Tuple[bool, dict]: A tuple containing
+                - A boolean indicating if the node is unique (True if exactly one node exists with the given property value, False if not exist or more than one node exists)
+                - A dictionary containing details of failure.
+        """
+        query = f"""
+        MATCH (n)
+        WHERE n.{property_name} = $property_value
+        RETURN collect(n) AS nodes
+        """
+        with self.driver.session() as session:
+            result = session.run(query, property_value=property_value)
+            record = result.single()
+            nodes = record["nodes"] if record else []
+            return_nodes = [
+                {
+                    "labels": list(node.labels),  # frozenset → list
+                    "properties": {
+                        k: self.serialize_datetime(v) for k, v in dict(node).items()
+                    },
+                }
+                for node in nodes
+            ]
+            if len(nodes) == 1:
+                return True, {"uniq_check": "Pass", "message": f"One unique node found with {property_name}={property_value}", "matched_node(s)": return_nodes}
+            elif len(nodes) == 0:
+                return False, {"uniq_check": "Fail", "message": f"No node found with {property_name}={property_value}", "matched_node(s)": []}
+            else:
+                return False, {"uniq_check": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
+
+    def find_upstream_nodes(self, property_value: str, property_name: str = "guid") -> list[dict[str, Any]]:
+        """Find all upstream nodes directly or indirectly connected to the node with the given property name and value. 
+        We only expect this function to use uuid property for finding upsteam nodes of a target node. 
+        We EXPECT the target node is a UNIQUE node.
+
+        Args:
+            property_name (str): The property name to match, e.g. "guid".
+            property_value (str): The property value to match, e.g. "uuid1".
+
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries representing the upstream nodes. Each dictionary contains the internal ID, type, and properties of an upstream node.
+        """
+        query = f"""
+        MATCH (m)
+        WHERE m.{property_name} = $property_value
+        MATCH (n)-[*]->(m)
+        RETURN collect(DISTINCT n) AS upstream_nodes
+        """
+        with self.driver.session() as session:
+            result = session.run(query, property_value=property_value)
+            record = result.single()
+            upstream_nodes = record["upstream_nodes"] if record else []
+            return_nodes = [
+                {
+                    "leaf_node_check": "Fail", # there are upstream nodes pointing to the target nodes
+                    "target_node_uuid": {property_name: property_value},
+                    "labels": list(node.labels),  # frozenset → list
+                    "properties": {
+                        k: self.serialize_datetime(v) for k, v in dict(node).items()
+                    },
+                }
+                for node in upstream_nodes
+            ]
+            return return_nodes # if target is leaf node, it return an emtpy list

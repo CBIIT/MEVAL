@@ -47,6 +47,15 @@ def set_s3_resource():
     return s3_resource
 
 
+def is_valid_s3_uri(uri: str) -> bool:
+    try:
+        parsed = urlparse(uri)
+        # Scheme must be 's3' and the bucket name (netloc) cannot be empty
+        return parsed.scheme == "s3" and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
 def parse_file_url(url: str) -> tuple:
     # in case the url doesn't start with s3://
     if not url.startswith("s3://"):
