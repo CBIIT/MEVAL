@@ -9,6 +9,12 @@ from meval.utils import (
 import json
 from prefect import flow, task, get_run_logger
 from workflows.prefect.upsert_workflow import get_secret_task, file_dl, file_ul
+from workflows.prefect.find_db_floating_nodes import (
+    find_floating_db_nodes_flow,
+    delete_nodes_by_internal_id_flow,
+    find_json_length,
+    extract_internal_id_from_json,
+)
 
 def uuid_input_validation(guid_input: list[str] | str) -> bool:
     """Validate the input for UUID values, ensuring it's either a list of strings or a valid file path.
@@ -69,6 +75,7 @@ def precision_deletion_guid(
     uri_secret_key: str,
     output_bucket_loc: str,
     uuid_value_input: list[str] | str,
+    root_node_label: str,
     uuid_property_name: str = "guid",
     dry_run: bool = True,
     username_secret_key: str | None = None,
@@ -83,6 +90,7 @@ def precision_deletion_guid(
         uri_secret_key (str): Key name in the secret for the database URI.
         output_bucket_loc (str): S3 bucket location to store the output results.
         uuid_value_input (list[str] | str): Either a list of UUID strings or a file path (S3 URI) containing the UUIDs to be deleted. A file contains a list of UUIDs in JSON format, e.g. ["uuid1", "uuid2", ...].
+        root_node_label (str): The label of the root node which doesn't have OUTGOING relationship to other nodes. Common root node labels are "study", "program", depending on the data model of each project.
         uuid_property_name (str, optional): The property name that holds the UUID value in the nodes. Defaults to "guid".
         dry_run (bool, optional): If True, will not perform actual deletion but will log the nodes that would be deleted. Defaults to True.
         username_secret_key (str | None, optional): Key in the secret for the database username, if applicable. Defaults to None.
@@ -164,9 +172,9 @@ def precision_deletion_guid(
                         guid_to_delete.append(upstream_node["upstream_node"]["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
                     else:
                         # upstream_node already in the guid_list, no action needed
-                        #logger.info(
+                        # logger.info(
                         #    f"Node with {uuid_property_name}={guid} has an upstream node but that node is also included in the deletion list. \nUpstream node info: \n{json.dumps(upstream_node, indent=2, default=str)}"
-                        #)
+                        # )
                         pass
                         # because it is already in the guid_list, no need to be added to the guid_to_delete
             else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
@@ -205,5 +213,30 @@ def precision_deletion_guid(
             logger.info(f"Dry run disabled. The nodes provided ({len(guid_to_delete)}) will be deleted")
             total_deleted = myloader.delete_nodes_by_prop_value(identifier_list=guid_to_delete, property_name=uuid_property_name)
             logger.info(f"Total nodes deleted: {total_deleted}")
+
+            # enforce a finding orphan nodes check after deletion to make sure there is no orphan node left in the database
+            logger.info("Performing a check for orphan nodes after deletion.")
+            floating_nodes_filename = (
+                f"nodes_no_path_to_{root_node_label}_{get_time()}.json"
+            )
+            find_floating_db_nodes_flow(
+                loader=myloader,
+                output_filename=floating_nodes_filename,
+                root_node_label=root_node_label,
+            )
+            floating_nodes_length = find_json_length(floating_nodes_filename)
+            if floating_nodes_length == 0:
+                logger.info("No floating nodes found in the database after deletion.")
+            else:
+                logger.error(
+                    f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database."
+                )
+                file_ul(
+                    bucket=output_bucket,
+                    output_folder=output_folder,
+                    sub_folder=output_subfolder,
+                    newfile=floating_nodes_filename,
+                )
+                logger.info(f"Uploaded the orphan nodes report to {output_subfolder} under bucket {output_bucket_loc} for review.")
 
     logger.info("Precision deletion flow completed.")
