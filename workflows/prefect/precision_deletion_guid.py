@@ -190,6 +190,7 @@ def precision_deletion_guid(
                         "message": f"This is NOT a leaf node, but All upstream/children nodes (if any) can be found in the provided guid list",
                         "unfound_upstream_node(s)": unfound_upstream_nodes
                     })
+                    logger.info(f"Node with {uuid_property_name}={guid} is NOT a leaf node. All upstream/children nodes (if any) can be found in the provided guid list.")
                 else:
                     guid_inspections[guid].append({
                         "check_item": "upstream/children node check",
@@ -197,6 +198,7 @@ def precision_deletion_guid(
                         "message": f"This is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list, which may cause orphan node issue if deleted. Please review the unfound upstream nodes for this guid.",
                         "unfound_upstream_node(s)": unfound_upstream_nodes
                     })
+                    logger.error(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list. Please review the unfound upstream nodes for this guid.")
                     error_count += 1
             else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
                 guid_inspections[guid].append(
@@ -207,7 +209,7 @@ def precision_deletion_guid(
                         "unfound_upstream_node(s)": [],
                     }
                 )
-                logger.info(f"Node with {uuid_property_name}={guid} passed upstream/children node check. It is safe to be deleted without causing orphan nodes issue.")
+                logger.info(f"Node with {uuid_property_name}={guid} passed upstream/children node check. It is a leaf node.")
                 pass
 
     # parse output bucket location
@@ -219,7 +221,7 @@ def precision_deletion_guid(
     with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
         json.dump(guid_to_delete, f, indent=2, default=str)
 
-    if len(error_count) > 0: # issues were found in the guid inspection, no deletion will be performed even if dry_run is set to false
+    if error_count > 0: # issues were found in the guid inspection, no deletion will be performed even if dry_run is set to false
         logger.warning("We found potential issues with the guid(s) to be deleted. Please review the inspection results for details.")
         # upload guid inspection results to s3 for review
         inspection_output_file = f"guid_inspection_{get_time()}.json"
