@@ -1540,11 +1540,16 @@ class Loader:
                 for node in nodes
             ]
             if len(nodes) == 1:
-                return True, {"uniq_check": "Pass", "message": f"One unique node found with {property_name}={property_value}", "matched_node(s)": return_nodes}
+                return True, {"check_item": "node uniqueness", "check_result": "Pass", "message": f"One unique node found with {property_name}={property_value}", "matched_node(s)": return_nodes}
             elif len(nodes) == 0:
-                return False, {"uniq_check": "Fail", "message": f"No node found with {property_name}={property_value}", "matched_node(s)": []}
+                return False, {
+                    "check_item": "node uniqueness",
+                    "check_result": "Fail",
+                    "message": f"No node found with {property_name}={property_value}",
+                    "matched_node(s)": [],
+                }
             else:
-                return False, {"uniq_check": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
+                return False, {"check_item": "node uniqueness", "check_result": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
 
     def find_upstream_nodes(self, property_value: str, property_name: str = "guid") -> list[dict[str, Any]]:
         """Find all upstream nodes directly or indirectly connected to the node with the given property name and value. 
@@ -1570,13 +1575,9 @@ class Loader:
             upstream_nodes = record["upstream_nodes"] if record else []
             return_nodes = [
                 {
-                    "leaf_node_check": "Fail", # there are upstream nodes pointing to the target nodes
-                    "target_node_uuid": {property_name: property_value},
-                    "upstream_node": {
-                        "labels": list(node.labels),  # frozenset → list
-                        "properties": {
-                            k: self.serialize_datetime(v) for k, v in dict(node).items()
-                        }
+                    "labels": list(node.labels),  # frozenset → list
+                    "properties": {
+                        k: self.serialize_datetime(v) for k, v in dict(node).items()
                     },
                 }
                 for node in upstream_nodes

@@ -138,11 +138,13 @@ def precision_deletion_guid(
 
     myloader = Loader(driver=driver)
 
-    guid_inspections = []
+    guid_inspections = {}
     guid_to_delete = []
+    error_count = 0 # keep track of number of issues fund in a giben guid list
     # frist test if the guid exist in the database
     for guid in guid_list:
         logger.info(f"Checking guid: {guid} for uniqueness in the database")
+        guid_inspections[guid] = [] # initialize an empty list to store inspection information for each guid
         check_uniq, check_uniq_info = myloader.check_unique_node(property_name=uuid_property_name, property_value=guid)
         if not check_uniq:
             # two types of errors can happen: 1) node not found, then there is nothing to delete with guid, 2) multiple nodes were found that that guid, then there is a data issue in the database that requires additional investigation before deletion.
@@ -150,26 +152,29 @@ def precision_deletion_guid(
             logger.error(
                 f"Node with {uuid_property_name}={guid} either not exit or not unique.\n{json.dumps(check_uniq_info, indent=2, default=str)}"
             )
-            guid_inspections.append(check_uniq_info) # add error information to the guid inspections
+            guid_inspections[guid].append(check_uniq_info) # add error information to the guid inspections
+            error_count += 1
 
         else: # node passed uniqueness test
+            guid_inspections[guid].append(check_uniq_info) # add uniqueness check information to the guid inspections, even if it is a pass, because it is still valuable for users to review the check result and the matched node information for each guid before deletion.
             logger.info(f"Checking guid:{guid} for upstream/children nodes.")
             # check if the node is a non-leaf node with incoming relationships
             guid_to_delete.append(guid) # guid is up for deltion
             upstream_nodes = myloader.find_upstream_nodes(property_value=guid, property_name=uuid_property_name)
             if len(upstream_nodes) > 0: # if children/upstream nodes found
+                unfound_upstream_nodes = [] # keep track of any upstream node that is not included in the original guid list
                 logger.warning(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found {len(upstream_nodes)} upstream/children nodes pointing to target node")
                 # there is a change that children/upstream nodes already included in the guid_list
                 for upstream_node in upstream_nodes:
                     if (
-                        upstream_node["upstream_node"]["properties"][uuid_property_name]
+                        upstream_node["properties"][uuid_property_name]
                         not in guid_list
                     ):
                         logger.error(
-                            f"Node with {uuid_property_name}={guid} has an upstream node (guid: {upstream_node['upstream_node']['properties'][uuid_property_name]}) not included in the deletion list."
+                            f"Node with {uuid_property_name}={guid} has an upstream node (guid: {upstream_node['properties'][uuid_property_name]}) not included in the deletion list."
                         )
-                        guid_inspections.append(upstream_node) # add error information to the guid inspections
-                        guid_to_delete.append(upstream_node["upstream_node"]["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
+                        unfound_upstream_nodes.append(upstream_node)
+                        guid_to_delete.append(upstream_node["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
                     else:
                         # upstream_node already in the guid_list, no action needed
                         # logger.info(
@@ -177,7 +182,31 @@ def precision_deletion_guid(
                         # )
                         pass
                         # because it is already in the guid_list, no need to be added to the guid_to_delete
+                # add final list of unfound upstream nodes to the guid inspection
+                if len(unfound_upstream_nodes) == 0:
+                    guid_inspections[guid].append({
+                        "check_item": "upstream/children node check",
+                        "check_result": "Pass",
+                        "message": f"This is NOT a leaf node, but All upstream/children nodes (if any) can be found in the provided guid list",
+                        "unfound_upstream_node(s)": unfound_upstream_nodes
+                    })
+                else:
+                    guid_inspections[guid].append({
+                        "check_item": "upstream/children node check",
+                        "check_result": "Fail",
+                        "message": f"This is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list, which may cause orphan node issue if deleted. Please review the unfound upstream nodes for this guid.",
+                        "unfound_upstream_node(s)": unfound_upstream_nodes
+                    })
+                    error_count += 1
             else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
+                guid_inspections[guid].append(
+                    {
+                        "check_item": "upstream/children node check",
+                        "check_result": "Pass",
+                        "message": f"It is a leaf node. No upstream/children node found for node with {uuid_property_name}={guid}.",
+                        "unfound_upstream_node(s)": [],
+                    }
+                )
                 logger.info(f"Node with {uuid_property_name}={guid} passed upstream/children node check. It is safe to be deleted without causing orphan nodes issue.")
                 pass
 
@@ -190,7 +219,7 @@ def precision_deletion_guid(
     with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
         json.dump(guid_to_delete, f, indent=2, default=str)
 
-    if len(guid_inspections) > 0: # issues were found in the guid inspection, no deletioni will be performed even if dry_run is set to false
+    if len(error_count) > 0: # issues were found in the guid inspection, no deletion will be performed even if dry_run is set to false
         logger.warning("We found potential issues with the guid(s) to be deleted. Please review the inspection results for details.")
         # upload guid inspection results to s3 for review
         inspection_output_file = f"guid_inspection_{get_time()}.json"
@@ -207,8 +236,7 @@ def precision_deletion_guid(
             logger.warning("guid ready to delete list DOES NOT contain any guid that does not exist or not unique in the database. The list ONLY contains guids that passed uniquness test (from the provided guid list) and any potential upstream/children nodes of the provided guids")
         else: # guid_to_delete is empty, no guid passed the inspection, no deletion will be performed
             logger.info("guid ready to delete list is empty. No guid passed the inspection, no deletion will be performed.")
-
-    else: # guid_inspection is empty, no issue found with provided guid. It is safe to proceed with deletion if dry run is not enabled.
+    else: # no issue found with provided guid. It is safe to proceed with deletion if dry run is not enabled.
         logger.info("No potential issue found with the guid(s) to be deleted based on our checks.")
         if dry_run:
             logger.info(f"Dry run enabled. No data nodes will be deleted.")
