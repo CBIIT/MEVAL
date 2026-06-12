@@ -1583,3 +1583,36 @@ class Loader:
                 for node in upstream_nodes
             ]
             return return_nodes # if target is leaf node, it return an emtpy list
+
+    def if_alternative_path_to_root(self, property_name: str, target_property_value: str, node_to_avoid_property_value: str, root_label: str) -> bool:
+        """Find if there is an alternative path from a node to a root labeled node that DOES NOT go through a node (of interest). 
+        A common use case is to check if a upstream/child node of a target node (aka, node to avoid) can reach root node through an alternative path.
+        An upstream/child node of a target node is usually recommeneded to be deleted along with the target node. But if there is an alternative path between child node and root node, it means that child node may have multiple outgoing edges to multiple parent nodes, and it requires closer inspection.
+
+        Args:
+            property_name (str): The property name to match, e.g. "guid".
+            target_property_value (str): The property value of the target node, e.g. "uuid1".
+            node_to_avoid_property_value (str): The property value of the node to avoid, e.g. "uuid2".
+            root_label (str): The label of the root node, e.g. "study".
+
+        Returns:
+            bool: True if there is an alternative path from the target node to any root node that doesn't go through the node to avoid, False otherwise.
+        """
+        query = f"""
+        MATCH (target)
+        WHERE target.{property_name} = $target_property_value
+        MATCH (node_to_avoid)
+        WHERE node_to_avoid.{property_name} = $node_to_avoid_property_value
+        MATCH p = (target)-[*]->(root:{root_label})
+        WHERE NOT node_to_avoid IN nodes(p)
+        RETURN count(p) AS alternative_paths_count
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                query,
+                target_property_value=target_property_value,
+                node_to_avoid_property_value=node_to_avoid_property_value,
+            )
+            record = result.single()
+            alternative_paths_count = record["alternative_paths_count"] if record else 0
+            return alternative_paths_count > 0
