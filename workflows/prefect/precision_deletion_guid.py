@@ -153,7 +153,7 @@ def precision_deletion_guid(
                 f"Node with {uuid_property_name}={guid} either not exit or not unique.\n{json.dumps(check_uniq_info, indent=2, default=str)}"
             )
             guid_inspections[guid].append(check_uniq_info) # add error information to the guid inspections
-            error_count += 1
+            error_count += 1 # increment error count if guid does not exist or not unique in the database
 
         else: # node passed uniqueness test
             guid_inspections[guid].append(check_uniq_info) # add uniqueness check information to the guid inspections, even if it is a pass, because it is still valuable for users to review the check result and the matched node information for each guid before deletion.
@@ -186,11 +186,9 @@ def precision_deletion_guid(
                         guid_to_delete.append(upstream_node["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
                     else:
                         # upstream_node already in the guid_list, no action needed
-                        # logger.info(
-                        #    f"Node with {uuid_property_name}={guid} has an upstream node but that node is also included in the deletion list. \nUpstream node info: \n{json.dumps(upstream_node, indent=2, default=str)}"
-                        # )
-                        pass
                         # because it is already in the guid_list, no need to be added to the guid_to_delete
+                        pass
+                        
                 # add final list of unfound upstream nodes to the guid inspection
                 if len(unfound_upstream_nodes) == 0:
                     guid_inspections[guid].append({
@@ -208,7 +206,7 @@ def precision_deletion_guid(
                         "unfound_upstream_node(s)": unfound_upstream_nodes
                     })
                     logger.error(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list. Please review the unfound upstream nodes for this guid.")
-                    error_count += 1
+                    error_count += 1 # increment error if there are any upstream/children nodes of the target node that are not included in the original guid list.
             else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
                 guid_inspections[guid].append(
                     {
