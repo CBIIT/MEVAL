@@ -166,10 +166,19 @@ def precision_deletion_guid(
                 logger.warning(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found {len(upstream_nodes)} upstream/children nodes pointing to target node")
                 # there is a change that children/upstream nodes already included in the guid_list
                 for upstream_node in upstream_nodes:
+                    if_alt_path_upstrem_node = myloader.if_alternative_path_to_root(
+                        property_name=uuid_property_name, 
+                        target_property_value=upstream_node["properties"][uuid_property_name], 
+                        node_to_avoid_property_value=guid, 
+                        root_label=root_node_label)
                     if (
                         upstream_node["properties"][uuid_property_name]
                         not in guid_list
                     ):
+                        if if_alt_path_upstrem_node:
+                            upstream_node["note"] = f"This upstream/child node has at least ONE alternative path to a root node that does not go through the target node ({uuid_property_name}={guid}). Delete with caution."
+                        else:
+                            pass # this upstream/child node can only pass target node to readch root node.
                         logger.error(
                             f"Node with {uuid_property_name}={guid} has an upstream node (guid: {upstream_node['properties'][uuid_property_name]}) not included in the deletion list."
                         )
