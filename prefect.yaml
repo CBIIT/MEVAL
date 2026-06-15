@@ -182,3 +182,24 @@ deployments:
       name: ccdi-dcc-16gb-prefect-3.4.19-python3.13
       work_queue_name: null
       job_variables: {}
+
+  - name: meval-precision-deletion-nodes
+    version: null
+    tags: ["MEVAL","dataloader"]
+    description: "Prefect test deployment for deleting nodes by a provided list of uuid/guid."
+    entrypoint: workflows/prefect/precision_deletion_guid.py:precision_deletion_guid
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: main
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True    
+    # infra-specific fields
+    work_pool:
+      name: ccdi-dcc-16gb-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}

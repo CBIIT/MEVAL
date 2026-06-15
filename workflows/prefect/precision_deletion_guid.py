@@ -188,7 +188,7 @@ def precision_deletion_guid(
                         # upstream_node already in the guid_list, no action needed
                         # because it is already in the guid_list, no need to be added to the guid_to_delete
                         pass
-                        
+
                 # add final list of unfound upstream nodes to the guid inspection
                 if len(unfound_upstream_nodes) == 0:
                     guid_inspections[guid].append({
@@ -227,34 +227,29 @@ def precision_deletion_guid(
     guid_to_delete_output_file = f"guid_ready_to_delete_{get_time()}.json"
     with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
         json.dump(guid_to_delete, f, indent=2, default=str)
+    if len(guid_to_delete) > 0:
+        file_ul(bucket=output_bucket, output_folder=output_folder, sub_folder=output_subfolder, newfile=guid_to_delete_output_file)
+        logger.info(f"guid ready to delete list has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review")
+        logger.warning("guid ready to delete list DOES NOT contain any guid that does not exist or not unique in the database. The list ONLY contains guids that passed uniquness test (from the provided guid list) and any potential upstream/children nodes of the provided guids")
+    else:
+        logger.warning(
+            "guid ready to delete list is empty. No guid passed the inspection, no deletion will be performed."
+        )
+
+    # write guid inspection results into a file
+    # upload guid inspection results to s3 for review
+    inspection_output_file = f"guid_inspection_{get_time()}.json"
+    with open(inspection_output_file, "w", encoding="utf-8") as f:
+        json.dump(guid_inspections, f, indent=2, default=str)
+    file_ul(bucket=output_bucket, output_folder=output_folder, sub_folder=output_subfolder, newfile=inspection_output_file)
+    logger.info(f"inspection results have been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review")
 
     if error_count > 0: # issues were found in the guid inspection, no deletion will be performed even if dry_run is set to false
         logger.warning("We found potential issues with the guid(s) to be deleted. Please review the inspection results for details.")
-        # upload guid inspection results to s3 for review
-        inspection_output_file = f"guid_inspection_{get_time()}.json"
-        with open(inspection_output_file, "w", encoding="utf-8") as f:
-            json.dump(guid_inspections, f, indent=2, default=str)
-        file_ul(bucket=output_bucket, output_folder=output_folder, sub_folder=output_subfolder, newfile=inspection_output_file)
-        logger.warning(f"inspection results have been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review")
-
-        # upload guid_to_delete list to s3 for review
-        if len(guid_to_delete) > 0:
-            # upload guid_to_delete list to s3 for review even if there are issues found in the guid inspection, because the guid_to_delete list only contains guids that passed the uniqueness test and upstream/children node check, it does not contain any guid that failed the inspection, so it is still valuable for users to review and identify which guid has potential issues based on the inspection results, and make decision on whether to proceed with deletion or not.
-            file_ul(bucket=output_bucket, output_folder=output_folder, sub_folder=output_subfolder, newfile=guid_to_delete_output_file)
-            logger.info(f"guid ready to delete list has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review")
-            logger.warning("guid ready to delete list DOES NOT contain any guid that does not exist or not unique in the database. The list ONLY contains guids that passed uniquness test (from the provided guid list) and any potential upstream/children nodes of the provided guids")
-        else: # guid_to_delete is empty, no guid passed the inspection, no deletion will be performed
-            logger.info("guid ready to delete list is empty. No guid passed the inspection, no deletion will be performed.")
     else: # no issue found with provided guid. It is safe to proceed with deletion if dry run is not enabled.
         logger.info("No potential issue found with the guid(s) to be deleted based on our checks.")
         if dry_run:
             logger.info(f"Dry run enabled. No data nodes will be deleted.")
-            file_ul(
-                bucket=output_bucket,
-                output_folder=output_folder,
-                sub_folder=output_subfolder,
-                newfile=guid_to_delete_output_file,
-            )
             logger.info(
                 f"guid ready to delete list has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review"
             )
@@ -265,14 +260,8 @@ def precision_deletion_guid(
             logger.info(f"Dry run disabled. The nodes provided ({len(guid_to_delete)}) will be deleted")
             total_deleted = myloader.delete_nodes_by_prop_value(identifier_list=guid_to_delete, property_name=uuid_property_name)
             logger.info(f"Total nodes deleted: {total_deleted}")
-            file_ul(
-                bucket=output_bucket,
-                output_folder=output_folder,
-                sub_folder=output_subfolder,
-                newfile=guid_to_delete_output_file,
-            )
             logger.info(
-                f"Deleted guid list has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review"
+                f"Deleted guid list ({guid_to_delete_output_file}) has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review"
             )
 
             # enforce a finding orphan nodes check after deletion to make sure there is no orphan node left in the database
@@ -298,6 +287,6 @@ def precision_deletion_guid(
                     sub_folder=output_subfolder,
                     newfile=floating_nodes_filename,
                 )
-                logger.info(f"Uploaded the orphan nodes report to {output_subfolder} under bucket {output_bucket_loc} for review.")
+                logger.info(f"Uploaded the orphan nodes report ({floating_nodes_filename}) to {output_subfolder} under bucket {output_bucket_loc} for review.")
 
     logger.info("Precision deletion flow completed.")
