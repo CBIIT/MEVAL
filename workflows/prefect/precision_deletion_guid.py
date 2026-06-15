@@ -176,7 +176,7 @@ def precision_deletion_guid(
                         not in guid_list
                     ):
                         if if_alt_path_upstrem_node:
-                            upstream_node["note"] = f"This upstream/child node has at least ONE alternative path to a root node that does not go through the target node ({uuid_property_name}={guid}). Delete with caution."
+                            upstream_node = {"warning": f"This upstream/child node has at least ONE alternative path to a root node that does not go through the target node ({uuid_property_name}={guid}). Delete with caution.", **upstream_node}
                         else:
                             pass # this upstream/child node can only pass target node to readch root node.
                         logger.error(
