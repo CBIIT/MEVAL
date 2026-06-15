@@ -40,6 +40,11 @@ class TestLoader(unittest.TestCase):
 		driver.session.return_value = session_cm
 		return Loader(driver=driver)
 
+	class _FakeGraphNode(dict):
+		def __init__(self, labels: set[str], properties: dict[str, str]) -> None:
+			super().__init__(properties)
+			self.labels = labels
+
 	def test_chunks(self) -> None:
 		data = [1, 2, 3, 4, 5]
 		result = list(Loader.chunks(data, size=2))
@@ -263,6 +268,98 @@ class TestLoader(unittest.TestCase):
 		second_call = session.run.call_args_list[1]
 		self.assertEqual(first_call.kwargs["property_value"], ["g1", "g2"])
 		self.assertEqual(second_call.kwargs["property_value"], ["g3"])
+
+	def test_check_unique_node_returns_pass_for_exactly_one_match(self) -> None:
+		session = MagicMock()
+		node = self._FakeGraphNode(labels={"sample"}, properties={"guid": "g1", "name": "S1"})
+		result = MagicMock()
+		result.single.return_value = {"nodes": [node]}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		is_unique, details = loader.check_unique_node(property_value="g1", property_name="guid")
+
+		self.assertTrue(is_unique)
+		self.assertEqual(details["check_result"], "Pass")
+		self.assertEqual(len(details["matched_node(s)"]), 1)
+		self.assertEqual(details["matched_node(s)"][0]["properties"]["guid"], "g1")
+
+	def test_check_unique_node_returns_fail_for_no_match(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.single.return_value = {"nodes": []}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		is_unique, details = loader.check_unique_node(property_value="missing-guid", property_name="guid")
+
+		self.assertFalse(is_unique)
+		self.assertEqual(details["check_result"], "Fail")
+		self.assertIn("No node found", details["message"])
+		self.assertEqual(details["matched_node(s)"], [])
+
+	def test_check_unique_node_returns_fail_for_multiple_matches(self) -> None:
+		session = MagicMock()
+		node_a = self._FakeGraphNode(labels={"sample"}, properties={"guid": "dup", "name": "A"})
+		node_b = self._FakeGraphNode(labels={"participant"}, properties={"guid": "dup", "name": "B"})
+		result = MagicMock()
+		result.single.return_value = {"nodes": [node_a, node_b]}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		is_unique, details = loader.check_unique_node(property_value="dup", property_name="guid")
+
+		self.assertFalse(is_unique)
+		self.assertEqual(details["check_result"], "Fail")
+		self.assertIn("Multiple nodes found", details["message"])
+		self.assertEqual(len(details["matched_node(s)"]), 2)
+
+	def test_find_upstream_nodes_returns_collected_nodes(self) -> None:
+		session = MagicMock()
+		node_a = self._FakeGraphNode(labels={"participant"}, properties={"guid": "p1"})
+		node_b = self._FakeGraphNode(labels={"study"}, properties={"guid": "st1"})
+		result = MagicMock()
+		result.single.return_value = {"upstream_nodes": [node_a, node_b]}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		nodes = loader.find_upstream_nodes(property_value="target-guid", property_name="guid")
+
+		self.assertEqual(len(nodes), 2)
+		self.assertSetEqual({n["properties"]["guid"] for n in nodes}, {"p1", "st1"})
+		self.assertSetEqual({n["labels"][0] for n in nodes}, {"participant", "study"})
+
+	def test_if_alternative_path_to_root_returns_true_when_paths_exist(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.single.return_value = {"alternative_paths_count": 2}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		has_path = loader.if_alternative_path_to_root(
+			property_name="guid",
+			target_property_value="target-guid",
+			node_to_avoid_property_value="avoid-guid",
+			root_label="study",
+		)
+
+		self.assertTrue(has_path)
+
+	def test_if_alternative_path_to_root_returns_false_when_no_paths_exist(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.single.return_value = {"alternative_paths_count": 0}
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		has_path = loader.if_alternative_path_to_root(
+			property_name="guid",
+			target_property_value="target-guid",
+			node_to_avoid_property_value="avoid-guid",
+			root_label="study",
+		)
+
+		self.assertFalse(has_path)
 
 
 if __name__ == "__main__":
