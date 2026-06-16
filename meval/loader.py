@@ -1,6 +1,6 @@
 from time import time
 import pandas as pd
-from typing import Dict, Generator, Any, Optional, Tuple, Generator
+from typing import Dict, Generator, Any, Tuple, Generator
 from operator import itemgetter
 from itertools import groupby
 import os
@@ -8,7 +8,6 @@ from neo4j.exceptions import ClientError, ServiceUnavailable, TransientError
 from neo4j_viz.neo4j import from_neo4j
 from neo4j.graph import Path
 from neo4j.time import DateTime
-from timeit import default_timer as timer
 import json
 import logging
 from collections import defaultdict
@@ -264,7 +263,6 @@ class Loader:
                 if logger:
                     logger.info(f"Processing Batch {batch_count}...")
                 print(f"Processing Batch {batch_count}...")
-                # batch_begin = timer()
                 chunk_type, records = self.generate_chunk_records(
                     chunk=chunk,
                     model_parser=model_parser,
@@ -274,7 +272,6 @@ class Loader:
                 result_summary = self.upsert_chunk_records_with_tx(
                     tx, chunk_type, records, id_field, logger=logger
                 )
-                # batch_end = timer()
                 if logger:
                     logger.info(f"Created {result_summary['nodes_created']} nodes")
                     logger.info(f"Set {result_summary['properties_set']} properties")
