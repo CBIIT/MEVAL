@@ -707,6 +707,8 @@ def upsert_files_in_order(
             delimiter=delimiter,
             subgraph_col=subgraph_col,
         )
+        logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
+        file_logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
 
     # check floating nodes in the database and delete if needed
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
