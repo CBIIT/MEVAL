@@ -283,6 +283,7 @@ def loading_flow_only(
         loading_batch_identifier: str,
         tsv_folder_s3uri: str,
         output_bucket_loc: str,
+        output_subfolder_name: str,
         model_parser: ModelParser,
         uuid_field: str = "guid",
         delimiter: str = ";",
@@ -296,6 +297,7 @@ def loading_flow_only(
         loader (Loader): Loader instance with an active connection to a graph database
         tsv_folder_s3uri (str): S3 URI of the folder containing TSV files to be processed
         output_bucket_loc (str): S3 URI of the output bucket location
+        output_subfolder_name (str): Subfolder name for the output files to be uploaded to in the output bucket
         model_parser (ModelParser): ModelParser instance for parsing the data model
         uuid_field (str, optional): The field name used as a unique identifier. Defaults to "guid".
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
@@ -371,7 +373,7 @@ def loading_flow_only(
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
-        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}", # we assume loading won't last overnight
+        sub_folder=output_subfolder_name,
         newfile=tsv_output,
     )
     return None
@@ -680,6 +682,11 @@ def upsert_files_in_order(
         f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
     )
 
+    # subfolder name for file uploading
+    upload_subfolder_name = (
+        f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+
     # Start loop through tsv_folder_list_s3uri
     # Each folder will be processed independently with data records uploadiing, and relationship establishing.
     for i in range(len(tsv_folder_list_s3uri)):
@@ -694,6 +701,7 @@ def upsert_files_in_order(
             loading_batch_identifier=batch_identifier,
             tsv_folder_s3uri=tsv_folder_s3uri,
             output_bucket_loc=output_bucket_loc,
+            output_subfolder_name=upload_subfolder_name,
             model_parser=model_parser,
             uuid_field=uuid_field,
             delimiter=delimiter,
@@ -725,7 +733,7 @@ def upsert_files_in_order(
         file_ul(
             bucket=output_bucket,
             output_folder=output_key_prefix,
-            sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
+            sub_folder=upload_subfolder_name,
             newfile=floating_nodes_filename,
         )
         if delete_floating_nodes_if_found:
@@ -757,7 +765,7 @@ def upsert_files_in_order(
     file_ul(
         bucket=output_bucket,
         output_folder=output_key_prefix,
-        sub_folder=f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d')}",
+        sub_folder=upload_subfolder_name,
         newfile=file_logger_name,
     )
     # close myloader instance when the upload is done
