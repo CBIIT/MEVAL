@@ -683,7 +683,7 @@ def upsert_files_in_order(
     # Start loop through tsv_folder_list_s3uri
     # Each folder will be processed independently with data records uploadiing, and relationship establishing.
     for i in range(len(tsv_folder_list_s3uri)):
-        batch_identifier = f"batch_{i+1}"
+        batch_identifier = f"folder_{i+1}"
         tsv_folder_s3uri = tsv_folder_list_s3uri[i]
         logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
         file_logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
