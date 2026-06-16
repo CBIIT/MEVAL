@@ -276,7 +276,6 @@ def get_logger(log_file: str) -> logging.Logger:
         logger.addHandler(file_handler)
     return logger
 
-@flow(log_prints=True, name="loading only Workflow")
 def loading_flow_only(
         logger: logging.Logger,
         file_logger: logging.Logger,
