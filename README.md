@@ -222,13 +222,13 @@ print(rel_summary)
 #### Index and graph maintenance helpers
 
 ```python
-# create index for faster lookups
-loader.create_index(index_name="idx_participant_guid", node_label="participant", property_name="guid")
+# create label-property index pairs for an entire model
+created_indexes = loader.create_index(model_parser=model_parser, property_name="guid")
 
-# drop index
+# drop a single label-property pair index
 index_list = [{"label":"study", "property":"guid"}]
 loader.drop_index(index_list)
-# drop all indexes
+# drop all indexes in a graph database
 loader.drop_all_indexes()
 
 # check graph health and clean floating nodes
