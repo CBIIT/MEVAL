@@ -3,11 +3,19 @@ from typing import Any, List
 from pathlib import Path, PosixPath
 import csv
 import os
+from neo4j import GraphDatabase
 import pandas as pd
 from uuid import UUID, uuid5
 import hashlib
+from typing import Literal
 from collections.abc import Iterator
 from meval.parser import ModelParser
+
+# for validating record from a submission file against db
+TestModeList = Literal["New", "Update", "Upsert"]
+# Mode New is to test if the record exist in the db. It should return error if the record already exist in the db
+# Update is to test if the record can be updated in the db. The tested record should exist in the db
+# Upsert is to test if the record can be either created as new record or updated if it already exist in the db. Setting property values using Merge statement doesn't wipe off exisitng property values
 
 
 class Validator:
@@ -462,6 +470,41 @@ class Validator:
                     delimiter=delimiter,
                 )
                 yield row_type, row_dict
+
+    @classmethod
+    def read_tsv_rels(
+        cls,
+        tsv_file_path: str,
+        id_field: str = "guid",
+        delimiter: str = ";",
+    ) -> Iterator[tuple[str, dict[str, str]]]:
+        """
+        Reads a TSV file containing relationship data and yields each row as a dictionary with id_field value as key, and a dictionary of all rels as value.
+        An example of 
+
+        Args:
+            tsv_file_path: Path to the TSV file.
+            id_field: The name of the id field, default is "guid"
+            delimiter: The delimiter used for list properties in the record dictionary. default is ";"
+
+        Yields:
+            dict[str, str]: One record per row.
+        """
+        encoding = cls.check_encoding(tsv_file_path)
+        with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+            reader = csv.DictReader(tsv_file, delimiter="\t")
+            for row in reader:
+                row_rel_dict = {}
+                row_dict = dict(row)
+                row_id_value = row_dict.get(id_field)
+                for key in row_dict.keys():
+                    if f".{id_field}" in key:  # this is a relationship column
+                        parent_label = key.split(".")[0]
+                        parent_id_value = [i.strip() for i in row_dict[key].strip().strip(delimiter).split(delimiter)] # strip after split
+                        row_rel_dict[parent_label] = parent_id_value
+                    else:
+                        pass
+                yield {row_id_value: row_rel_dict}
 
     def validate_records(
         self, node_name: str, list_of_records: List[dict]
@@ -1266,3 +1309,173 @@ class Validator:
             else:
                 pass
         return validation_errors
+
+    def if_node_exist_in_db(self, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid") -> bool:
+        """
+        A helper function to check if a node with specific id property value already exist in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database.
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection to a graph database
+            id_prop_name: The name of the id property, default is "guid"
+            id_prop_value: The value of the id property to be checked
+        Returns:
+            bool: True if a node with the specified id property value exists in the database, False otherwise.
+        """
+        with driver.session() as session:
+            test_query = f"MATCH (n) WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count"
+            result = session.run(test_query, id_prop_value=id_prop_value)
+            record = result.single()
+            node_count = 0 if record is None else record["node_count"]
+            if node_count > 1:
+                raise ValueError(
+                    f"Found {node_count} nodes in database with {id_prop_name}='{id_prop_value}'. Expected at most 1 unique node."
+                )
+            if node_count == 0:
+                return False
+            else:
+                return True
+    
+    def find_node_record_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
+        """
+        A helper function to find a node record with specific id property value in the database. The return will be used to compare the record found in the submission file.
+        We only expect one record found in the database since this is a check based on the unique id property value. If more than one record is found, it indicates there is duplicated data issue in the database, which should be fixed before the validation of submission files.
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection to a graph database
+            id_prop_name: The name of the id property, default is "guid"
+            id_prop_value: The value of the id property to be checked
+        Returns:
+            dict[str, Any] | None: A dictionary containing the node record if found, None otherwise.
+        """
+        with driver.session() as session:
+            test_query = f"MATCH (n) WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count, head(collect(n)) AS node"
+            result = session.run(test_query, id_prop_value=id_prop_value)
+            record = result.single()
+            node_count = 0 if record is None else record["node_count"]
+            if node_count > 1:
+                raise ValueError(
+                    f"Found {node_count} nodes in database with {id_prop_name}='{id_prop_value}'. Expected exactly 0 or 1 node."
+                )
+            # if record is found, return the node properties as a dictionary, otherwise return None
+            return dict(record["node"]) if node_count == 1 else None
+
+    def find_node_outgoing_edges(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any]:
+        """
+        A helper function to find all outgoing edges of a node with specific id property value in the database. The return will be used to compare the edges found in the submission file.
+        If NO match is found in the database for target node, or NO outgoing edges are found for the target node, the function will return an empty dictionary, {}.
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection to a graph database
+            id_prop_name: The name of the id property, default is "guid"
+            id_prop_value: The value of the id property to be checked
+        Returns:
+            dict[str, Any]: A dictionary with edge types as keys and id property values as values.
+        """
+        with driver.session() as session:
+            test_query = f"""
+            MATCH (t)-[]->(n)
+            WHERE t.{id_prop_name} = $id_prop_value
+            RETURN labels(n)[0] AS label, collect(n.{id_prop_name}) AS values
+            """
+            result = session.run(test_query, id_prop_value=id_prop_value)
+            outgoing_rels = {}
+            for record in result:
+                label = record["label"]
+                values = record["values"]
+                if label is not None: # if there is no outgoing edge, label will be None. and the outgoing_rels will be an empty dict
+                    outgoing_rels[label] = values
+        return outgoing_rels
+
+    @classmethod
+    def validate_record_in_db(cls, record_in_file: dict, record_in_db: dict | None, test_mode: TestModeList = "Upsert") -> dict[str, Any]:
+        """
+        A helper function to validate a record in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the test_mode defined as below:
+        - New: The record should not exist in the database. If it exist, return error message.
+        - Update: The record should already exist in the database. If it doesn't exist, return error message. If it exist, compare the properties and edges of the record found in the database with the record from the submission file, and return any inconsistency as warning or error message.
+        - Upsert: The record can either be created as new record or update if it already exist in the database. If it exist, compare the properties and edges of the record found in the database with the record from the submission file, and return any inconsistency as warning or error message. Setting property values using Merge statement doesn't wipe off exisitng property values, which means if there is inconsistency between record_in_file and record_in_db for a specific property, but this property value in record_in_db can still be kept if we use Merge statement to set property values based on record_in_file.
+
+        Args:
+            record_in_file: A dictionary containing the node record from submission file. This record should be the return of record_prep method 
+            record_in_db: A dictionary containing the node record found in database. If None is passed, it indicates no record found in the database
+            test_mode: The mode of validation to be performed, default is "Upsert"
+        Returns:
+            dict[str, Any]: A dictionary containing validation results for comparing a record from submission file against a record found in database, including validity status and any warning/error messages.
+        """
+        validation_result = {}
+        if test_mode not in TestModeList:
+            raise ValueError(f"Invalid test mode '{test_mode}'. Expected one of {TestModeList}.")
+        
+        if record_in_db is None: # no record found in the database
+            if test_mode == "Update":
+                validation_result = {
+                    "test_mode": test_mode,
+                    "level": "error",
+                    "type": "record_not_exist",
+                    "message": f"Record with id '{record_in_file.get('guid')}' is expected to exist in the database but not found.",
+                    }
+            elif test_mode in ["New", "Upsert"]:
+                validation_result = {
+                    "test_mode": test_mode,
+                    "level": "info",
+                        "type": "record_not_exist",
+                        "message": f"Record with id '{record_in_file.get('guid')}' does not exist in the database, and will be created as a new record.",
+                    }
+        else: # record is found in the database
+            if test_mode == "Update":
+                if record_in_file == record_in_db:
+                    validation_result = {
+                        "test_mode": test_mode,
+                        "level": "warning",
+                        "type": "record_exist",
+                        "message": f"Record with id '{record_in_file.get('guid')}' matches to the record found in the database. Nothing to update.",
+                        }
+                else:
+                    validation_result = {
+                        "test_mode": test_mode,
+                        "level": "info",
+                        "type": "record_exist",
+                        "message": f"Record with id '{record_in_file.get('guid')}' exists in the database and differs from the record in file and will be updated based on the submission file.",
+                    }
+            elif test_mode == "New":
+                validation_result = {
+                    "test_mode": test_mode,
+                    "level": "error",
+                    "type": "record_already_exist",
+                        "message": f"Record with id '{record_in_file.get('guid')}' is expected to be new but already exists in the database.",
+                    }
+            elif test_mode == "Upsert":
+                validation_result = {
+                    "test_mode": test_mode,
+                    "level": "info",
+                    "type": "record_exist",
+                    "message": f"Record with id '{record_in_file.get('guid')}' exists in the database and will be updated based on the submission file.",
+                    }
+        return validation_result
+    
+    @classmethod
+    def validate_rels_record_in_db(cls, rel_record_in_file: dict, rel_record_in_db: dict, test_mode: TestModeList) -> dict[str, Any]:
+        """
+        A helper function to validate a relationship record in the submission file against the relationship record found in the database. This is used for validating relationship column value in the tsv.
+        Note: We assume the the node of interest already EXIST in the database when this function is used.
+
+        IF the rel_record_in_db is an empty dict, {}, it indicates either no match of target node in the database or no outgoing edge found, such as program or study data node.
+
+        For a record NOT in db yet.
+            - New: rel_record_in_db is {}. Any relationships depicted in rel_record_in_file will be created as new edges
+            - Update: rel_record_in_db is {}. Record validation against DB should a warning because the record is expected to exist in the DB but not found. there is a possibility that a record can exist without outgoing edges attach to it. Rel validation against DB shoud fail as well
+            - Upsert: rel_record_in_db is {}. Any relationships depicted in rel_record_in_file will be created as new edges
+        For a record already in db.
+            - New: rel_record_in_db is not {}. Record validation against DB should fail because the rel_record_in_db is expected to be {}
+            - Update: rel_record_in_db is not {}. Any relationships depicted in rel_record_in_file will be compared against the relationships found in rel_record_in_db. If any relationship in rel_record_in_file is not found in rel_record_in_db, it will be created as new edge. If any relationship in rel_record_in_db is not found in rel_record_in_file, it will be deleted from the database.
+                - it should return a relationship blob, describing which edges will be created and which will be deleted.
+                    - if the deletion will cause the dst node to be orphaned.
+            - Upsert: rel_record_in_db is not {}. Any relationships depicted in rel_record_in_file will be compared against the relationships found in rel_record_in_db. If any relationship in rel_record_in_file is not found in rel_record_in_db, it will be created as new edge. If any relationship in rel_record_in_db is not found in rel_record_in_file, it will be kept in the database.
+                - it should return a relationship blob describing the all the final edges sourcing from the target node
+        
+        Args:
+            rel_record_in_file: A dictionary containing the relationship record from submission file. This record should be prepared by a method similar to record_prep method but for relationship record
+            rel_record_in_db: A dictionary containing the relationship record found in database. If None is passed, it indicates no relationship record found in the database
+            test_mode: The mode of validation to be performed, default is "Upsert"
+        Returns:
+            dict[str, Any]: A dictionary containing validation results for comparing a relationship record from submission file against a relationship record found in database, including validity status and any warning/error messages.
+        """
