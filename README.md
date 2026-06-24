@@ -103,7 +103,7 @@ model_parser.if_prop_strict(node_name, prop)
 # if property required
 model_parser.if_prop_required(node_name, prop)
 # full metadata dict for a property
-model_parser.get_prop_attr_dict(node_name=node_name, prop_name=prop)
+model_parser.get_prop_attr_dict(node_name, prop)
 ```
 
 #### Relationship and graph-shape helpers
@@ -234,6 +234,7 @@ loader.drop_all_indexes()
 # check graph health and clean floating nodes
 floating_ids = loader.find_nodes_without_path_to_root(root_node_label="study")
 
+# close connection to a graph database
 loader.close()
 ```
 
