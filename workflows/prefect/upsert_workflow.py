@@ -230,18 +230,22 @@ def combine_summaries(upsert_node_summary: dict, upsert_rel_summary: dict) -> di
 
 
 @task(name="Prepare upsert summary into tsv", log_prints=True)
-def prepare_upsert_summary_tsv(combined_summary: dict) -> str:
+def prepare_upsert_summary_tsv(combined_summary: dict, batch_identifier: str | None) -> str:
     """Prepares upsert summary dictionary into a tsv file
 
     Args:
         combined_summary (dict): a combined summary dictionary including node and relationship upsert summaries
+        batch_identifier (str | None): identifier for the current batch
 
     Returns:
         str: file name of a summary tsv file
     """
-    summary_output_name = (
-        f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
-    )
+    if batch_identifier is None:
+        summary_output_name = f"MEVAL_upsert_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    else:
+        summary_output_name = (
+            f"MEVAL_upsert_summary_{batch_identifier}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+        )
     summary_df = pd.DataFrame.from_dict(combined_summary, orient="index")
     summary_df.index.name = "file_name"
     summary_df = summary_df.reset_index()
@@ -271,6 +275,108 @@ def get_logger(log_file: str) -> logging.Logger:
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     return logger
+
+def loading_flow_only(
+        logger: logging.Logger,
+        file_logger: logging.Logger,
+        loader: Loader,
+        loading_batch_identifier: str,
+        tsv_folder_s3uri: str,
+        output_bucket_loc: str,
+        output_subfolder_name: str,
+        model_parser: ModelParser,
+        uuid_field: str = "guid",
+        delimiter: str = ";",
+        subgraph_col: str | None = None,
+):
+    """A flow that only loads data records and relationships into the database using Loader instance
+
+    Args:
+        logger (logging.Logger): A logging instance for general logging in prefect flow run
+        file_logger (logging.Logger): A logging instance for logging file which can be uploaded to s3 for record keeping
+        loader (Loader): Loader instance with an active connection to a graph database
+        tsv_folder_s3uri (str): S3 URI of the folder containing TSV files to be processed
+        output_bucket_loc (str): S3 URI of the output bucket location
+        output_subfolder_name (str): Subfolder name for the output files to be uploaded to in the output bucket
+        model_parser (ModelParser): ModelParser instance for parsing the data model
+        uuid_field (str, optional): The field name used as a unique identifier. Defaults to "guid".
+        delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
+        subgraph_col (str | None, optional): The column name for subgraph identification. Defaults to None.
+    """
+    # download tsv folder to local
+    tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)
+    folder_dl(tsv_bucket, tsv_folder)
+    # search for tsv files recursively under tsv_folder
+    file_list = Validator.find_tsv_files(tsv_folder)
+    logger.info(f"File counts to be processed for {loading_batch_identifier}: {len(file_list)}")
+    file_logger.info(f"File counts to be processed for {loading_batch_identifier}: {len(file_list)}")
+
+    # upsert tsv files
+    # first to load all the nodes
+    logger.info(f"Starting node upsert for {loading_batch_identifier}...")
+    file_logger.info(f"(Node Upsert) Starting node upsert for {loading_batch_identifier}...")
+    node_upsert_summary = upsert_records_file_list(
+        loader=loader,
+        model_parser=model_parser,
+        file_list=file_list,
+        id_field=uuid_field,
+        subgraph_col=subgraph_col,
+        chunk_size=3000,
+        delimiter=delimiter,
+        logger=file_logger,
+    )
+    total_nodes_created = sum(
+        [value["nodes_created"] for value in node_upsert_summary.values()]
+    )
+    total_node_prop_set = sum(
+        [value["properties_set"] for value in node_upsert_summary.values()]
+    )
+    logger.info(f"Node Upsert is complete for {loading_batch_identifier}.")
+    logger.info(f"Nodes created: {total_nodes_created}")
+    logger.info(f"Node properties set: {total_node_prop_set}")
+    file_logger.info(f"Node Upsert is complete for {loading_batch_identifier}.")
+    file_logger.info(f"Nodes created: {total_nodes_created}")
+    file_logger.info(f"Node properties set: {total_node_prop_set}")
+
+    # second to load all the relationships
+    logger.info(f"Starting relationship upsert for {loading_batch_identifier}...")
+    file_logger.info(f"Starting relationship upsert for {loading_batch_identifier}...")
+    rel_upsert_summary, _ = upsert_rels_file_list(
+        loader=loader,
+        file_list=file_list,
+        model_parser=model_parser,
+        id_field=uuid_field,
+        chunk_size=3000,
+        delimiter=delimiter,
+        logger=file_logger,
+    )
+    # get total relationships created and props set
+    total_rels_created = sum(
+        [value["relationships_created"] for value in rel_upsert_summary.values()]
+    )
+    total_rel_prop_set = sum(
+        [value["properties_set"] for value in rel_upsert_summary.values()]
+    )
+    logger.info(f"Relationship Upsert is complete for {loading_batch_identifier}.")
+    logger.info(f"Relationships created: {total_rels_created}")
+    logger.info(f"Relationship properties set: {total_rel_prop_set}")
+    file_logger.info(f"Relationship Upsert is complete for {loading_batch_identifier}.")
+    file_logger.info(f"Relationships created: {total_rels_created}")
+    file_logger.info(f"Relationship properties set: {total_rel_prop_set}")
+
+    # combine two summaries into one, and write into a tsv
+    # needs to combine two dict for every file
+    combined_summary = combine_summaries(node_upsert_summary, rel_upsert_summary)
+    tsv_output = prepare_upsert_summary_tsv(combined_summary=combined_summary, batch_identifier=loading_batch_identifier)
+    # upload the summaru tsv to s3
+    output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder=output_subfolder_name,
+        newfile=tsv_output,
+    )
+    return None
 
 
 @flow(
@@ -482,4 +588,196 @@ def upsert_files(
     )
     # close myloader instance when the upload is done
     myloader.close()
+    return None
+
+
+@flow(
+    log_prints=True,
+    name="Dataloading Upsert in order Workflow",
+    flow_run_name="loading_{commons_acronym}_{tag}_" + f"{get_time()}",
+)
+def upsert_files_in_order(
+    db_account_id: str,
+    db_creds_secret_name: str,
+    uri_secret_key: str,
+    output_bucket_loc: str,
+    tsv_folder_list_s3uri: list[str],
+    commons_acronym: DropDownChoices,
+    tag: str = "",
+    uuid_field: str = "guid",
+    delimiter: str = ";",
+    delete_floating_nodes_if_found: bool = False,
+    subgraph_col: str | None = None,
+    username_secret_key: str | None = None,
+    password_secret_key: str | None = None,
+):
+    """
+    Upsert data using a list of TSV folders into a graph database. The loading order is determined by the order of tsv folders in the list
+
+    Args:
+        db_creds_secret_name (str): The name/path of the AWS Secrets Manager secret containing the database credentials.
+        uri_secret_key (str): The secret key name for the database URI within the secret.
+        output_bucket_loc (str): The S3 URI of the output location, e.g., s3://my-bucket/runner/output.
+        tsv_folder_list_s3uri (list[str]): A list of S3 URIs of the folders containing TSV files, e.g., ["s3://data-bucket/tsv-folder1/", "s3://data-bucket/tsv-folder2/"].
+        commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
+        tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
+        uuid_field (str, optional): The field to use as the unique identifier for each data entry. Defaults to "guid".
+        delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
+        subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
+        username_secret_key (str, optional): The secret key name for the username to access the DB instance within the secret. Defaults to None.
+        password_secret_key (str, optional): The secret key name for the password to access the DB instance within the secret. Defaults to None.
+    """
+    logger = get_run_logger()
+
+    # retrieve db creds from AWS secrets manager
+    uri = get_secret_task(
+        account=db_account_id,
+        secret_name_path=db_creds_secret_name,
+        secret_key_name=uri_secret_key,
+    )
+    if username_secret_key is not None and password_secret_key is not None:
+        username = get_secret_task(
+            account=db_account_id,
+            secret_name_path=db_creds_secret_name,
+            secret_key_name=username_secret_key,
+        )
+        password = get_secret_task(
+            account=db_account_id,
+            secret_name_path=db_creds_secret_name,
+            secret_key_name=password_secret_key,
+        )
+        driver = GraphDatabase.driver(uri, auth=(username, password))
+    else:
+        driver = GraphDatabase.driver(uri)
+
+    myloader = Loader(driver=driver)
+
+    # create a logger instance to record logger info in a file
+    file_logger_name = f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    file_logger = get_logger(log_file=file_logger_name)
+
+    # log the received tsv folder list
+    tsv_folder_df = pd.DataFrame(tsv_folder_list_s3uri, columns=["tsv_folder_s3uri"])
+    logger.info(f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n\t{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}")
+    file_logger.info(
+        f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n\t{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
+
+    # download model files
+    data_model_yaml, props_yaml = download_model_files(
+        commons_acronym=commons_acronym, tag=tag
+    )
+    file_logger.info(
+        f"Downloaded data model, props yaml: {data_model_yaml}, {props_yaml}"
+    )
+    logger.info(f"Downloaded data model yaml: {data_model_yaml}")
+    logger.info(f"Downloaded properties yaml: {props_yaml}")
+    # create model parser
+    model_parser = ModelParser(
+        model_file=data_model_yaml,
+        props_file=props_yaml,
+        handle=commons_acronym,
+    )
+
+    # create index in memgraph instance if not exist
+    index_in_db = myloader.create_index(model_parser=model_parser, id_field=uuid_field)
+    index_df = pd.DataFrame(index_in_db)
+    logger.info(
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
+    file_logger.info(
+        f"Index created in the database (if not exist):\n\t{index_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
+
+    # subfolder name for file uploading
+    upload_subfolder_name = (
+        f"MEVAL_upsert_summaries_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+
+    # Start loop through tsv_folder_list_s3uri
+    # Each folder will be processed independently with data records uploadiing, and relationship establishing.
+    for i in range(len(tsv_folder_list_s3uri)):
+        batch_identifier = f"folder_{i+1}"
+        tsv_folder_s3uri = tsv_folder_list_s3uri[i]
+        logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}] | {tsv_folder_s3uri}")
+        file_logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}] | {tsv_folder_s3uri}")
+        loading_flow_only(
+            logger=logger,
+            file_logger=file_logger,
+            loader=myloader,
+            loading_batch_identifier=batch_identifier,
+            tsv_folder_s3uri=tsv_folder_s3uri,
+            output_bucket_loc=output_bucket_loc,
+            output_subfolder_name=upload_subfolder_name,
+            model_parser=model_parser,
+            uuid_field=uuid_field,
+            delimiter=delimiter,
+            subgraph_col=subgraph_col,
+        )
+        logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}]")
+        file_logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}]")
+
+    # check floating nodes in the database and delete if needed
+    output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
+    root_node_label = model_parser.get_root_node()
+    floating_nodes_filename = f"nodes_no_path_to_{root_node_label}_{get_time()}.json"
+    find_floating_db_nodes_flow(
+        loader=myloader,
+        output_filename=floating_nodes_filename,
+        root_node_label=root_node_label,
+    )
+    floating_nodes_length = find_json_length(floating_nodes_filename)
+    if floating_nodes_length == 0:
+        logger.info("No floating nodes found in the database.")
+        file_logger.info("No floating nodes found in the database.")
+    else:
+        logger.warning(
+            f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database."
+        )
+        file_logger.warning(
+            f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database."
+        )
+        logger.warning("Uploading the floating nodes info to s3...")
+        file_logger.warning("Uploading the floating nodes info to s3...")
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder=upload_subfolder_name,
+            newfile=floating_nodes_filename,
+        )
+        if delete_floating_nodes_if_found:
+            logger.warning(
+                "delete_floating_nodes_if_found flag is set to True. Deleting floating nodes from the database..."
+            )
+            internal_id_key = "db_internal_id"
+            internal_ids_to_delete = extract_internal_id_from_json(
+                floating_nodes_filename, internal_id_key
+            )
+            deleted_count = delete_nodes_by_internal_id_flow(
+                loader=myloader, internal_ids_to_delete=internal_ids_to_delete
+            )
+            logger.info(f"Deleted {deleted_count} floating nodes from the database.")
+            file_logger.info(
+                f"Deleted {deleted_count} floating nodes from the database."
+            )
+        else:
+            logger.info(
+                "delete_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database."
+            )
+            file_logger.info(
+                "delete_floating_nodes_if_found flag is set to False. Floating nodes will not be deleted from the database."
+            )
+    logger.info("Workflow finished.")
+    file_logger.info("Workflow finished.")
+
+    # upload log file to s3
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder=upload_subfolder_name,
+        newfile=file_logger_name,
+    )
+    # close myloader instance when the upload is done
+    myloader.close()
+
     return None

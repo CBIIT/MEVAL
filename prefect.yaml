@@ -203,3 +203,29 @@ deployments:
       name: ccdi-dcc-16gb-prefect-3.4.19-python3.13
       work_queue_name: null
       job_variables: {}
+
+  - name: meval-dataloader-in-order
+    version: null
+    tags: ["MEVAL","dataloader"]
+    description: |
+      MEVAL upsert workflow in order deployment. This workflow will UPSERT data, meaning it only creates if new and updates if existing. Existing relationships in DB won't be touched. No deletion is performed.
+      The difference between this deployment and the "meval-dataloader" deployment is that this one accepts a list of tsv folders, and each folder will be processed independently during the loading process.
+    entrypoint: workflows/prefect/upsert_workflow.py:upsert_files_in_order
+    parameters:
+      uuid_field: "guid"
+      delimiter: ";"
+    pull:
+      - prefect.deployments.steps.git_clone:
+          id: main_repo_clone_step
+          repository: https://github.com/CBIIT/MEVAL.git
+          branch: main
+          include_submodules: True
+      - prefect.deployments.steps.pip_install_requirements:
+          requirements_file: requirements_python3.13.txt
+          directory: "{{ main_repo_clone_step.directory }}"
+          stream_output: True
+    # infra-specific fields
+    work_pool:
+      name: ccdi-dcc-16gb-prefect-3.4.19-python3.13
+      work_queue_name: null
+      job_variables: {}
