@@ -656,6 +656,13 @@ def upsert_files_in_order(
     file_logger_name = f"upsert_workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     file_logger = get_logger(log_file=file_logger_name)
 
+    # log the received tsv folder list
+    tsv_folder_df = pd.DataFrame(tsv_folder_list_s3uri, columns=["tsv_folder_s3uri"])
+    logger.info(f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}")
+    file_logger.info(
+        f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+    )
+
     # download model files
     data_model_yaml, props_yaml = download_model_files(
         commons_acronym=commons_acronym, tag=tag
@@ -692,8 +699,8 @@ def upsert_files_in_order(
     for i in range(len(tsv_folder_list_s3uri)):
         batch_identifier = f"folder_{i+1}"
         tsv_folder_s3uri = tsv_folder_list_s3uri[i]
-        logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
-        file_logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
+        logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}] | {tsv_folder_s3uri}")
+        file_logger.info(f"Start processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}] | {tsv_folder_s3uri}")
         loading_flow_only(
             logger=logger,
             file_logger=file_logger,
@@ -707,8 +714,8 @@ def upsert_files_in_order(
             delimiter=delimiter,
             subgraph_col=subgraph_col,
         )
-        logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
-        file_logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: {tsv_folder_s3uri}")
+        logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}]")
+        file_logger.info(f"Finished processing folder {i+1}/{len(tsv_folder_list_s3uri)}: [{batch_identifier}]")
 
     # check floating nodes in the database and delete if needed
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)
