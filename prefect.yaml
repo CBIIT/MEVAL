@@ -208,8 +208,8 @@ deployments:
     version: null
     tags: ["MEVAL","dataloader"]
     description: |
-      MEVAL upsert workflow in order deployment. This workflow will UPSERT data, meaning it only creates if new and update if existing. Existing relationships in DB won't be touched. No deletion is performed.
-      The difference between this deployment and the "meval-dataloader" deployment is that this one accepts a list of tsv folders, and each folder will be processed independently during the loaidng process.
+      MEVAL upsert workflow in order deployment. This workflow will UPSERT data, meaning it only creates if new and updates if existing. Existing relationships in DB won't be touched. No deletion is performed.
+      The difference between this deployment and the "meval-dataloader" deployment is that this one accepts a list of tsv folders, and each folder will be processed independently during the loading process.
     entrypoint: workflows/prefect/upsert_workflow.py:upsert_files_in_order
     parameters:
       uuid_field: "guid"
