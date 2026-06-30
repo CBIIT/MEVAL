@@ -658,9 +658,9 @@ def upsert_files_in_order(
 
     # log the received tsv folder list
     tsv_folder_df = pd.DataFrame(tsv_folder_list_s3uri, columns=["tsv_folder_s3uri"])
-    logger.info(f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}")
+    logger.info(f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n\t{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}")
     file_logger.info(
-        f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
+        f"Received {len(tsv_folder_list_s3uri)} tsv folders to process in order:\n\t{tsv_folder_df.to_markdown(tablefmt='rounded_grid', index=False).replace('\n', '\n\t')}"
     )
 
     # download model files
