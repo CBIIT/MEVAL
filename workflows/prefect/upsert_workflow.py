@@ -230,7 +230,7 @@ def combine_summaries(upsert_node_summary: dict, upsert_rel_summary: dict) -> di
 
 
 @task(name="Prepare upsert summary into tsv", log_prints=True)
-def prepare_upsert_summary_tsv(combined_summary: dict, batch_identifier: str | None) -> str:
+def prepare_upsert_summary_tsv(combined_summary: dict, batch_identifier: str | None = None) -> str:
     """Prepares upsert summary dictionary into a tsv file
 
     Args:
