@@ -7,7 +7,7 @@ from neo4j import GraphDatabase
 import pandas as pd
 from uuid import UUID, uuid5
 import hashlib
-from typing import Literal
+from typing import Literal, Tuple
 from collections.abc import Iterator
 from meval.parser import ModelParser
 
@@ -105,7 +105,7 @@ class Validator:
 
     @staticmethod
     def add_uuid_to_tsv_file(
-        file_path: str | PosixPath,
+        file_path: str | Path,
         project_name: str,
         mdf: MDF,
         output_file_path: str,
@@ -224,7 +224,7 @@ class Validator:
         delimiter: str = ";",
     ) -> dict:
         """
-        Prepares a record dictionary for validation by removing certain keys and transform str to list for list type properties if needed
+        Prepares a record dictionary for LOCAL record validation by removing certain keys and transform str to list for list type properties if needed
         Keys that need to be removed: "type",  "guid" and linkage keys which contain "."
         The file does not need to have this column, but if it does, we want to remove it before validation since it's not part of the model definition.
 
@@ -302,7 +302,7 @@ class Validator:
         return list(path.glob(pattern))
 
     @staticmethod
-    def create_subgraph_dict(file_folder_path: str | PosixPath) -> dict[str, list[str]]:
+    def create_subgraph_dict(file_folder_path: str | Path) -> dict[str, list[str]]:
         """
         Creates a subgraph dictionary from TSV files in a specified folder.
         This function only looks at all the files under file_folder_path, and checks for value under "subgrah" column to determine which subgraph the file belongs to.
@@ -346,7 +346,7 @@ class Validator:
 
     @staticmethod
     def add_subgrapgh_value_to_tsv(
-        file_path: str | PosixPath, subgraph_vlaue: str, output_file_path: str
+        file_path: str | Path, subgraph_vlaue: str, output_file_path: str
     ) -> str:
         """
         Adds a subgraph value to the "subgraph" column in the file. This is for the purpose of determining which subgraph the file belongs to when loading to graph db.
@@ -379,7 +379,7 @@ class Validator:
             raise e
 
     @staticmethod
-    def file_type_read(file_path_list: list[str | PosixPath]) -> dict[str, list[str]]:
+    def file_type_read(file_path_list: list[str | Path]) -> dict[str, list[str]]:
         """
         Reads a list of file paths and categorizes them by their file type based on the "type" column in the TSV files.
         Example return:
@@ -443,6 +443,9 @@ class Validator:
         delimiter: str = ";",
     ) -> Iterator[tuple[str, dict[str, str]]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Reads a TSV file and yields each row as a dictionary keyed by column name.
         The file does not need to have subgraph column, but if it does, we want to remove it before validation since it's not part of the model definition.
 
@@ -472,15 +475,70 @@ class Validator:
                 yield row_type, row_dict
 
     @classmethod
-    def read_tsv_rels(
+    def read_tsv_records_id(
+        cls,
+        tsv_file_path: str,
+        id_field: str = "guid"
+    ) -> Iterator[tuple[str, dict[str, str]]]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        This function reads a TSV file and yields type and id_field value for each row.
+        Only use this function after guid/uuid has been generated.
+        This will be fused for validation in the db to check if the record exist in the db based on id_field value
+        An example of read_tsv_records_id output:
+        "participant", {"guid": "395aa6ed-b912-483f-bf20-16e0313b21ae"}
+
+        Args:
+            tsv_file_path (str): filepath of a tsv file
+            id_field (str, optional): global unique identifier field which is used to check if the record exists in the database. Defaults to "guid".
+
+        Yields:
+            Iterator[tuple[str, dict[str, str]]]: type of the record, the value of the id_field
+        """
+        encoding = cls.check_encoding(tsv_file_path)
+        with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+            reader = csv.DictReader(tsv_file, delimiter="\t")
+            for row in reader:
+                row_dict = dict(row)
+                row_type = row_dict.get("type", None) # in case there is no type
+                row_id_value = row_dict.get(id_field, None) # in case there is no id_field
+                yield row_type, {id_field: row_id_value}
+
+    @classmethod
+    def read_tsv_rels_id(
         cls,
         tsv_file_path: str,
         id_field: str = "guid",
         delimiter: str = ";",
     ) -> Iterator[tuple[str, dict[str, str]]]:
         """
-        Reads a TSV file containing relationship data and yields each row as a dictionary with id_field value as key, and a dictionary of all rels as value.
-        An example of 
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A generator function that reads a TSV file containing relationship data and yields each row as a list of relationship dictionaries. Each relationship dictionary contains the source label, source ID property, source ID value, destination label, destination ID property, and destination ID value.
+        Only use this function after guid/uuid has been generated.
+        An example of read_tsv_rels output:
+        [
+            {
+                "src_label": "sample",
+                "src_id_prop": "guid",
+                "src_id_value": "891e7e1a-9c25-4d25-a4b8-1517233f3f8f",
+                "dst_label": "participant",
+                "dst_id_prop": "guid",
+                "dst_id_value": "395aa6ed-b912-483f-bf20-16e0313b21ae",
+            },
+            {
+                "src_label": "sample",
+                "src_id_prop": "guid",
+                "src_id_value": "9164e720-c995-446b-9eee-d6161c0d83fa",
+                "dst_label": "study",
+                "dst_id_prop": "guid",
+                "dst_id_value": "0c0a9b5f-0ad0-474d-b34e-ec0a24497e7b",
+            },
+            ...
+        ]
 
         Args:
             tsv_file_path: Path to the TSV file.
@@ -494,22 +552,36 @@ class Validator:
         with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
             reader = csv.DictReader(tsv_file, delimiter="\t")
             for row in reader:
-                row_rel_dict = {}
+                row_rel_list = []
                 row_dict = dict(row)
                 row_id_value = row_dict.get(id_field)
+                row_type = row_dict.get("type", None) # it must contain type column
                 for key in row_dict.keys():
                     if f".{id_field}" in key:  # this is a relationship column
                         parent_label = key.split(".")[0]
                         parent_id_value = [i.strip() for i in row_dict[key].strip().strip(delimiter).split(delimiter)] # strip after split
-                        row_rel_dict[parent_label] = parent_id_value
+                        for parent_id in parent_id_value:
+                            row_rel_list.append(
+                                {
+                                    "src_label": row_type,
+                                    "src_id_prop": id_field,
+                                    "src_id_value": row_id_value,
+                                    "dst_label": parent_label,
+                                    "dst_id_prop": id_field,
+                                    "dst_id_value": parent_id,
+                                }
+                            )
                     else:
                         pass
-                yield {row_id_value: row_rel_dict}
+                yield row_rel_list
 
     def validate_records(
         self, node_name: str, list_of_records: List[dict]
     ) -> tuple[bool, dict[str, Any]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates node level data entries (multiple), such as participant records, from a node in dict format using the MDFDataValidator.
 
         Args:
@@ -539,6 +611,9 @@ class Validator:
         self, node_name: str, record: dict
     ) -> tuple[bool, dict[str, Any]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates a single node level data entry, such as a participant record, from a node in dict format using the MDFDataValidator.
 
         Args:
@@ -631,6 +706,9 @@ class Validator:
         delimiter: str = ";",
     ) -> list[dict, Any]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates records from a TSV file and returns the validation results.
         although the validator_record can take a dict or a list of dict, we only validate one record at a time here.
 
@@ -642,6 +720,7 @@ class Validator:
         Returns:
             dict[str, Any]: A dictionary containing validation results, including validity status and any warning/error messages.
         """
+
         validation_results = []
         row_num = 2  # the record starts frm the second row in the file
         for node_name, record in self.read_tsv_records(
@@ -777,14 +856,18 @@ class Validator:
         return rel_multi
 
     def validate_tsv_rels(
-        self, file_path_list: list[str | PosixPath], rel_delimiter: str = ";"
+        self, file_path_list: list[str| Path], rel_delimiter: str = ";"
     ) -> dict[str, Any]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates relationship records from a set of TSV files in a specified folder and returns the validation results for crosslinks.
         This function assumes the provided file list only contains files from the SAME SUBGRAPH. For instance, submission file for phs002790 study.
 
         This function can ONLY be used before the uuid5 generaiton. The relationship column name shoud be <parent_node>.<parent_node_key_prop>.
         For instance, participant.participant_id
+        This function does not use generator to read relationship records.
 
         Args:
             mdf: MDF object containing the model definition, used for record preparation.
@@ -984,12 +1067,12 @@ class Validator:
 
     @staticmethod
     def read_tsv_key_prop_values(
-        file_path: str | PosixPath, key_prop: str, chunk_size: int = 5000
+        file_path: str | Path, key_prop: str, chunk_size: int = 5000
     ) -> Iterator[str]:
         """Read the key prop values of a tsv file
 
         Args:
-            file_path (str | PosixPath): file path or filepath object
+            file_path (str | Path): file path or filepath object
             key_prop (str): key property name
 
         Returns:
@@ -1049,9 +1132,12 @@ class Validator:
         return duplicated_values
 
     def validate_tsv_uniq_entry(
-        self, file_path_list: list[str | PosixPath]
+        self, file_path_list: list[str | Path]
     ) -> list[dict[str, Any]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates the uniqueness of data entry within a list of tsv files for a subgraph submission.
         We ASSUME the provided files are from the SAME subgraph. In some cases, it can be from the same study, but in other cases, it can be from the same program with multiple studies under it.
         Because two entries of [same key property value] in the [same type] under the [same subgraph] will share the same UUID
@@ -1097,8 +1183,11 @@ class Validator:
                 pass
         return validation_results
 
-    def validate_tsv_format(self, file_path: str | PosixPath) -> list[dict[str, Any]]:
+    def validate_tsv_format(self, file_path: str | Path) -> list[dict[str, Any]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates the format of a TSV file
         - if type column exist
             - if no, error message and no further validation items
@@ -1291,9 +1380,12 @@ class Validator:
         return validation_errors  # validation_errors can be an empty list if not violation is found
 
     def validate_tsv_files_format(
-        self, file_path_list: list[str | PosixPath]
+        self, file_path_list: list[str | Path]
     ) -> dict[str, list[dict[str, Any]]]:
         """
+        ########################
+        # FOR LOCAL VALIDATION #
+        ########################
         Validates the format of TSV files in a specified list of file paths.
 
         Args:
@@ -1310,9 +1402,13 @@ class Validator:
                 pass
         return validation_errors
 
-    def if_node_exist_in_db(self, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid") -> bool:
+    def if_node_exist_in_db(self, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> bool:
         """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
         A helper function to check if a node with specific id property value already exist in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database.
+        Raise ValueError: If more than one node with the specified id property value is found in the database. This indicates DB problem of having duplicate nodes with the same uuid/guid.
 
         Args:
             driver: GraphDatabase driver instance with proper connection to a graph database
@@ -1322,7 +1418,8 @@ class Validator:
             bool: True if a node with the specified id property value exists in the database, False otherwise.
         """
         with driver.session() as session:
-            test_query = f"MATCH (n) WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count"
+            match_clause = f"MATCH (n:{node_label})" if node_label is not None else "MATCH (n)"
+            test_query = f"{match_clause} WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count"
             result = session.run(test_query, id_prop_value=id_prop_value)
             record = result.single()
             node_count = 0 if record is None else record["node_count"]
@@ -1332,13 +1429,76 @@ class Validator:
                 )
             if node_count == 0:
                 return False
-            else:
-                return True
-    
-    def find_node_record_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
+            return True
+
+    def if_edge_exist_in_db(self, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]) -> bool:
         """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to validate if a specifc edge exists in the database based on guids of src and dst node.
+        An example of rel_dict_item would be:
+        {
+            "src_label": "sample",
+            "src_id_prop": "guid",
+            "src_id_value": "891e7e1a-9c25-4d25-a4b8-1517233f3f8f",
+            "dst_label": "participant",
+            "dst_id_prop": "guid",
+            "dst_id_value": "395aa6ed-b912-483f-bf20-16e0313b21ae",
+        }
+
+        Args:
+            driver (GraphDatabase.driver): GraphDatabase driver instance with proper connection to a graph database
+            rel_dict_item (dict[str, Any]): A dictionary containing the details of the edge to be checked, including source and destination node labels, id properties, and id values.
+
+        Returns:
+            bool: True if the edge exists, False otherwise
+        """
+        with driver.session() as session:
+            test_query = f"""
+            MATCH (src:{rel_dict_item['src_label']})-[r]->(dst:{rel_dict_item['dst_label']})
+            WHERE src.{rel_dict_item['src_id_prop']} = $src_id_value AND dst.{rel_dict_item['dst_id_prop']} = $dst_id_value
+            RETURN count(r) AS edge_count
+            """
+            result = session.run(
+                test_query,
+                src_id_value=rel_dict_item["src_id_value"],
+                dst_id_value=rel_dict_item["dst_id_value"],
+            )
+            record = result.single()
+            edge_count = 0 if record is None else record["edge_count"]
+            if edge_count == 0:
+                return False
+            elif edge_count == 1:
+                return True
+            else:
+                raise ValueError(
+                    f"Found {edge_count} edges in database between two data nodes. Expected 0 or 1 edge.\nSrc node {rel_dict_item['src_id_prop']}:{rel_dict_item['src_id_value']}\nDst node {rel_dict_item['dst_id_prop']}:{rel_dict_item['dst_id_value']}"
+                )
+
+    def get_node_record_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
         A helper function to find a node record with specific id property value in the database. The return will be used to compare the record found in the submission file.
         We only expect one record found in the database since this is a check based on the unique id property value. If more than one record is found, it indicates there is duplicated data issue in the database, which should be fixed before the validation of submission files.
+        # This helper function also cleans up the records by removing timestamp properties (["created", "updated"])
+        # The reurn will contain uuid property value, such as guid
+
+        An example return can be:
+        {
+          "dbgap_accession": "phs001228",
+          "guid": "ecb2440c-c193-5229-b155-b32ec330981c", <---- guid is in returned record
+          "promotion_status": [
+            "Promote"
+          ],
+          "study_acronym": "KF-ESGR",
+          "study_description": "example study description",
+          "study_id": "phs001228",
+          "study_name": "Gabriella Miller Kids First (GMKF) Pediatric Research Program in Susceptibility to Ewing Sarcoma Based on Germline Risk and Familial History of Cancer",
+          "study_phase": "Completed"
+        }
 
         Args:
             driver: GraphDatabase driver instance with proper connection to a graph database
@@ -1347,7 +1507,9 @@ class Validator:
         Returns:
             dict[str, Any] | None: A dictionary containing the node record if found, None otherwise.
         """
+        props_to_remove = ["created","updated"]
         with driver.session() as session:
+            # This query returns count and the first item of the nodes that match to the MATCH statement
             test_query = f"MATCH (n) WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count, head(collect(n)) AS node"
             result = session.run(test_query, id_prop_value=id_prop_value)
             record = result.single()
@@ -1357,125 +1519,348 @@ class Validator:
                     f"Found {node_count} nodes in database with {id_prop_name}='{id_prop_value}'. Expected exactly 0 or 1 node."
                 )
             # if record is found, return the node properties as a dictionary, otherwise return None
-            return dict(record["node"]) if node_count == 1 else None
+            properties_value = dict(record["node"]["properties"]) if node_count == 1 else None
+            if properties_value is not None:
+                for prop_to_remove in props_to_remove:
+                    properties_value.pop(prop_to_remove, None)
+            return properties_value
 
-    def find_node_outgoing_edges(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any]:
+    def get_node_outgoing_edges_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> list[dict[str, Any]]:
         """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
         A helper function to find all outgoing edges of a node with specific id property value in the database. The return will be used to compare the edges found in the submission file.
-        If NO match is found in the database for target node, or NO outgoing edges are found for the target node, the function will return an empty dictionary, {}.
+        If NO match is found in the database for target node, or NO outgoing edges are found for the target node, the function will return an empty list, [].
+        # Example of dictionary item in the return list can be:
+        [{
+            "src_label": "sample",
+            "src_id_prop": "guid",
+            "src_id_value": "891e7e1a-9c25-4d25-a4b8-1517233f3f8f",
+            "dst_label": "participant",
+            "dst_id_prop": "guid",
+            "dst_id_value": "395aa6ed-b912-483f-bf20-16e0313b21ae",
+        }]
 
         Args:
             driver: GraphDatabase driver instance with proper connection to a graph database
             id_prop_name: The name of the id property, default is "guid"
             id_prop_value: The value of the id property to be checked
         Returns:
-            dict[str, Any]: A dictionary with edge types as keys and id property values as values.
+            list[dict[str, Any]]: A list of dictionaries, each containing edge information.
         """
         with driver.session() as session:
+            match_clause = (
+                f"MATCH (t:{node_label})-[]->(n)" if node_label else "MATCH (t)-[]->(n)"
+            )
             test_query = f"""
-            MATCH (t)-[]->(n)
+            {match_clause}
             WHERE t.{id_prop_name} = $id_prop_value
-            RETURN labels(n)[0] AS label, collect(n.{id_prop_name}) AS values
+            RETURN labels(t)[0] AS src_label, labels(n)[0] AS dst_label, collect(n.{id_prop_name}) AS values
             """
             result = session.run(test_query, id_prop_value=id_prop_value)
-            outgoing_rels = {}
+            outgoing_rels = []
             for record in result:
-                label = record["label"]
+                src_label = record["src_label"]
+                dst_label = record["dst_label"]
                 values = record["values"]
-                if label is not None: # if there is no outgoing edge, label will be None. and the outgoing_rels will be an empty dict
-                    outgoing_rels[label] = values
+                if dst_label is None: # if dst_label is None,it indicates there is no outgoing edge found for the target node
+                    continue
+                for dst_id_value in values:
+                    outgoing_rels.append(
+                        {
+                        "src_label": src_label, 
+                        "src_id_prop": id_prop_name, 
+                        "src_id_value": id_prop_value,
+                        "dst_label": dst_label, 
+                        "dst_id_prop": id_prop_name, 
+                        "dst_id_value": dst_id_value
+                        }
+                        )
         return outgoing_rels
 
     @classmethod
-    def validate_record_in_db(cls, record_in_file: dict, record_in_db: dict | None, test_mode: TestModeList = "Upsert") -> dict[str, Any]:
+    def if_node_id_in_tsv_list(cls, tsv_file_list: list[str | Path], id_value: str, id_field: str = "guid") -> bool:
         """
-        A helper function to validate a record in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the test_mode defined as below:
-        - New: The record should not exist in the database. If it exist, return error message.
-        - Update: The record should already exist in the database. If it doesn't exist, return error message. If it exist, compare the properties and edges of the record found in the database with the record from the submission file, and return any inconsistency as warning or error message.
-        - Upsert: The record can either be created as new record or update if it already exist in the database. If it exist, compare the properties and edges of the record found in the database with the record from the submission file, and return any inconsistency as warning or error message. Setting property values using Merge statement doesn't wipe off exisitng property values, which means if there is inconsistency between record_in_file and record_in_db for a specific property, but this property value in record_in_db can still be kept if we use Merge statement to set property values based on record_in_file.
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to find a node record with specific id property value in a list of tsv files.
+        This function was intended to be used for validating tsv against DB in new mode.
+        node ---> if node exist in DB ---> yes ---> check edge ---> if dst node not found in DB --> check if dst node can be found in tsv list
+        This function returns True if id_value can be found in the set of tsv files
+
 
         Args:
-            record_in_file: A dictionary containing the node record from submission file. This record should be the return of record_prep method 
+            tsv_file_list: A list of paths to TSV files to be validated for unique entries in the id field column.
+            id_field: The name of the id property to be checked
+            id_value: The value of the id property to be checked
+        Returns:
+            bool: True if id_value can be found in the set of tsv files, False otherwise.
+        """
+        for file_path in tsv_file_list:
+            try:
+                tsv_id_iter = cls.read_tsv_records_id(
+                    tsv_file=file_path, id_field=id_field
+                )
+                for _, id_dict in tsv_id_iter:
+                    if id_dict.get(id_field, None) == id_value:
+                        return True
+            except Exception as e:
+                print(f"Error processing {str(file_path)}: {e}")
+                raise e
+        return False
+
+    @classmethod
+    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_filepath: str | Path, tsv_file_set: list[str | Path], id_prop_name: str, delimiter: str = ";", test_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to validate  in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the test_mode defined as below:
+
+        Args:
+            record_in_file: A dictionary containing the node record from submission file. This record should be the return of record_prep method
             record_in_db: A dictionary containing the node record found in database. If None is passed, it indicates no record found in the database
             test_mode: The mode of validation to be performed, default is "Upsert"
         Returns:
             dict[str, Any]: A dictionary containing validation results for comparing a record from submission file against a record found in database, including validity status and any warning/error messages.
         """
-        validation_result = {}
-        if test_mode not in TestModeList:
-            raise ValueError(f"Invalid test mode '{test_mode}'. Expected one of {TestModeList}.")
-        
-        if record_in_db is None: # no record found in the database
-            if test_mode == "Update":
-                validation_result = {
-                    "test_mode": test_mode,
-                    "level": "error",
-                    "type": "record_not_exist",
-                    "message": f"Record with id '{record_in_file.get('guid')}' is expected to exist in the database but not found.",
-                    }
-            elif test_mode in ["New", "Upsert"]:
-                validation_result = {
-                    "test_mode": test_mode,
-                    "level": "info",
-                        "type": "record_not_exist",
-                        "message": f"Record with id '{record_in_file.get('guid')}' does not exist in the database, and will be created as a new record.",
-                    }
-        else: # record is found in the database
-            if test_mode == "Update":
-                if record_in_file == record_in_db:
-                    validation_result = {
-                        "test_mode": test_mode,
-                        "level": "warning",
-                        "type": "record_exist",
-                        "message": f"Record with id '{record_in_file.get('guid')}' matches to the record found in the database. Nothing to update.",
+        validation_results = []
+        passed_row_list = []
+        combined_record_reading = zip(
+            cls.read_tsv_records_id(
+                tsv_file_path=tsv_filepath, id_field=id_prop_name
+            ),
+            cls.read_tsv_rels_id(
+                tsv_file_path=tsv_filepath, id_field=id_prop_name, delimiter=delimiter
+            ),
+        )
+        for row_num, (record_id, rels_in_record) in enumerate(combined_record_reading, start=2):  # row_num starts from 2 because the first row is header and the second row is the first data row
+            record_type, record_id_dict = record_id
+
+            # row_pass is set to True at the begining of each row validation
+            row_pass = True
+            if_record_exist_in_db = cls.if_node_exist_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
+            if test_mode == "New": # testing mode New
+                if if_record_exist_in_db: # record already exists in db, this is not New data node
+                    validation_results.append(
+                        {
+                            "row": row_num,
+                            "record_type": record_type,
+                            "validation_mode": test_mode,
+                            "level": "error",
+                            "type": "record_already_exist_in_db",
+                            "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' already exists in the database, but the test mode is 'New'.",
+                            "hint": None
                         }
-                else:
-                    validation_result = {
-                        "test_mode": test_mode,
-                        "level": "info",
-                        "type": "record_exist",
-                        "message": f"Record with id '{record_in_file.get('guid')}' exists in the database and differs from the record in file and will be updated based on the submission file.",
-                    }
-            elif test_mode == "New":
-                validation_result = {
-                    "test_mode": test_mode,
-                    "level": "error",
-                    "type": "record_already_exist",
-                        "message": f"Record with id '{record_in_file.get('guid')}' is expected to be new but already exists in the database.",
-                    }
-            elif test_mode == "Upsert":
-                validation_result = {
-                    "test_mode": test_mode,
-                    "level": "info",
-                    "type": "record_exist",
-                    "message": f"Record with id '{record_in_file.get('guid')}' exists in the database and will be updated based on the submission file.",
-                    }
-        return validation_result
-    
-    @classmethod
-    def validate_rels_record_in_db(cls, rel_record_in_file: dict, rel_record_in_db: dict, test_mode: TestModeList) -> dict[str, Any]:
-        """
-        A helper function to validate a relationship record in the submission file against the relationship record found in the database. This is used for validating relationship column value in the tsv.
-        Note: We assume the the node of interest already EXIST in the database when this function is used.
-
-        IF the rel_record_in_db is an empty dict, {}, it indicates either no match of target node in the database or no outgoing edge found, such as program or study data node.
-
-        For a record NOT in db yet.
-            - New: rel_record_in_db is {}. Any relationships depicted in rel_record_in_file will be created as new edges
-            - Update: rel_record_in_db is {}. Record validation against DB should a warning because the record is expected to exist in the DB but not found. there is a possibility that a record can exist without outgoing edges attach to it. Rel validation against DB shoud fail as well
-            - Upsert: rel_record_in_db is {}. Any relationships depicted in rel_record_in_file will be created as new edges
-        For a record already in db.
-            - New: rel_record_in_db is not {}. Record validation against DB should fail because the rel_record_in_db is expected to be {}
-            - Update: rel_record_in_db is not {}. Any relationships depicted in rel_record_in_file will be compared against the relationships found in rel_record_in_db. If any relationship in rel_record_in_file is not found in rel_record_in_db, it will be created as new edge. If any relationship in rel_record_in_db is not found in rel_record_in_file, it will be deleted from the database.
-                - it should return a relationship blob, describing which edges will be created and which will be deleted.
-                    - if the deletion will cause the dst node to be orphaned.
-            - Upsert: rel_record_in_db is not {}. Any relationships depicted in rel_record_in_file will be compared against the relationships found in rel_record_in_db. If any relationship in rel_record_in_file is not found in rel_record_in_db, it will be created as new edge. If any relationship in rel_record_in_db is not found in rel_record_in_file, it will be kept in the database.
-                - it should return a relationship blob describing the all the final edges sourcing from the target node
-        
-        Args:
-            rel_record_in_file: A dictionary containing the relationship record from submission file. This record should be prepared by a method similar to record_prep method but for relationship record
-            rel_record_in_db: A dictionary containing the relationship record found in database. If None is passed, it indicates no relationship record found in the database
-            test_mode: The mode of validation to be performed, default is "Upsert"
-        Returns:
-            dict[str, Any]: A dictionary containing validation results for comparing a relationship record from submission file against a relationship record found in database, including validity status and any warning/error messages.
-        """
+                    )
+                    row_pass = False
+                    continue # no need to further check for edges, 
+                else: # record doesn't exist in db, this is correct as a new node
+                    # because src node doesn't exist in db, all edges in file must be new to db
+                    # we can check if the dst node exist in db or in the file, if dst node can't be found in either place, it will be an error because the edge can't be created
+                    invalid_edge_hint = []
+                    for rel in rels_in_record:
+                        # test if dst node exist in db
+                        if not cls.if_node_exist_in_db(driver=driver, id_prop_name=rel["dst_id_prop"], node_label=rel["dst_label"], id_prop_value=rel["dst_id_value"]):
+                            # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
+                            if not cls.if_node_id_in_tsv_list(tsv_file_list = tsv_file_set, id_value=rel["dst_id_value"], id_field=rel["dst_id_prop"]):
+                                # dst not exist in db or tsv (which means dst won't be created while loading
+                                invalid_edge_hint.append(rel)
+                            else:
+                                pass
+                        else:
+                            pass
+                    if len(invalid_edge_hint) > 0:
+                        validation_results.append(
+                            {
+                                "row": row_num,
+                                "record_type": record_type,
+                                "validation_mode": test_mode,
+                                "level": "error",
+                                "type": "invalid_edge_dst_node_not_found",
+                                "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edge_hint)}",
+                                "hint": invalid_edge_hint
+                            }
+                        )
+                        row_pass = False
+                    else: # no invalid edge found. all dst node in edges can be found in either db or submission files
+                        pass
+            elif test_mode == "Update": # 
+                if not if_record_exist_in_db: # update mode only work with exisitng node
+                    validation_results.append(
+                        {
+                            "row": row_num,
+                            "record_type": record_type,
+                            "validation_mode": test_mode,
+                            "level": "error",
+                            "type": "record_not_found_in_db",
+                            "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database. This record is a new record to DB, but the test mode is 'Update'.",
+                            "hint": None
+                        }
+                    )
+                    row_pass = False
+                else: # record already exist in DB
+                    # find all outgoing edges of the src node in db
+                    outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
+                    # unique edge in file for this src node
+                    uniq_edges_in_file = [i for i in rels_in_record if i not in outgoing_edges_in_db]
+                    # unique edge in db for this src node
+                    uniq_edges_in_db = [i for i in outgoing_edges_in_db if i not in rels_in_record]
+                    # if uniq_edges_in_db is not empty, these edges will be deleted after update,
+                    if len(uniq_edges_in_db) > 0:
+                        # give warnings to the validation results
+                        validation_results.append(
+                            {
+                                "row": row_num,
+                                "record_type": record_type,
+                                "validation_mode": test_mode,
+                                "level": "warning",
+                                "type": "edge_will_be_deleted",
+                                "message": f"Edge(s) in DB from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be deleted after update: {len(uniq_edges_in_db)}",
+                                "hint": uniq_edges_in_db
+                            }
+                        )
+                    else:
+                        pass # no existing edge to be deleted
+                    if len(uniq_edges_in_file) > 0: # we need to check is dst node in edges exist in db
+                        invalid_edges_hint = []
+                        for edge in uniq_edges_in_file:
+                            if not cls.if_node_exist_in_db(driver=driver, id_prop_name=edge["dst_id_prop"], id_prop_value=edge["dst_id_value"], node_label=edge["dst_label"]):
+                                # dst not found in db, give error to the validation_results
+                                # if dst does not exist, submitter should submit dst node to db through upsert or new mode first
+                                invalid_edges_hint.append(edge)
+                            else:
+                                pass
+                        if len(invalid_edges_hint) > 0:
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": test_mode,
+                                    "level": "error",
+                                    "type": "invalid_edge_dst_node_not_found",
+                                    "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database: {len(invalid_edges_hint)}",
+                                    "hint": invalid_edges_hint
+                                }
+                            )
+                            row_pass = False
+                        else:
+                            pass
+            else: # Upsert mode
+                # Upsert mode will NOT create ERROR because everything will be created as new
+                # not need to chekck if the src node exists in db or no
+                # because if yes, node be udpated, if no,node will be created in db
+                if if_record_exist_in_db:
+                    # add warning to the validation results that the src node already exist in the db
+                    # any existing node will trigger a warning
+                    validation_results.append(
+                        {
+                            "row": row_num,
+                            "record_type": record_type,
+                            "validation_mode": test_mode,
+                            "level": "warning",
+                            "type": "record_already_exist_in_db",
+                            "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' already exists in the database. The record will be updated in the database if loaded with 'Upsert' mode.",
+                            "hint": None
+                        }
+                    )
+                    # if node already exist in db, get all outgoing edges of the src node in db
+                    outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
+                    # unique edge in file for this src node
+                    # unique edge in file for this src node
+                    uniq_edges_in_file = [
+                        i for i in rels_in_record if i not in outgoing_edges_in_db
+                    ]
+                    # unique edge in db for this src node
+                    uniq_edges_in_db = [
+                        i for i in outgoing_edges_in_db if i not in rels_in_record
+                    ]
+                    if  len(uniq_edges_in_db) > 0:
+                        # give warnings to the validation results
+                        validation_results.append(
+                            {
+                                "row": row_num,
+                                "record_type": record_type,
+                                "validation_mode": test_mode,
+                                "level": "warning",
+                                "type": "existing_edges_in_db",
+                                "message": f"Existing edge(s) in DB (not noted in file) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be kept in the database after upsert: {len(uniq_edges_in_db)}",
+                                "hint": uniq_edges_in_db
+                            }
+                        )
+                    else:
+                        pass
+                    if len(uniq_edges_in_file) > 0:
+                        invalid_edges_hint = []
+                        # check uniq_edges_in_file if dst node exist in db, if not, check if dst exist in the submission files
+                        # if dst can be found in db or in the files, the edge can be established
+                        for edge in uniq_edges_in_file:
+                            if not cls.if_node_exist_in_db(driver=driver, id_prop_name=edge["dst_id_prop"], id_prop_value=edge["dst_id_value"], node_label=edge["dst_label"]):
+                                # dst not found in db, check if dst can be found in the submission files
+                                if not cls.if_node_id_in_tsv_list(tsv_file_list = tsv_file_set, id_value=edge["dst_id_value"], id_field=edge["dst_id_prop"]):
+                                    # dst not found in db or in the submission files, give error to the validation_results
+                                    invalid_edges_hint.append(edge)
+                                else:
+                                    pass
+                            else:
+                                pass
+                        if len(invalid_edges_hint) > 0:
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": test_mode,
+                                    "level": "error",
+                                    "type": "invalid_edge_dst_node_not_found",
+                                    "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edges_hint)}",
+                                    "hint": invalid_edges_hint
+                                }
+                            )
+                            row_pass = False
+                        else:
+                            pass
+                    else:
+                        pass
+                else: # if the node doesn't exist in db, it will be created as new node
+                    # we only need to make sure the edges are valid
+                    invalid_edge_hint = []
+                    for rel in rels_in_record:
+                        # test if dst node exist in db
+                        if not cls.if_node_exist_in_db(
+                            driver=driver,
+                            id_prop_name=rel["dst_id_prop"],
+                            node_label=rel["dst_label"],
+                            id_prop_value=rel["dst_id_value"],
+                        ):
+                            # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
+                            if not cls.if_node_id_in_tsv_list(
+                                tsv_file_list=tsv_file_set,
+                                id_value=rel["dst_id_value"],
+                                id_field=rel["dst_id_prop"],
+                            ):
+                                # dst not exist in db or tsv (which means dst won't be created while loading
+                                invalid_edge_hint.append(rel)
+                            else:
+                                pass
+                        else:
+                            pass
+                    if len(invalid_edge_hint) > 0:
+                        validation_results.append(
+                            {
+                                "row": row_num,
+                                "record_type": record_type,
+                                "validation_mode": test_mode,
+                                "level": "error",
+                                "type": "invalid_edge_dst_node_not_found",
+                                "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edge_hint)}",
+                                "hint": invalid_edge_hint,
+                            }
+                        )
+                        row_pass = False
+                    else:  # no invalid edge found. all dst node in edges can be found in either db or submission files
+                        pass
+            if row_pass:
+                passed_row_list.append(row_num)
+        return passed_row_list, validation_results

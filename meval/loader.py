@@ -189,7 +189,7 @@ class Loader:
             records.append(cleaned_record)
         return chunk_type, records
 
-    # upsert records of a chunk with session.begin_transaction as input
+    # UPSERT records of a chunk with session.begin_transaction as input
     @staticmethod
     def upsert_chunk_records_with_tx(
         tx,
@@ -226,7 +226,7 @@ class Loader:
                 ts.rollback()
                 raise e
 
-    # upsert all records of a file
+    # UPSERT all records of a file
     def upsert_file_records(
         self,
         file_path: str,
@@ -291,7 +291,7 @@ class Loader:
                 return_summary[key] += value
         return dict(return_summary)
 
-    # upsert records of a chunk with session.begin_transaction as input
+    # UPDATE records of a chunk 
     @staticmethod
     def update_chunk_records_with_tx(
         tx,
@@ -303,6 +303,8 @@ class Loader:
         """
         Update a list of records into a graph database using the provided transaction.
         Use this method when you want to participate in a larger transaction context.
+        This method set the property of the node to the values in the record, instead of MERGING them with exisitng properties (Upsert mode).
+        It keeps the orginal creation timestamp (created property), and updates the updated property with the current timestamp.
         ATTENTION: this method only updates EXISTING nodes. NO new nodes can be created from this method.
 
         Args:
@@ -314,7 +316,8 @@ class Loader:
         cypher_statement = f"""
         UNWIND $records AS record
         MATCH (n:{node_type} {{ {id_field}: record.{id_field} }})
-        SET n = record, n.updated = dateTime()
+        WITH n, record, n.created AS created
+        SET n = record, n.created = created, n.updated = dateTime()
         """
         with tx.begin_transaction() as ts:
             try:
@@ -328,7 +331,7 @@ class Loader:
                 ts.rollback()
                 raise e
 
-    # update all records of a file
+    # UPDATE all records of a file
     def update_file_records(
         self,
         file_path: str,
@@ -480,6 +483,23 @@ class Loader:
             "handle": "of_sample"
         }
 
+        grouped_edges will look like this:
+        {
+            ("sample", "participant", "of_sample"): [
+                {
+                    "src_label": "sample",
+                    "src_prop": "guid",
+                    "src_match": "123",
+                    "dst_label": "participant",
+                    "dst_prop": "guid",
+                    "dst_match": "456",
+                    "handle": "of_sample"
+                },
+                ...
+            ],
+            ...
+        }
+
         Args:
             tx (session.begin_transaction): A neo4j transaction object.
             edge_list (list[dict]): A list of edge dictionaries to upsert.
@@ -498,6 +518,7 @@ class Loader:
         with tx.begin_transaction() as ts:
             for (src_label, dst_label, handle), group in grouped_edges.items():
                 # create variable for src_prop, and dst_prop
+                # all src_prop and dst_prop are assumed to be the same across grouped items
                 src_prop = group[0]["src_prop"]
                 dst_prop = group[0]["dst_prop"]
 
