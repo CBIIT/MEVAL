@@ -10,6 +10,7 @@ import hashlib
 from typing import Literal, Tuple
 from collections.abc import Iterator
 from meval.parser import ModelParser
+from itertools import islice
 
 # for validating record from a submission file against db
 TestModeList = Literal["New", "Update", "Upsert"]
@@ -17,12 +18,57 @@ TestModeList = Literal["New", "Update", "Upsert"]
 # Update is to test if the record can be updated in the db. The tested record should exist in the db
 # Upsert is to test if the record can be either created as new record or updated if it already exist in the db. Setting property values using Merge statement doesn't wipe off exisitng property values
 
+CompareRecordMode = Literal["Update", "Upsert"]
 
 class Validator:
     def __init__(self, mdf: MDFReader):
         self.mdf = mdf
         self.model = self.mdf.model
         self.record_validator = MDFDataValidator(mdf=self.mdf)
+
+    @staticmethod
+    def to_number(value: str) -> float | int | str:
+        """Convert a string value (read through csv.DictReader) to a number (int or float) when the property type(value_domain or item domain for a list) is a number/integer based on the model.
+        Value can not be None or empty string
+        The function doesn't convert the display of the value. If the value can not be converted to number, it will stay as string
+        """
+        try:
+            if "." in value:
+                return float(value)
+            else:
+                return int(value)
+        except ValueError:
+            return value
+
+    @staticmethod
+    def record_comparison(record_file: dict, record_db: dict, compare_mode: CompareRecordMode):
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Compared a record in file with another record in db (sharing the same id value, such as guid)
+        record_file should be a return from Validator.read_record_by_row_in_tsv,
+        record_db should be a return from Validator.get_node_record_in_db
+        Comparison between "Upsert" and "Update":
+            - Upsert: if the key in the record_file is not in the record_db, record in db won't delete that key after Upsert loading.
+            - Update: if the key in the record_file is not in the record_db, record in db will delete that key after Update loading
+
+        Args:
+            record_file (dict): record dictionary from the file. 
+            record_db (dict): record dictionary from the db
+            compare_mode (CompareRecordMode): "Update" or "Upsert".
+        """
+        added   = {k: record_file[k] for k in record_file.keys() - record_db.keys()}
+        removed = {k: record_db[k] for k in record_db.keys() - record_file.keys()}
+        changed = {k: {"record_in_file": record_file[k], "record_in_db":record_db[k]} for k in record_file.keys() & record_db.keys() if record_file[k] != record_db[k]}
+        # if compare_mode is "Upsert", nothing will be removed from removed dict since they won't be deleted in the db after upsert loading
+        if compare_mode == "Upsert":
+            comparison_result = {"added": added, "removed": {}, "changed": changed}
+        elif compare_mode == "Update":
+            comparison_result = {"added": added, "removed": removed, "changed": changed}
+        else:
+            raise ValueError(f"Invalid compare_mode: {compare_mode}. Must be 'Update' or 'Upsert'.")
+        return comparison_result
 
     @staticmethod
     def check_encoding(file_path: str) -> str:
@@ -225,14 +271,17 @@ class Validator:
     ) -> dict:
         """
         Prepares a record dictionary for LOCAL record validation by removing certain keys and transform str to list for list type properties if needed
-        Keys that need to be removed: "type",  "guid" and linkage keys which contain "."
-        The file does not need to have this column, but if it does, we want to remove it before validation since it's not part of the model definition.
+            - Keys that need to be removed: "type",  "guid" and linkage keys which contain "."
+                - id_field, such as "guid", is removed because usually it is not part of the data model
+            - Keys with empty string or made of only whitespace will be removed
+            - Keys with list type will be converted to list if the value is not empty string or made of only whitespace
+        The file does not need to have id_field column, but if it does, we want to remove it before validation since it's not part of the model definition.
 
         Args:
             record_dict (dict): The original record dictionary.
             mdf (MDF): The MDF object containing the model definition.
-            subgraph_col (str): The name of the column that indicates subgraph information. default is "subgraph".
-            id_field (str): The name of the id field, default is "guid"
+            subgraph_col (str | None): The name of the column that indicates subgraph information. default is "subgraph".
+            id_field (str | None): The name of the id field, default is "guid"
             delimiter (str): The delimiter used for list properties in the record dictionary. default is ";"
 
         Returns:
@@ -280,6 +329,20 @@ class Validator:
                 else:
                     pass
 
+        # convert str value to number/float if the property type is number /integer
+        for key in record_dict.keys():
+            # no need to check if the record_dict[key] is empty string because it should have been removed.
+            if key not in mdf.model.nodes[record_type].props:
+                continue
+            key_prop = mdf.model.nodes[record_type].props[key]
+            key_prop_type = key_prop.value_domain
+            if key_prop_type in ["number", "integer"]:
+                record_dict[key] = Validator.to_number(record_dict[key])
+            elif key_prop_type == "list" and key_prop.item_domain in ["number", "integer"]:
+                # the record_dict[key] is already converted to list above
+                record_dict[key] = [Validator.to_number(item) for item in record_dict[key]]
+            else:
+                pass
         return record_dict
 
     @staticmethod
@@ -433,6 +496,44 @@ class Validator:
 
         return type_file_dict
 
+    @staticmethod
+    def read_record_by_row_in_tsv(tsv_file_path: str, row_number: int, mdf_instance: MDFReader, keep_id_field: bool, id_field: str = "guid", delimiter: str = ";") -> dict[str, str]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Reads a specific row from a TSV file and returns it as a dictionary keyed by column name.
+        Note: this function allows you to decide wether to keep id_field in the record
+
+        Args:
+            tsv_file_path: Path to the TSV file.
+            row_number: The row number to read (1-based index).
+        
+        Returns:
+            dict[str, str]: A dictionary representing the specified row, keyed by column name.
+        """
+        encoding = Validator.check_encoding(tsv_file_path)
+        try:
+            with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+                reader = csv.DictReader(tsv_file, delimiter="\t")
+                # DictReader already consumes the header, so its first row is row 2.
+                # index into the data rows: row_number 2 -> data index 0
+                # if the row_number is less than 2 or past the end of the file, it will return None
+                row = next(islice(reader, row_number - 2, row_number - 1), None)
+                if row is not None:
+                    # capture id_field value before record_prep mutates the dict
+                    id_field_value = row.get(id_field, None)
+                    # prep the record
+                    row_record = Validator.record_prep(row, mdf=mdf_instance, subgraph_col=None, id_field=id_field, delimiter=delimiter)
+                    if keep_id_field:
+                        row_record[id_field] = id_field_value
+                    return row_record
+                else:
+                    return {}
+        except Exception as e:
+            print(f"Error reading row {row_number} from {tsv_file_path}: {e}")
+            raise e
+
     @classmethod
     def read_tsv_records(
         cls,
@@ -559,18 +660,21 @@ class Validator:
                 for key in row_dict.keys():
                     if f".{id_field}" in key:  # this is a relationship column
                         parent_label = key.split(".")[0]
-                        parent_id_value = [i.strip() for i in row_dict[key].strip().strip(delimiter).split(delimiter)] # strip after split
-                        for parent_id in parent_id_value:
-                            row_rel_list.append(
-                                {
-                                    "src_label": row_type,
-                                    "src_id_prop": id_field,
-                                    "src_id_value": row_id_value,
-                                    "dst_label": parent_label,
-                                    "dst_id_prop": id_field,
-                                    "dst_id_value": parent_id,
-                                }
-                            )
+                        if row_dict[key].strip().strip(delimiter) != "":  # if the value is not empty or made of only whitespace
+                            parent_id_value = [i.strip() for i in row_dict[key].strip().strip(delimiter).split(delimiter)] # strip after split
+                            for parent_id in parent_id_value:
+                                row_rel_list.append(
+                                    {
+                                        "src_label": row_type,
+                                        "src_id_prop": id_field,
+                                        "src_id_value": row_id_value,
+                                        "dst_label": parent_label,
+                                        "dst_id_prop": id_field,
+                                        "dst_id_value": parent_id,
+                                    }
+                                )
+                        else:
+                            pass
                     else:
                         pass
                 yield row_rel_list
@@ -732,7 +836,7 @@ class Validator:
         ):
             if (
                 node_name == "" and record == {}
-            ):  # this happens when there is an emoty line
+            ):  # this happens when there is an empty line
                 validation_results.append(
                     {
                         "row": row_num,
@@ -1402,7 +1506,8 @@ class Validator:
                 pass
         return validation_errors
 
-    def if_node_exist_in_db(self, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> bool:
+    @classmethod
+    def if_node_exist_in_db(cls, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> bool:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1431,7 +1536,8 @@ class Validator:
                 return False
             return True
 
-    def if_edge_exist_in_db(self, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]) -> bool:
+    @classmethod
+    def if_edge_exist_in_db(cls, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]) -> bool:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1476,7 +1582,8 @@ class Validator:
                     f"Found {edge_count} edges in database between two data nodes. Expected 0 or 1 edge.\nSrc node {rel_dict_item['src_id_prop']}:{rel_dict_item['src_id_value']}\nDst node {rel_dict_item['dst_id_prop']}:{rel_dict_item['dst_id_value']}"
                 )
 
-    def get_node_record_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
+    @classmethod
+    def get_node_record_in_db(cls, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1484,7 +1591,7 @@ class Validator:
         A helper function to find a node record with specific id property value in the database. The return will be used to compare the record found in the submission file.
         We only expect one record found in the database since this is a check based on the unique id property value. If more than one record is found, it indicates there is duplicated data issue in the database, which should be fixed before the validation of submission files.
         # This helper function also cleans up the records by removing timestamp properties (["created", "updated"])
-        # The reurn will contain uuid property value, such as guid
+        # The return will contain id_property property value, such as guid
 
         An example return can be:
         {
@@ -1519,13 +1626,14 @@ class Validator:
                     f"Found {node_count} nodes in database with {id_prop_name}='{id_prop_value}'. Expected exactly 0 or 1 node."
                 )
             # if record is found, return the node properties as a dictionary, otherwise return None
-            properties_value = dict(record["node"]["properties"]) if node_count == 1 else None
+            properties_value = dict(record["node"]) if node_count == 1 else None
             if properties_value is not None:
                 for prop_to_remove in props_to_remove:
                     properties_value.pop(prop_to_remove, None)
             return properties_value
 
-    def get_node_outgoing_edges_in_db(self, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> list[dict[str, Any]]:
+    @classmethod
+    def get_node_outgoing_edges_in_db(cls, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> list[dict[str, Any]]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1601,7 +1709,7 @@ class Validator:
         for file_path in tsv_file_list:
             try:
                 tsv_id_iter = cls.read_tsv_records_id(
-                    tsv_file=file_path, id_field=id_field
+                    tsv_file_path=file_path, id_field=id_field
                 )
                 for _, id_dict in tsv_id_iter:
                     if id_dict.get(id_field, None) == id_value:
@@ -1612,7 +1720,7 @@ class Validator:
         return False
 
     @classmethod
-    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_filepath: str | Path, tsv_file_set: list[str | Path], id_prop_name: str, delimiter: str = ";", test_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
+    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_file_path: str | Path, tsv_file_set: list[str | Path], mdf_instance: MDFReader,id_prop_name: str, delimiter: str = ";", test_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1620,20 +1728,22 @@ class Validator:
         A helper function to validate  in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the test_mode defined as below:
 
         Args:
-            record_in_file: A dictionary containing the node record from submission file. This record should be the return of record_prep method
-            record_in_db: A dictionary containing the node record found in database. If None is passed, it indicates no record found in the database
+            tsv_file_path: The path to the TSV file to be validated.
+            tsv_file_set: A list of TSV file paths that are part of the validation set.
+            id_prop_name: The name of the ID property in the TSV file.
+            delimiter: The delimiter used in the TSV file, default is ";"
             test_mode: The mode of validation to be performed, default is "Upsert"
         Returns:
-            dict[str, Any]: A dictionary containing validation results for comparing a record from submission file against a record found in database, including validity status and any warning/error messages.
+            list[dict[str, Any]]: A list of dictionaries containing validation results for each row in the TSV file, including validity status and any warning/error messages.
         """
         validation_results = []
         passed_row_list = []
         combined_record_reading = zip(
             cls.read_tsv_records_id(
-                tsv_file_path=tsv_filepath, id_field=id_prop_name
+                tsv_file_path=tsv_file_path, id_field=id_prop_name
             ),
             cls.read_tsv_rels_id(
-                tsv_file_path=tsv_filepath, id_field=id_prop_name, delimiter=delimiter
+                tsv_file_path=tsv_file_path, id_field=id_prop_name, delimiter=delimiter
             ),
         )
         for row_num, (record_id, rels_in_record) in enumerate(combined_record_reading, start=2):  # row_num starts from 2 because the first row is header and the second row is the first data row
@@ -1687,7 +1797,7 @@ class Validator:
                         row_pass = False
                     else: # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
-            elif test_mode == "Update": # 
+            elif test_mode == "Update": # Update mode
                 if not if_record_exist_in_db: # update mode only work with exisitng node
                     validation_results.append(
                         {
@@ -1702,6 +1812,36 @@ class Validator:
                     )
                     row_pass = False
                 else: # record already exist in DB
+                    # check if any prop value in the record is different from the record in db
+                    row_record_in_file = cls.read_record_by_row_in_tsv(
+                        tsv_file_path=tsv_file_path,
+                        row_number = row_num,
+                        mdf_instance=mdf_instance,
+                        keep_id_field=True,
+                        id_field=id_prop_name,
+                        delimiter=delimiter
+                    )
+                    row_record_in_db = cls.get_node_record_in_db(driver=driver, id_prop_name=id_prop_name, id_prop_value=record_id_dict[id_prop_name])
+                    # row_record_in_db can not be none becasue we already checked
+                    if row_record_in_file != row_record_in_db:
+                        record_diff = cls.record_comparison(
+                            record_file=row_record_in_file, record_db=row_record_in_db, compare_mode="Update"
+                        )
+                        # we know that two records are different, so record_diff can not be empty
+                        validation_results.append(
+                            {
+                                "row": row_num,
+                                "record_type": record_type,
+                                "validation_mode": test_mode,
+                                "level": "info",
+                                "type": "record_prop_value_will_be_updated",
+                                "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after update.",
+                                "hint": record_diff
+                            }
+                        )
+                    else:
+                        pass # no prop value change, no need to give info message
+
                     # find all outgoing edges of the src node in db
                     outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
                     # unique edge in file for this src node
@@ -1724,15 +1864,34 @@ class Validator:
                         )
                     else:
                         pass # no existing edge to be deleted
+
+                    # among unique edges in file, check if it is new edge to be created
                     if len(uniq_edges_in_file) > 0: # we need to check is dst node in edges exist in db
+                        # to find if all edges in uniq_edges_in_file can be created in db
                         invalid_edges_hint = []
                         for edge in uniq_edges_in_file:
                             if not cls.if_node_exist_in_db(driver=driver, id_prop_name=edge["dst_id_prop"], id_prop_value=edge["dst_id_value"], node_label=edge["dst_label"]):
                                 # dst not found in db, give error to the validation_results
                                 # if dst does not exist, submitter should submit dst node to db through upsert or new mode first
+                                # we DON'T test if dst exist in the submission files, because even if they can be found, the dst needs to be created as a New node in DB
                                 invalid_edges_hint.append(edge)
                             else:
                                 pass
+                        # get the VALID uniq edges in file
+                        valid_edges_in_file = [edge for edge in uniq_edges_in_file if edge not in invalid_edges_hint]
+                        if len(valid_edges_in_file) > 0:
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": test_mode,
+                                    "level": "info",
+                                    "type": "new_edge_will_be_created",
+                                    "message": f"Valid edge(s) in file from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be created in the database after update: {len(valid_edges_in_file)}",
+                                    "hint": valid_edges_in_file
+                                }
+                            )
+                        # if any invalid edge is found, give error and turn row_pass to False
                         if len(invalid_edges_hint) > 0:
                             validation_results.append(
                                 {
@@ -1748,27 +1907,59 @@ class Validator:
                             row_pass = False
                         else:
                             pass
-            else: # Upsert mode
-                # Upsert mode will NOT create ERROR because everything will be created as new
-                # not need to chekck if the src node exists in db or no
-                # because if yes, node be udpated, if no,node will be created in db
+            elif test_mode == "Upsert": # Upsert mode
+                # Upsert mode might create ERROR if the dst node of an edge can't be found in db or files
+                # no need to check if the src node exists in db or not
+                # because if yes, node will be updated, if no, node will be created in db
                 if if_record_exist_in_db:
-                    # add warning to the validation results that the src node already exist in the db
-                    # any existing node will trigger a warning
-                    validation_results.append(
-                        {
-                            "row": row_num,
-                            "record_type": record_type,
-                            "validation_mode": test_mode,
-                            "level": "warning",
-                            "type": "record_already_exist_in_db",
-                            "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' already exists in the database. The record will be updated in the database if loaded with 'Upsert' mode.",
-                            "hint": None
-                        }
+                    # if record exist in db, check if the record in db is different from the file
+                    # check if any prop value in the record is different from the record in db
+                    row_record_in_file = cls.read_record_by_row_in_tsv(
+                        tsv_file_path=tsv_file_path,
+                        row_number = row_num,
+                        mdf_instance=mdf_instance,
+                        keep_id_field=True,
+                        id_field=id_prop_name,
+                        delimiter=delimiter
                     )
+                    row_record_in_db = cls.get_node_record_in_db(driver=driver, id_prop_name=id_prop_name, id_prop_value=record_id_dict[id_prop_name])
+                    if row_record_in_file != row_record_in_db:
+                        record_diff = cls.record_comparison(
+                            record_file=row_record_in_file, record_db=row_record_in_db, compare_mode="Upsert"
+                        )
+                        # record_diff can be empty
+                        # the record_diff can be empty if the record in file is missing some prop values compared to the record in DB.
+                        if all(v == {} for v in record_diff.values()):
+                            props_missed_in_file = {k: row_record_in_db[k] for k in row_record_in_db.keys() - row_record_in_file.keys()}
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": test_mode,
+                                    "level": "warning",
+                                    "type": "record_prop_value_stay_the_same",
+                                    "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' in file is different from db. But the prop values will stay the same due to Upsert mode.",
+                                    "hint": {"props_missed_in_file": props_missed_in_file}
+                                }
+                            )
+                        else:
+                            # when record_diff is not empty
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": test_mode,
+                                    "level": "info",
+                                    "type": "record_prop_value_will_be_updated",
+                                    "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after upsert.",
+                                    "hint": record_diff
+                                }
+                            )
+                    else:
+                        pass # no prop value change, no need to give info message
+
                     # if node already exist in db, get all outgoing edges of the src node in db
                     outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
-                    # unique edge in file for this src node
                     # unique edge in file for this src node
                     uniq_edges_in_file = [
                         i for i in rels_in_record if i not in outgoing_edges_in_db
@@ -1861,6 +2052,10 @@ class Validator:
                         row_pass = False
                     else:  # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
+            else:
+                raise ValueError(
+                    f"Invalid test_mode '{test_mode}' provided. Expected one of: 'New', 'Update', 'Upsert'."
+                )
             if row_pass:
                 passed_row_list.append(row_num)
         return passed_row_list, validation_results
