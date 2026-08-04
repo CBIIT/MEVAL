@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import tempfile
 from uuid import UUID, uuid5
+from unittest.mock import MagicMock, patch
 
 from bento_mdf import MDFReader
 
@@ -37,6 +38,23 @@ class TestValidator(unittest.TestCase):
             raise unittest.SkipTest(
                 f"Could not initialize model from remote URLs: {error}"
             ) from error
+
+    @staticmethod
+    def _build_driver_with_session(session: MagicMock) -> MagicMock:
+        driver = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+        driver.session.return_value = session_cm
+        return driver
+
+    @staticmethod
+    def _write_survival_tsv(file_path: Path, participant_guid_value: str = "participant-guid-001") -> None:
+        file_path.write_text(
+            "type\tguid\tsurvival_id\tlast_known_survival_status\tage_at_last_known_survival_status\tadverse_event\tparticipant.guid\n"
+            f"survival\tsurvival-guid-001\tsurvival_001\tDead\t1234\tBack Pain ;  Blurred Vision\t{participant_guid_value}\n",
+            encoding="utf-8",
+        )
 
     def test_validate_tsv_records_survival_file(self) -> None:
         tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
@@ -201,6 +219,401 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(2, len(prep_record["adverse_event"]))
         self.assertEqual(prep_record["adverse_event"][1], "Blurred Vision")
         self.assertEqual(prep_record["adverse_event"][0], "Back Pain")
+
+    def test_record_prep_removes_empty_values_and_converts_numbers(self) -> None:
+        test_record = {
+            "type": "survival",
+            "guid": "survival-guid-001",
+            "survival_id": "survival_001",
+            "last_known_survival_status": "Dead",
+            "age_at_last_known_survival_status": "1234",
+            "adverse_event": "Back Pain ;  Blurred Vision",
+            "participant.guid": "participant-guid-001",
+            "notes": "   ",
+            "subgraph": "phs001",
+        }
+
+        prepared = Validator.record_prep(
+            test_record,
+            mdf=self.mdf_reader,
+            subgraph_col="subgraph",
+            id_field="guid",
+            delimiter=";",
+        )
+
+        self.assertEqual(prepared["age_at_last_known_survival_status"], 1234)
+        self.assertEqual(prepared["adverse_event"], ["Back Pain", "Blurred Vision"])
+        self.assertNotIn("guid", prepared)
+        self.assertNotIn("participant.guid", prepared)
+        self.assertNotIn("subgraph", prepared)
+        self.assertNotIn("notes", prepared)
+
+    def test_read_record_by_row_in_tsv_keeps_or_drops_id_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path)
+
+            without_id = Validator.read_record_by_row_in_tsv(
+                tsv_file_path=str(tsv_path),
+                row_number=2,
+                mdf_instance=self.mdf_reader,
+                keep_id_field=False,
+                id_field="guid",
+            )
+            with_id = Validator.read_record_by_row_in_tsv(
+                tsv_file_path=str(tsv_path),
+                row_number=2,
+                mdf_instance=self.mdf_reader,
+                keep_id_field=True,
+                id_field="guid",
+            )
+
+            self.assertEqual(without_id["survival_id"], "survival_001")
+            self.assertEqual(without_id["age_at_last_known_survival_status"], 1234)
+            self.assertEqual(without_id["adverse_event"], ["Back Pain", "Blurred Vision"])
+            self.assertNotIn("guid", without_id)
+
+            self.assertEqual(with_id["guid"], "survival-guid-001")
+            self.assertNotIn("participant.guid", with_id)
+
+    def test_read_tsv_rels_id_splits_multiple_relationship_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "sample.tsv"
+            tsv_path.write_text(
+                "type\tguid\tsample_id\tparticipant.guid\tstudy.guid\n"
+                "sample\tsample-guid-001\tsample_001\tparticipant-guid-001 ; participant-guid-002\tstudy-guid-001\n",
+                encoding="utf-8",
+            )
+
+            rel_rows = list(Validator.read_tsv_rels_id(str(tsv_path), id_field="guid", delimiter=";"))
+
+            self.assertEqual(len(rel_rows), 1)
+            self.assertEqual(len(rel_rows[0]), 3)
+            self.assertEqual(rel_rows[0][0]["src_label"], "sample")
+            self.assertEqual(rel_rows[0][0]["dst_label"], "participant")
+            self.assertEqual(rel_rows[0][0]["dst_id_value"], "participant-guid-001")
+            self.assertEqual(rel_rows[0][1]["dst_id_value"], "participant-guid-002")
+            self.assertEqual(rel_rows[0][2]["dst_label"], "study")
+
+    def test_if_node_exist_in_db_returns_boolean_and_raises_on_duplicates(self) -> None:
+        session = MagicMock()
+        result = MagicMock()
+        session.run.return_value = result
+        driver = self._build_driver_with_session(session)
+
+        result.single.return_value = {"node_count": 0}
+        self.assertFalse(Validator.if_node_exist_in_db(driver, "missing-guid", node_label="participant"))
+
+        result.single.return_value = {"node_count": 1}
+        self.assertTrue(Validator.if_node_exist_in_db(driver, "present-guid", node_label="participant"))
+
+        result.single.return_value = {"node_count": 2}
+        with self.assertRaises(ValueError):
+            Validator.if_node_exist_in_db(driver, "duplicate-guid", node_label="participant")
+
+    def test_if_edge_exist_in_db_returns_boolean_and_raises_on_duplicates(self) -> None:
+        session = MagicMock()
+        result = MagicMock()
+        session.run.return_value = result
+        driver = self._build_driver_with_session(session)
+        rel_dict = {
+            "src_label": "sample",
+            "src_id_prop": "guid",
+            "src_id_value": "sample-guid-001",
+            "dst_label": "participant",
+            "dst_id_prop": "guid",
+            "dst_id_value": "participant-guid-001",
+        }
+
+        result.single.return_value = {"edge_count": 0}
+        self.assertFalse(Validator.if_edge_exist_in_db(driver, rel_dict))
+
+        result.single.return_value = {"edge_count": 1}
+        self.assertTrue(Validator.if_edge_exist_in_db(driver, rel_dict))
+
+        result.single.return_value = {"edge_count": 2}
+        with self.assertRaises(ValueError):
+            Validator.if_edge_exist_in_db(driver, rel_dict)
+
+    def test_get_node_record_in_db_removes_timestamps_and_raises_on_duplicates(self) -> None:
+        session = MagicMock()
+        result = MagicMock()
+        session.run.return_value = result
+        driver = self._build_driver_with_session(session)
+
+        result.single.return_value = {
+            "node_count": 1,
+            "node": {
+                "guid": "study-guid-001",
+                "study_id": "phs001",
+                "created": "2026-01-01T00:00:00",
+                "updated": "2026-01-02T00:00:00",
+            },
+        }
+        record = Validator.get_node_record_in_db(driver, "study-guid-001", id_prop_name="guid")
+        self.assertEqual(record, {"guid": "study-guid-001", "study_id": "phs001"})
+
+        result.single.return_value = {"node_count": 0, "node": None}
+        self.assertIsNone(Validator.get_node_record_in_db(driver, "missing-guid", id_prop_name="guid"))
+
+        result.single.return_value = {"node_count": 2, "node": {"guid": "duplicate-guid"}}
+        with self.assertRaises(ValueError):
+            Validator.get_node_record_in_db(driver, "duplicate-guid", id_prop_name="guid")
+
+    def test_get_node_outgoing_edges_in_db_returns_flat_relationship_list(self) -> None:
+        session = MagicMock()
+        session.run.return_value = [
+            {
+                "src_label": "sample",
+                "dst_label": "participant",
+                "values": ["participant-guid-001", "participant-guid-002"],
+            },
+            {
+                "src_label": "sample",
+                "dst_label": "study",
+                "values": ["study-guid-001"],
+            },
+            {
+                "src_label": "sample",
+                "dst_label": None,
+                "values": [],
+            },
+        ]
+        driver = self._build_driver_with_session(session)
+
+        edges = Validator.get_node_outgoing_edges_in_db(
+            driver,
+            id_prop_value="sample-guid-001",
+            id_prop_name="guid",
+            node_label="sample",
+        )
+
+        self.assertEqual(
+            edges,
+            [
+                {
+                    "src_label": "sample",
+                    "src_id_prop": "guid",
+                    "src_id_value": "sample-guid-001",
+                    "dst_label": "participant",
+                    "dst_id_prop": "guid",
+                    "dst_id_value": "participant-guid-001",
+                },
+                {
+                    "src_label": "sample",
+                    "src_id_prop": "guid",
+                    "src_id_value": "sample-guid-001",
+                    "dst_label": "participant",
+                    "dst_id_prop": "guid",
+                    "dst_id_value": "participant-guid-002",
+                },
+                {
+                    "src_label": "sample",
+                    "src_id_prop": "guid",
+                    "src_id_value": "sample-guid-001",
+                    "dst_label": "study",
+                    "dst_id_prop": "guid",
+                    "dst_id_value": "study-guid-001",
+                },
+            ],
+        )
+
+    def test_if_node_id_in_tsv_list_checks_all_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_a = Path(tmp_dir) / "participant_a.tsv"
+            file_b = Path(tmp_dir) / "participant_b.tsv"
+            file_a.write_text(
+                "type\tguid\tparticipant_id\n"
+                "participant\tparticipant-guid-001\tP001\n",
+                encoding="utf-8",
+            )
+            file_b.write_text(
+                "type\tguid\tparticipant_id\n"
+                "participant\tparticipant-guid-002\tP002\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                Validator.if_node_id_in_tsv_list(
+                    [str(file_a), str(file_b)],
+                    id_value="participant-guid-002",
+                    id_field="guid",
+                )
+            )
+            self.assertFalse(
+                Validator.if_node_id_in_tsv_list(
+                    [str(file_a), str(file_b)],
+                    id_value="participant-guid-999",
+                    id_field="guid",
+                )
+            )
+
+    def test_validate_tsv_in_db_new_mode_flags_existing_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path)
+
+            with patch.object(Validator, "if_node_exist_in_db", return_value=True):
+                passed_rows, validation_results = Validator.validate_tsv_in_db(
+                    driver=MagicMock(),
+                    tsv_file_path=str(tsv_path),
+                    tsv_file_set=[str(tsv_path)],
+                    mdf_instance=self.mdf_reader,
+                    id_prop_name="guid",
+                    test_mode="New",
+                )
+
+        self.assertEqual(passed_rows, [])
+        self.assertEqual(len(validation_results), 1)
+        self.assertEqual(validation_results[0]["type"], "record_already_exist_in_db")
+        self.assertEqual(validation_results[0]["row"], 2)
+
+    def test_validate_tsv_in_db_update_mode_reports_prop_and_edge_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path)
+
+            existing_edge = {
+                "src_label": "survival",
+                "src_id_prop": "guid",
+                "src_id_value": "survival-guid-001",
+                "dst_label": "participant",
+                "dst_id_prop": "guid",
+                "dst_id_value": "participant-guid-000",
+            }
+            new_edge = {
+                "src_label": "survival",
+                "src_id_prop": "guid",
+                "src_id_value": "survival-guid-001",
+                "dst_label": "participant",
+                "dst_id_prop": "guid",
+                "dst_id_value": "participant-guid-001",
+            }
+
+            def node_exists_side_effect(driver, id_prop_value, id_prop_name="guid", node_label=None):
+                return id_prop_value in {"survival-guid-001", "participant-guid-001"}
+
+            with patch.object(Validator, "if_node_exist_in_db", side_effect=node_exists_side_effect), \
+                 patch.object(
+                     Validator,
+                     "get_node_record_in_db",
+                     return_value={
+                         "guid": "survival-guid-001",
+                         "survival_id": "survival_001",
+                         "last_known_survival_status": "Alive",
+                         "age_at_last_known_survival_status": 1234,
+                         "adverse_event": ["Back Pain", "Blurred Vision"],
+                     },
+                 ), \
+                 patch.object(Validator, "get_node_outgoing_edges_in_db", return_value=[existing_edge]):
+                passed_rows, validation_results = Validator.validate_tsv_in_db(
+                    driver=MagicMock(),
+                    tsv_file_path=str(tsv_path),
+                    tsv_file_set=[str(tsv_path)],
+                    mdf_instance=self.mdf_reader,
+                    id_prop_name="guid",
+                    test_mode="Update",
+                )
+
+        self.assertEqual(passed_rows, [2])
+        self.assertEqual(
+            [item["type"] for item in validation_results],
+            [
+                "record_prop_value_will_be_updated",
+                "edge_will_be_deleted",
+                "new_edge_will_be_created",
+            ],
+        )
+
+    def test_validate_tsv_in_db_upsert_mode_reports_kept_props_edges_and_invalid_dst(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path, participant_guid_value="participant-guid-missing")
+
+            kept_edge = {
+                "src_label": "survival",
+                "src_id_prop": "guid",
+                "src_id_value": "survival-guid-001",
+                "dst_label": "participant",
+                "dst_id_prop": "guid",
+                "dst_id_value": "participant-guid-keep",
+            }
+
+            def node_exists_side_effect(driver, id_prop_value, id_prop_name="guid", node_label=None):
+                return id_prop_value == "survival-guid-001"
+
+            with patch.object(Validator, "if_node_exist_in_db", side_effect=node_exists_side_effect), \
+                 patch.object(
+                     Validator,
+                     "get_node_record_in_db",
+                     return_value={
+                         "guid": "survival-guid-001",
+                         "survival_id": "survival_001",
+                         "last_known_survival_status": "Dead",
+                         "age_at_last_known_survival_status": 1234,
+                         "adverse_event": ["Back Pain", "Blurred Vision"],
+                         "extra_db_only_prop": "kept",
+                     },
+                 ), \
+                 patch.object(Validator, "get_node_outgoing_edges_in_db", return_value=[kept_edge]), \
+                 patch.object(Validator, "if_node_id_in_tsv_list", return_value=False):
+                passed_rows, validation_results = Validator.validate_tsv_in_db(
+                    driver=MagicMock(),
+                    tsv_file_path=str(tsv_path),
+                    tsv_file_set=[str(tsv_path)],
+                    mdf_instance=self.mdf_reader,
+                    id_prop_name="guid",
+                    test_mode="Upsert",
+                )
+
+        self.assertEqual(passed_rows, [])
+        self.assertEqual(
+            [item["type"] for item in validation_results],
+            [
+                "record_prop_value_stay_the_same",
+                "existing_edges_in_db",
+                "invalid_edge_dst_node_not_found",
+            ],
+        )
+        self.assertEqual(validation_results[-1]["level"], "error")
+
+    def test_validate_tsv_in_db_raises_for_invalid_test_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path)
+
+            with patch.object(Validator, "if_node_exist_in_db", return_value=False):
+                with self.assertRaisesRegex(ValueError, "Invalid test_mode 'BadMode'"):
+                    Validator.validate_tsv_in_db(
+                        driver=MagicMock(),
+                        tsv_file_path=str(tsv_path),
+                        tsv_file_set=[str(tsv_path)],
+                        mdf_instance=self.mdf_reader,
+                        id_prop_name="guid",
+                        test_mode="BadMode",
+                    )
+
+    def test_validate_tsv_in_db_propagates_duplicate_node_integrity_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tsv_path = Path(tmp_dir) / "survival.tsv"
+            self._write_survival_tsv(tsv_path)
+
+            with patch.object(
+                Validator,
+                "if_node_exist_in_db",
+                side_effect=ValueError(
+                    "Found 2 nodes in database with guid='survival-guid-001'. Expected at most 1 unique node."
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "Found 2 nodes in database with guid='survival-guid-001'"):
+                    Validator.validate_tsv_in_db(
+                        driver=MagicMock(),
+                        tsv_file_path=str(tsv_path),
+                        tsv_file_set=[str(tsv_path)],
+                        mdf_instance=self.mdf_reader,
+                        id_prop_name="guid",
+                        test_mode="Upsert",
+                    )
 
     def test_validate_record(self) -> None:
         # this is a quick test to make sure the validate_record function works as expected
