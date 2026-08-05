@@ -43,6 +43,22 @@ def find_newly_generated_tsv_files(folder_path: str) -> list[str]:
             newly_generated_files.append(os.path.join(folder_path, file_name))
     return newly_generated_files
 
+def num_of_failed_records(passed_rows: list[int], file_path: str) -> int:
+    """
+    Calculate the number of failed records in a TSV file based on the passed rows.
+
+    Args:
+        passed_rows (list[int]): A list of row indices that passed validation.
+        file_path (str): The path to the TSV file.
+
+    Returns:
+        int: The number of failed records in the TSV file.
+    """
+    with open(file_path, "r") as f:
+        total_rows = sum(1 for line in f) - 1  # Subtract 1 for header row
+    num_failed = total_rows - len(passed_rows)
+    return num_failed
+
 @flow(
     name="Validate submission files against database",
     log_prints=True,
@@ -180,7 +196,7 @@ Subgraph value will be used to generate UUIDs for records along with the project
     validation_result = {}
     for tsv_file in submission_file_set:
         logger.info(f"Validating file: {os.path.basename(tsv_file)} against the database")
-        file_validation = Validator.validate_tsv_in_db(
+        passed_rows, file_validation = Validator.validate_tsv_in_db(
             driver=driver,
             tsv_file_path=tsv_file,
             tsv_file_set=submission_file_set,
@@ -190,6 +206,8 @@ Subgraph value will be used to generate UUIDs for records along with the project
             validation_mode=validation_mode
         )
         validation_result[os.path.basename(tsv_file)] = file_validation
+        num_of_failed_records_in_file = num_of_failed_records(passed_rows, tsv_file)
+        logger.info(f"Number of failed records in file {os.path.basename(tsv_file)}: {num_of_failed_records_in_file}")
 
     # write vlaidation result to a json file and upload to s3 bucket
     validation_output_filename = f"validation_against_db_result_{get_time()}.json"
