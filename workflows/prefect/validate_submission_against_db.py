@@ -74,9 +74,7 @@ def validate_submission_against_db(
     password_secret_key: str | None = None,
 ) -> str:
     """
-    Prefect workflow that validates the current DB content and flags any
-    unexpected results.
-    The validation mode controls which checks are run. For example, if the validation mode is "New", the validation will check if the records in the submission files are Truly new to DB.
+    Prefect workflow that validates the current DB content and flags any unexpected results. The validation mode controls which checks are run. For example, if the validation mode is "New", the validation will check if the records in the submission files are Truly new to DB.
     
     Args:
         tsv_folder_bucket_path (str): S3 bucket path to the folder containing the TSV files to be validated. e.g., s3://ccdi-dcc/user/tsv_files/
