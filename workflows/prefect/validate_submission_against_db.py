@@ -62,7 +62,7 @@ def num_of_failed_records(passed_rows: list[int], file_path: str) -> int:
 @flow(
     name="Validate submission files against database",
     log_prints=True,
-    flow_run_name="validate-against-db_{validation_mode}" + f"{get_time()}",
+    flow_run_name="validate-against-db_{validation_mode}_" + f"{get_time()}",
 )
 def validate_submission_against_db(
     tsv_folder_bucket_path: str,
