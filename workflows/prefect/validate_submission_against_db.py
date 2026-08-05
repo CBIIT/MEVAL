@@ -46,7 +46,7 @@ def find_newly_generated_tsv_files(folder_path: str) -> list[str]:
 @flow(
     name="Validate submission files against database",
     log_prints=True,
-    flow_run_name="{runner}-" + f"{get_time()}",
+    flow_run_name="validate-against-db_" + f"{get_time()}",
 )
 def validate_submission_against_db(
     tsv_folder_bucket_path: str,
