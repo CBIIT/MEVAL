@@ -20,12 +20,6 @@ ProjectDropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dc
 
 class GenerateUuidInput(RunInput):
     subgraph_value: str
-    id_prop_name: str = "guid"
-    delimiter: str = ";"
-
-class ValidationInput(RunInput):
-    id_prop_name: str = "guid"
-    delimiter : str = ";"
 
 def find_newly_generated_tsv_files(folder_path: str) -> list[str]:
     """
@@ -73,6 +67,8 @@ def validate_submission_against_db(
     commons_acronym: ProjectDropDownChoices,
     tag: str = "",
     does_file_contain_uuid: UuidDropDownChoices = "no",
+    uuid_col_name: str = "guid",
+    delimiter: str = ";",
     validation_mode: Literal["Upsert", "New", "Update"] = "Upsert",
     username_secret_key: str | None = None,
     password_secret_key: str | None = None,
@@ -83,11 +79,20 @@ def validate_submission_against_db(
     The validation mode controls which checks are run. For example, if the validation mode is "New", the validation will check if the records in the submission files are Truly new to DB.
     
         Args:
-        tsv_folder_bucket_path (str): S3 bucket path to the folder containing the TSV files to be validated.
-        validation_output_bucket_path (str): S3 bucket path to the folder where the validation output will be stored.
+        tsv_folder_bucket_path (str): S3 bucket path to the folder containing the TSV files to be validated. e.g., s3://ccdi-dcc/user/tsv_files/
+        validation_output_bucket_path (str): S3 bucket path to the folder where the validation output will be stored. e.g., s3://ccdi-dcc/user/validation_output/
+        db_account_id: The AWS account ID where the database credentials are stored.
+        db_creds_secret_name: The name path of the secret in AWS Secrets Manager that contains the database credentials.
+        uri_secret_key: The key name in the secret that contains the database URI.
+        commons_acronym (ProjectDropDownChoices): The acronym of the commons project, e.g., "ccdi", "icdc", "cds", "c3dc".
+        tag (str): The tag of the data model to be used for validation.
         does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no".
+        uuid_col_name (str, optional): The name of the UUID column in the submission files. If no UUID column is present, the pipeline will generate UUIDs for the records in the submission files. Defaults to "guid".
+        delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
         validation_mode (Literal["Upsert", "New", "Update"], optional): The mode of validation to be performed. Defaults to "Upsert".
-
+        username_secret_key (str | None, optional): The key name in the secret that contains the database username. Required if the database requires authentication. Defaults to None.
+        password_secret_key (str | None, optional): The key name in the secret that contains the database password. Required if the database requires authentication. Defaults to None.
+        
         Returns:
             str: validation output filename
     """
@@ -106,15 +111,11 @@ def validate_submission_against_db(
             wait_for_input=GenerateUuidInput.with_initial_data(description=(f"""
 **Please provide a subgraph value for your submission file**
 Subgraph value is a string that indicates which study or program of these files belong to, for example, "phs000123". It means all the records from your submission files are from study phs000123.
-Subgraph value will be used to generate UUIDs for records along with the project acronym and the record type,and record key prop value.
+Subgraph value will be used to generate UUIDs for records along with the project acronym, the record type, and the record key prop value.
 
 - **subgraph_value**: e.g., phs000123
-- **id_prop_name**: the name of the UUID property, default is "guid". Please keep this property name consistent with what's been ingested in DB.
-- **delimiter**: the delimiter used in the TSV files, default is ";"
 """))
         )
-        delimiter = generate_uuid.delimiter
-        id_prop_name = generate_uuid.id_prop_name
         # tsv with uuid added upload path
         tsv_with_uuid_added_upload_path = os.path.join(
             validation_output_bucket_path, output_subfolder
@@ -128,26 +129,15 @@ Subgraph value will be used to generate UUIDs for records along with the project
             subgraph_value=generate_uuid.subgraph_value,
             commons_acronym=commons_acronym,
             tag=tag,
-            uuid_col_name=id_prop_name,
+            uuid_col_name=uuid_col_name,
             delimiter=delimiter
         )
         submission_file_set = find_newly_generated_tsv_files(".")
 
     elif does_file_contain_uuid == "yes":
-        validation_param_input = pause_flow_run(
-            wait_for_input=ValidationInput.with_initial_data(description=(f"""
-**Please provide id property name and delimiter used in your submission files**
-
-- **id_prop_name**: the name of the UUID property, default is "guid". Please keep this property name consistent with what's been ingested in DB.
-- **delimiter**: the delimiter used in the TSV files, default is ";"
-""")
-        ))
         logger.info(
             "You indicated that the submission files already contain UUIDs. Proceeding with validation."
         )
-        delimiter = validation_param_input.delimiter
-        id_prop_name = validation_param_input.id_prop_name
-
         # Parse the S3 bucket path to get the folder path
         tsv_bucket, tsv_folder_path = parse_file_url(tsv_folder_bucket_path)
         folder_dl_s3(bucket=tsv_bucket, remote_folder=tsv_folder_path)
@@ -201,7 +191,7 @@ Subgraph value will be used to generate UUIDs for records along with the project
             tsv_file_path=tsv_file,
             tsv_file_set=submission_file_set,
             mdf_instance=mdf_instance,
-            id_prop_name=id_prop_name,
+            id_prop_name=uuid_col_name,
             delimiter=delimiter,
             validation_mode=validation_mode
         )
