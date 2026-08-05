@@ -1720,19 +1720,19 @@ class Validator:
         return False
 
     @classmethod
-    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_file_path: str | Path, tsv_file_set: list[str | Path], mdf_instance: MDFReader,id_prop_name: str, delimiter: str = ";", test_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
+    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_file_path: str | Path, tsv_file_set: list[str | Path], mdf_instance: MDFReader,id_prop_name: str, delimiter: str = ";", validation_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
         """
         ########################
         # FOR VALIDATION IN DB #
         ########################
-        A helper function to validate  in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the test_mode defined as below:
+        A helper function to validate  in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the validation_mode defined as below:
 
         Args:
             tsv_file_path: The path to the TSV file to be validated.
             tsv_file_set: A list of TSV file paths that are part of the validation set.
             id_prop_name: The name of the ID property in the TSV file.
             delimiter: The delimiter used in the TSV file, default is ";"
-            test_mode: The mode of validation to be performed, default is "Upsert"
+            validation_mode: The mode of validation to be performed, default is "Upsert"
         Returns:
             list[dict[str, Any]]: A list of dictionaries containing validation results for each row in the TSV file, including validity status and any warning/error messages.
         """
@@ -1752,13 +1752,13 @@ class Validator:
             # row_pass is set to True at the begining of each row validation
             row_pass = True
             if_record_exist_in_db = cls.if_node_exist_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
-            if test_mode == "New": # testing mode New
+            if validation_mode == "New": # testing mode New
                 if if_record_exist_in_db: # record already exists in db, this is not New data node
                     validation_results.append(
                         {
                             "row": row_num,
                             "record_type": record_type,
-                            "validation_mode": test_mode,
+                            "validation_mode": validation_mode,
                             "level": "error",
                             "type": "record_already_exist_in_db",
                             "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' already exists in the database, but the test mode is 'New'.",
@@ -1787,7 +1787,7 @@ class Validator:
                             {
                                 "row": row_num,
                                 "record_type": record_type,
-                                "validation_mode": test_mode,
+                                "validation_mode": validation_mode,
                                 "level": "error",
                                 "type": "invalid_edge_dst_node_not_found",
                                 "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edge_hint)}",
@@ -1797,13 +1797,13 @@ class Validator:
                         row_pass = False
                     else: # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
-            elif test_mode == "Update": # Update mode
+            elif validation_mode == "Update": # Update mode
                 if not if_record_exist_in_db: # update mode only work with exisitng node
                     validation_results.append(
                         {
                             "row": row_num,
                             "record_type": record_type,
-                            "validation_mode": test_mode,
+                            "validation_mode": validation_mode,
                             "level": "error",
                             "type": "record_not_found_in_db",
                             "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database. This record is a new record to DB, but the test mode is 'Update'.",
@@ -1832,7 +1832,7 @@ class Validator:
                             {
                                 "row": row_num,
                                 "record_type": record_type,
-                                "validation_mode": test_mode,
+                                "validation_mode": validation_mode,
                                 "level": "info",
                                 "type": "record_prop_value_will_be_updated",
                                 "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after update.",
@@ -1855,7 +1855,7 @@ class Validator:
                             {
                                 "row": row_num,
                                 "record_type": record_type,
-                                "validation_mode": test_mode,
+                                "validation_mode": validation_mode,
                                 "level": "warning",
                                 "type": "edge_will_be_deleted",
                                 "message": f"Edge(s) in DB from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be deleted after update: {len(uniq_edges_in_db)}",
@@ -1884,7 +1884,7 @@ class Validator:
                                 {
                                     "row": row_num,
                                     "record_type": record_type,
-                                    "validation_mode": test_mode,
+                                    "validation_mode": validation_mode,
                                     "level": "info",
                                     "type": "new_edge_will_be_created",
                                     "message": f"Valid edge(s) in file from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be created in the database after update: {len(valid_edges_in_file)}",
@@ -1897,7 +1897,7 @@ class Validator:
                                 {
                                     "row": row_num,
                                     "record_type": record_type,
-                                    "validation_mode": test_mode,
+                                    "validation_mode": validation_mode,
                                     "level": "error",
                                     "type": "invalid_edge_dst_node_not_found",
                                     "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database: {len(invalid_edges_hint)}",
@@ -1907,7 +1907,7 @@ class Validator:
                             row_pass = False
                         else:
                             pass
-            elif test_mode == "Upsert": # Upsert mode
+            elif validation_mode == "Upsert": # Upsert mode
                 # Upsert mode might create ERROR if the dst node of an edge can't be found in db or files
                 # no need to check if the src node exists in db or not
                 # because if yes, node will be updated, if no, node will be created in db
@@ -1935,7 +1935,7 @@ class Validator:
                                 {
                                     "row": row_num,
                                     "record_type": record_type,
-                                    "validation_mode": test_mode,
+                                    "validation_mode": validation_mode,
                                     "level": "warning",
                                     "type": "record_prop_value_stay_the_same",
                                     "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' in file is different from db. But the prop values will stay the same due to Upsert mode.",
@@ -1948,7 +1948,7 @@ class Validator:
                                 {
                                     "row": row_num,
                                     "record_type": record_type,
-                                    "validation_mode": test_mode,
+                                    "validation_mode": validation_mode,
                                     "level": "info",
                                     "type": "record_prop_value_will_be_updated",
                                     "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after upsert.",
@@ -1974,7 +1974,7 @@ class Validator:
                             {
                                 "row": row_num,
                                 "record_type": record_type,
-                                "validation_mode": test_mode,
+                                "validation_mode": validation_mode,
                                 "level": "warning",
                                 "type": "existing_edges_in_db",
                                 "message": f"Existing edge(s) in DB (not noted in file) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be kept in the database after upsert: {len(uniq_edges_in_db)}",
@@ -2002,7 +2002,7 @@ class Validator:
                                 {
                                     "row": row_num,
                                     "record_type": record_type,
-                                    "validation_mode": test_mode,
+                                    "validation_mode": validation_mode,
                                     "level": "error",
                                     "type": "invalid_edge_dst_node_not_found",
                                     "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edges_hint)}",
@@ -2042,7 +2042,7 @@ class Validator:
                             {
                                 "row": row_num,
                                 "record_type": record_type,
-                                "validation_mode": test_mode,
+                                "validation_mode": validation_mode,
                                 "level": "error",
                                 "type": "invalid_edge_dst_node_not_found",
                                 "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edge_hint)}",
@@ -2054,7 +2054,7 @@ class Validator:
                         pass
             else:
                 raise ValueError(
-                    f"Invalid test_mode '{test_mode}' provided. Expected one of: 'New', 'Update', 'Upsert'."
+                    f"Invalid validation_mode '{validation_mode}' provided. Expected one of: 'New', 'Update', 'Upsert'."
                 )
             if row_pass:
                 passed_row_list.append(row_num)
