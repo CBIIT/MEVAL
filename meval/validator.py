@@ -20,6 +20,7 @@ TestModeList = Literal["New", "Update", "Upsert"]
 
 CompareRecordMode = Literal["Update", "Upsert"]
 
+
 class Validator:
     def __init__(self, mdf: MDFReader):
         self.mdf = mdf
@@ -41,7 +42,9 @@ class Validator:
             return value
 
     @staticmethod
-    def record_comparison(record_file: dict, record_db: dict, compare_mode: CompareRecordMode):
+    def record_comparison(
+        record_file: dict, record_db: dict, compare_mode: CompareRecordMode
+    ):
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -54,20 +57,26 @@ class Validator:
             - Update: if the key in the record_file is not in the record_db, record in db will delete that key after Update loading
 
         Args:
-            record_file (dict): record dictionary from the file. 
+            record_file (dict): record dictionary from the file.
             record_db (dict): record dictionary from the db
             compare_mode (CompareRecordMode): "Update" or "Upsert".
         """
-        added   = {k: record_file[k] for k in record_file.keys() - record_db.keys()}
+        added = {k: record_file[k] for k in record_file.keys() - record_db.keys()}
         removed = {k: record_db[k] for k in record_db.keys() - record_file.keys()}
-        changed = {k: {"record_in_file": record_file[k], "record_in_db":record_db[k]} for k in record_file.keys() & record_db.keys() if record_file[k] != record_db[k]}
+        changed = {
+            k: {"record_in_file": record_file[k], "record_in_db": record_db[k]}
+            for k in record_file.keys() & record_db.keys()
+            if record_file[k] != record_db[k]
+        }
         # if compare_mode is "Upsert", nothing will be removed from removed dict since they won't be deleted in the db after upsert loading
         if compare_mode == "Upsert":
             comparison_result = {"added": added, "removed": {}, "changed": changed}
         elif compare_mode == "Update":
             comparison_result = {"added": added, "removed": removed, "changed": changed}
         else:
-            raise ValueError(f"Invalid compare_mode: {compare_mode}. Must be 'Update' or 'Upsert'.")
+            raise ValueError(
+                f"Invalid compare_mode: {compare_mode}. Must be 'Update' or 'Upsert'."
+            )
         return comparison_result
 
     @staticmethod
@@ -172,7 +181,7 @@ class Validator:
             uuid_column (str): The name of the uuid column to be added, default is "guid"
             delimiter (str | None): The delimiter to use for splitting multiple key values. Defaults to ";".
             subgraph_value (str | None): The value of a subgraph key, such as "phs000123", which is also used for uuid generation. If not provided, the function will look for a "subgraph" column in the TSV file.
-            
+
         """
         file_path_str = str(file_path)
         encoding = Validator.check_encoding(file_path_str)
@@ -324,7 +333,9 @@ class Validator:
                 key_prop_type = key_prop.value_domain
                 if key_prop_type == "list":
                     key_value = record_dict[key]
-                    key_value_list = [item.strip() for item in key_value.split(delimiter)]
+                    key_value_list = [
+                        item.strip() for item in key_value.split(delimiter)
+                    ]
                     record_dict[key] = key_value_list
                 else:
                     pass
@@ -338,9 +349,14 @@ class Validator:
             key_prop_type = key_prop.value_domain
             if key_prop_type in ["number", "integer"]:
                 record_dict[key] = Validator.to_number(record_dict[key])
-            elif key_prop_type == "list" and key_prop.item_domain in ["number", "integer"]:
+            elif key_prop_type == "list" and key_prop.item_domain in [
+                "number",
+                "integer",
+            ]:
                 # the record_dict[key] is already converted to list above
-                record_dict[key] = [Validator.to_number(item) for item in record_dict[key]]
+                record_dict[key] = [
+                    Validator.to_number(item) for item in record_dict[key]
+                ]
             else:
                 pass
         return record_dict
@@ -497,7 +513,14 @@ class Validator:
         return type_file_dict
 
     @staticmethod
-    def read_record_by_row_in_tsv(tsv_file_path: str, row_number: int, mdf_instance: MDFReader, keep_id_field: bool, id_field: str = "guid", delimiter: str = ";") -> dict[str, str]:
+    def read_record_by_row_in_tsv(
+        tsv_file_path: str,
+        row_number: int,
+        mdf_instance: MDFReader,
+        keep_id_field: bool,
+        id_field: str = "guid",
+        delimiter: str = ";",
+    ) -> dict[str, str]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -508,13 +531,15 @@ class Validator:
         Args:
             tsv_file_path: Path to the TSV file.
             row_number: The row number to read (1-based index).
-        
+
         Returns:
             dict[str, str]: A dictionary representing the specified row, keyed by column name.
         """
         encoding = Validator.check_encoding(tsv_file_path)
         try:
-            with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+            with open(
+                tsv_file_path, mode="r", encoding=encoding, newline=""
+            ) as tsv_file:
                 reader = csv.DictReader(tsv_file, delimiter="\t")
                 # DictReader already consumes the header, so its first row is row 2.
                 # index into the data rows: row_number 2 -> data index 0
@@ -524,7 +549,13 @@ class Validator:
                     # capture id_field value before record_prep mutates the dict
                     id_field_value = row.get(id_field, None)
                     # prep the record
-                    row_record = Validator.record_prep(row, mdf=mdf_instance, subgraph_col=None, id_field=id_field, delimiter=delimiter)
+                    row_record = Validator.record_prep(
+                        row,
+                        mdf=mdf_instance,
+                        subgraph_col=None,
+                        id_field=id_field,
+                        delimiter=delimiter,
+                    )
                     if keep_id_field:
                         row_record[id_field] = id_field_value
                     return row_record
@@ -577,9 +608,7 @@ class Validator:
 
     @classmethod
     def read_tsv_records_id(
-        cls,
-        tsv_file_path: str,
-        id_field: str = "guid"
+        cls, tsv_file_path: str, id_field: str = "guid"
     ) -> Iterator[tuple[str, dict[str, str]]]:
         """
         ########################
@@ -603,8 +632,10 @@ class Validator:
             reader = csv.DictReader(tsv_file, delimiter="\t")
             for row in reader:
                 row_dict = dict(row)
-                row_type = row_dict.get("type", None) # in case there is no type
-                row_id_value = row_dict.get(id_field, None) # in case there is no id_field
+                row_type = row_dict.get("type", None)  # in case there is no type
+                row_id_value = row_dict.get(
+                    id_field, None
+                )  # in case there is no id_field
                 yield row_type, {id_field: row_id_value}
 
     @classmethod
@@ -656,12 +687,20 @@ class Validator:
                 row_rel_list = []
                 row_dict = dict(row)
                 row_id_value = row_dict.get(id_field)
-                row_type = row_dict.get("type", None) # it must contain type column
+                row_type = row_dict.get("type", None)  # it must contain type column
                 for key in row_dict.keys():
                     if f".{id_field}" in key:  # this is a relationship column
                         parent_label = key.split(".")[0]
-                        if row_dict[key].strip().strip(delimiter) != "":  # if the value is not empty or made of only whitespace
-                            parent_id_value = [i.strip() for i in row_dict[key].strip().strip(delimiter).split(delimiter)] # strip after split
+                        if (
+                            row_dict[key].strip().strip(delimiter) != ""
+                        ):  # if the value is not empty or made of only whitespace
+                            parent_id_value = [
+                                i.strip()
+                                for i in row_dict[key]
+                                .strip()
+                                .strip(delimiter)
+                                .split(delimiter)
+                            ]  # strip after split
                             for parent_id in parent_id_value:
                                 row_rel_list.append(
                                     {
@@ -960,7 +999,7 @@ class Validator:
         return rel_multi
 
     def validate_tsv_rels(
-        self, file_path_list: list[str| Path], rel_delimiter: str = ";"
+        self, file_path_list: list[str | Path], rel_delimiter: str = ";"
     ) -> dict[str, Any]:
         """
         ########################
@@ -999,7 +1038,7 @@ class Validator:
                     escapechar="\\",  # add escape char to handle special characters
                     keep_default_na=False,
                     na_values=[""],  # treat empty strings as NaN
-                    dtype=str, # enforce all the columns read as str to avoid miss interpretion of rel columns as float type 
+                    dtype=str,  # enforce all the columns read as str to avoid miss interpretion of rel columns as float type
                     # this change won't affect record valdiation, as this method is only reading relationship cols
                 )
                 file_type = file_df["type"].iloc[0]
@@ -1106,10 +1145,13 @@ class Validator:
                             escapechar="\\",  # add escape char to handle special characters
                             keep_default_na=False,
                             na_values=[""],  # treat empty strings as NaN
-                            dtype=str, # Also only reads df as str type as we only need information of key prop col
+                            dtype=str,  # Also only reads df as str type as we only need information of key prop col
                         )
                         parent_key_values += (
-                            parent_file_df[rel_col_parent_key_prop].dropna().astype(str).tolist()
+                            parent_file_df[rel_col_parent_key_prop]
+                            .dropna()
+                            .astype(str)
+                            .tolist()
                         )
                     # only keep unique values in the parent_key_values
                     parent_key_values = list(set(parent_key_values))
@@ -1127,7 +1169,9 @@ class Validator:
                             if rel_multi in ["many_to_many", "one_to_many"]:
                                 i_value_list = [
                                     item.strip()
-                                    for item in str(rel_col_values[i]).split(rel_delimiter)
+                                    for item in str(rel_col_values[i]).split(
+                                        rel_delimiter
+                                    )
                                 ]
                                 for item in i_value_list:
                                     if item not in parent_key_values:
@@ -1148,7 +1192,10 @@ class Validator:
                                     else:
                                         pass
                             else:
-                                if str(rel_col_values[i]).strip() not in parent_key_values:
+                                if (
+                                    str(rel_col_values[i]).strip()
+                                    not in parent_key_values
+                                ):
                                     if str(file) not in validation_results:
                                         validation_results[str(file)] = []
                                     validation_results[str(file)].append(
@@ -1507,7 +1554,13 @@ class Validator:
         return validation_errors
 
     @classmethod
-    def if_node_exist_in_db(cls, driver: "GraphDatabase.driver",  id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> bool:
+    def if_record_exist_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        id_prop_value: str,
+        id_prop_name: str = "guid",
+        node_label: str | None = None,
+    ) -> bool:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1523,7 +1576,9 @@ class Validator:
             bool: True if a node with the specified id property value exists in the database, False otherwise.
         """
         with driver.session() as session:
-            match_clause = f"MATCH (n:{node_label})" if node_label is not None else "MATCH (n)"
+            match_clause = (
+                f"MATCH (n:{node_label})" if node_label is not None else "MATCH (n)"
+            )
             test_query = f"{match_clause} WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count"
             result = session.run(test_query, id_prop_value=id_prop_value)
             record = result.single()
@@ -1537,7 +1592,104 @@ class Validator:
             return True
 
     @classmethod
-    def if_edge_exist_in_db(cls, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]) -> bool:
+    def if_file_records_exist_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        file_path: str,
+        id_prop_name: str = "guid",
+        node_label: str | None = None,
+        batch_size: int = 10000,
+    ) -> dict[str, bool]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to check if multiple nodes with specific id property values exist in the database. The id property values are read from a TSV file.
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection to a graph database
+            file_path: Path to the TSV file containing id property values
+            id_prop_name: The name of the id property, default is "guid"
+            node_label: The label of the node in the database, default is None
+            batch_size: Number of id property values to check in each batch query, default is 10000
+        Returns:
+            dict[str, bool]: A dictionary where keys are id property values and values are booleans indicating existence in the database.
+        """
+        # row number -> id value (row 2 is the first data row, since row 1 is the header)
+        row_to_id: dict[int, str] = {}
+        unique_ids: set[str] = set()
+        # create this {rownum: id_value} dict to help identify the row and id value
+        with open(file_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            if id_prop_name not in (reader.fieldnames or []):
+                raise ValueError(
+                    f"Column '{id_prop_name}' not found in file. "
+                    f"Available columns: {reader.fieldnames}"
+                )
+            row_num = 1  # header is line 1
+            for row in reader:
+                row_num += 1
+                val = row.get(id_prop_name)
+                row_to_id[row_num] = val
+                if val:
+                    unique_ids.add(val)
+        # Query the DB once per unique id, batched
+        match_clause = (
+            f"MATCH (n:{node_label})" if node_label is not None else "MATCH (n)"
+        )
+        query = f"""
+            UNWIND $ids AS id_val
+            OPTIONAL MATCH (n) WHERE n.{id_prop_name} = id_val
+            WITH id_val, count(n) AS node_count
+            RETURN id_val, node_count
+        """.replace("MATCH (n)", match_clause)
+        id_exists: dict[str, bool] = {}  # dict to store any node that exists in DB
+        id_list = list(unique_ids)
+        with driver.session() as session:
+            for start in range(0, len(id_list), batch_size):
+                batch = id_list[start : start + batch_size]
+                for record in session.run(query, ids=batch):
+                    id_val = record["id_val"]
+                    node_count = record["node_count"]
+                    if node_count > 1:
+                        raise ValueError(
+                            f"Found {node_count} nodes in database with "
+                            f"{id_prop_name}='{id_val}'. Expected at most 1 unique node."
+                        )
+                    id_exists[id_val] = (
+                        node_count == 1
+                    )  # if node_count is 1, the value is True, the value if False if node_count == 0
+
+        # Map every row back to its existence result
+        return {
+            row_num: (bool(val) and id_exists.get(val, False))
+            for row_num, val in row_to_id.items()
+        }
+
+    @staticmethod
+    def _extract_rows_with_existing_records(
+        if_file_records_exist_return: dict[int, bool],
+    ) -> list[int]:
+        """
+        A helper function to extract the row numbers from the dictionary returned by if_file_records_exist_in_db
+        where the value is True, indicating that the record exists in the database.
+
+        Args:
+            if_file_records_exist_return (dict[int, bool]): A dictionary where keys are row numbers and values are booleans indicating existence in the database.
+
+        Returns:
+            list[int]: A list of row numbers where the corresponding record exists in the database.
+        """
+        return [
+            row_num
+            for row_num, exists in if_file_records_exist_return.items()
+            if exists
+        ]
+
+    @classmethod
+    def if_edge_exist_in_db(
+        cls, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]
+    ) -> bool:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1583,7 +1735,12 @@ class Validator:
                 )
 
     @classmethod
-    def get_node_record_in_db(cls, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid") -> dict[str, Any] | None:
+    def get_node_record_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        id_prop_value: str,
+        id_prop_name: str = "guid",
+    ) -> dict[str, Any] | None:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1614,7 +1771,7 @@ class Validator:
         Returns:
             dict[str, Any] | None: A dictionary containing the node record if found, None otherwise.
         """
-        props_to_remove = ["created","updated"]
+        props_to_remove = ["created", "updated"]
         with driver.session() as session:
             # This query returns count and the first item of the nodes that match to the MATCH statement
             test_query = f"MATCH (n) WHERE n.{id_prop_name} = $id_prop_value RETURN count(n) AS node_count, head(collect(n)) AS node"
@@ -1633,7 +1790,107 @@ class Validator:
             return properties_value
 
     @classmethod
-    def get_node_outgoing_edges_in_db(cls, driver: "GraphDatabase.driver", id_prop_value: str, id_prop_name: str = "guid", node_label: str|None = None) -> list[dict[str, Any]]:
+    def get_file_records_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        file_path: str,
+        id_prop_name: str = "guid",
+        node_label: str | None = None,
+        batch_size: int = 10000,
+    ) -> dict[int, dict[str, Any] | None]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Batched version of get_node_record_in_db. Reads a TSV file and, for each data row,
+        fetches the matching node record from the database using UNWIND so a large file
+        only needs a handful of queries. Timestamp properties (["created", "updated"]) are
+        stripped from each record. The returned record keeps the id property (e.g. guid).
+
+        NOTE: Every data row appears in the return. If a row's id has no matching node in the DB
+        (or the id is blank), its value is None.
+
+        Raise ValueError: If any id value maps to more than one node in the database
+            (indicates duplicate data that should be fixed before validation).
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection.
+            file_path: Path to the TSV file. Must contain a column named `id_prop_name`.
+            id_prop_name: The name of the id property / column, default "guid".
+            node_label: Optional node label to restrict the match.
+            batch_size: How many unique ids to fetch per query.
+
+        Returns:
+            dict[int, dict[str, Any] | None]: Maps row number (data rows start at 2, i.e.
+                line 1 is the header) to the node record dict, or None if not found.
+        """
+        props_to_remove = ["created", "updated"]
+
+        # row number -> id value (row 2 is the first data row, since row 1 is the header)
+        row_to_id: dict[int, str] = {}
+        unique_ids: set[str] = set()
+
+        with open(file_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            if id_prop_name not in (reader.fieldnames or []):
+                raise ValueError(
+                    f"Column '{id_prop_name}' not found in file. "
+                    f"Available columns: {reader.fieldnames}"
+                )
+            row_num = 1  # header is line 1
+            for row in reader:
+                row_num += 1
+                val = row.get(id_prop_name)
+                row_to_id[row_num] = val
+                if val:
+                    unique_ids.add(val)
+
+        # For each unique id, fetch count (to detect duplicates) and the node itself.
+        match_clause = (
+            f"MATCH (n:{node_label})" if node_label is not None else "MATCH (n)"
+        )
+        query = f"""
+            UNWIND $ids AS id_val
+            OPTIONAL MATCH (n) WHERE n.{id_prop_name} = id_val
+            WITH id_val, count(n) AS node_count, head(collect(n)) AS node
+            RETURN id_val, node_count, node
+        """.replace("MATCH (n)", match_clause)
+
+        id_to_record: dict[str, dict[str, Any] | None] = {}
+        id_list = list(unique_ids)
+        with driver.session() as session:
+            for start in range(0, len(id_list), batch_size):
+                batch = id_list[start : start + batch_size]
+                for record in session.run(query, ids=batch):
+                    id_val = record["id_val"]
+                    node_count = record["node_count"]
+                    if node_count > 1:
+                        raise ValueError(
+                            f"Found {node_count} nodes in database with "
+                            f"{id_prop_name}='{id_val}'. Expected exactly 0 or 1 node."
+                        )
+                    if node_count == 1:
+                        props = dict(record["node"])
+                        for prop_to_remove in props_to_remove:
+                            props.pop(prop_to_remove, None)
+                        id_to_record[id_val] = props
+                    else:
+                        id_to_record[id_val] = None
+
+        # Map every row back to its record (None for blank ids or ids not in the DB)
+        return {
+            row_num: (id_to_record.get(val) if val else None)
+            for row_num, val in row_to_id.items()
+        }
+
+    @classmethod
+    def get_record_outgoing_edges_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        id_prop_value: str,
+        id_prop_name: str = "guid",
+        node_label: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1672,23 +1929,160 @@ class Validator:
                 src_label = record["src_label"]
                 dst_label = record["dst_label"]
                 values = record["values"]
-                if dst_label is None: # if dst_label is None,it indicates there is no outgoing edge found for the target node
+                if (
+                    dst_label is None
+                ):  # if dst_label is None,it indicates there is no outgoing edge found for the target node
                     continue
                 for dst_id_value in values:
                     outgoing_rels.append(
                         {
-                        "src_label": src_label, 
-                        "src_id_prop": id_prop_name, 
-                        "src_id_value": id_prop_value,
-                        "dst_label": dst_label, 
-                        "dst_id_prop": id_prop_name, 
-                        "dst_id_value": dst_id_value
+                            "src_label": src_label,
+                            "src_id_prop": id_prop_name,
+                            "src_id_value": id_prop_value,
+                            "dst_label": dst_label,
+                            "dst_id_prop": id_prop_name,
+                            "dst_id_value": dst_id_value,
                         }
-                        )
+                    )
         return outgoing_rels
 
     @classmethod
-    def if_node_id_in_tsv_list(cls, tsv_file_list: list[str | Path], id_value: str, id_field: str = "guid") -> bool:
+    def get_file_records_outgoing_edges_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        file_path: str,
+        id_prop_name: str = "guid",
+        node_label: str | None = None,
+        batch_size: int = 10000,
+    ) -> dict[int, list[dict[str, Any]] | None]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Batched version of get_record_outgoing_edges_in_db. Reads a TSV file and, for each
+        data row, finds all outgoing edges of the node with that row's id property value,
+        using UNWIND so a large file only needs a handful of queries.
+
+        Every data row appears in the return:
+          - If the node does NOT exist in the DB (or the row's id is blank), value is None.
+          - If the node exists but has no outgoing edges, value is an empty list [].
+          - Otherwise value is a list of edge dicts (same shape as the original function).
+
+        Example edge dict:
+          {
+            "src_label": "sample",
+            "src_id_prop": "guid",
+            "src_id_value": "891e7e1a-...",
+            "dst_label": "participant",
+            "dst_id_prop": "guid",
+            "dst_id_value": "395aa6ed-...",
+          }
+
+        Raise ValueError: If any id value maps to more than one source node in the DB
+            (indicates duplicate data that should be fixed before validation).
+
+        Args:
+            driver: GraphDatabase driver instance with proper connection.
+            file_path: Path to the TSV file. Must contain a column named `id_prop_name`.
+            id_prop_name: The name of the id property / column, default "guid".
+            node_label: Optional label to restrict the source node match.
+            batch_size: How many unique ids to process per query.
+
+        Returns:
+            dict[int, list[dict[str, Any]] | None]: Maps row number (data rows start at 2,
+                i.e. line 1 is the header) to the list of outgoing edges, or None if the
+                node was not found in the DB.
+        """
+        import csv
+
+        # row number -> id value (row 2 is the first data row, since row 1 is the header)
+        row_to_id: dict[int, str] = {}
+        unique_ids: set[str] = set()
+
+        with open(file_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            if id_prop_name not in (reader.fieldnames or []):
+                raise ValueError(
+                    f"Column '{id_prop_name}' not found in file. "
+                    f"Available columns: {reader.fieldnames}"
+                )
+            row_num = 1  # header is line 1
+            for row in reader:
+                row_num += 1
+                val = row.get(id_prop_name)
+                row_to_id[row_num] = val
+                if val:
+                    unique_ids.add(val)
+
+        # For each id: confirm the source node exists (node_exists), count matches to detect
+        # duplicates (src_count), and collect outgoing edges grouped by destination label.
+        # OPTIONAL MATCH on the outgoing pattern lets a node with no edges still show up.
+        src_match = f"(t:{node_label})" if node_label else "(t)"
+        query = f"""
+            UNWIND $ids AS id_val
+            OPTIONAL MATCH (t) WHERE t.{id_prop_name} = id_val
+            WITH id_val, collect(t) AS srcs
+            WITH id_val, size(srcs) AS src_count, head(srcs) AS t
+            OPTIONAL MATCH (t)-[]->(n)
+            WITH id_val, src_count, t,
+                 labels(t)[0] AS src_label,
+                 labels(n)[0] AS dst_label,
+                 collect(n.{id_prop_name}) AS values
+            RETURN id_val, src_count,
+                   (t IS NOT NULL) AS node_exists,
+                   head(collect(src_label)) AS src_label,
+                   collect({{dst_label: dst_label, values: values}}) AS edge_groups
+        """.replace("(t)", src_match, 1)
+
+        id_to_edges: dict[str, list[dict[str, Any]] | None] = {}
+        id_list = list(unique_ids)
+        with driver.session() as session:
+            for start in range(0, len(id_list), batch_size):
+                batch = id_list[start : start + batch_size]
+                for record in session.run(query, ids=batch):
+                    id_val = record["id_val"]
+                    src_count = record["src_count"]
+                    node_exists = record["node_exists"]
+                    src_label = record["src_label"]
+
+                    if src_count > 1:
+                        raise ValueError(
+                            f"Found {src_count} nodes in database with "
+                            f"{id_prop_name}='{id_val}'. Expected exactly 0 or 1 node."
+                        )
+
+                    if not node_exists:
+                        id_to_edges[id_val] = None
+                        continue
+
+                    edges: list[dict[str, Any]] = []
+                    for group in record["edge_groups"]:
+                        dst_label = group["dst_label"]
+                        if dst_label is None:  # node exists but has no outgoing edge
+                            continue
+                        for dst_id_value in group["values"]:
+                            edges.append(
+                                {
+                                    "src_label": src_label,
+                                    "src_id_prop": id_prop_name,
+                                    "src_id_value": id_val,
+                                    "dst_label": dst_label,
+                                    "dst_id_prop": id_prop_name,
+                                    "dst_id_value": dst_id_value,
+                                }
+                            )
+                    id_to_edges[id_val] = edges
+
+        # Map every row back to its edges (None for blank ids or ids not in the DB)
+        return {
+            row_num: (id_to_edges.get(val) if val else None)
+            for row_num, val in row_to_id.items()
+        }
+
+    @classmethod
+    def if_node_id_in_tsv_list(
+        cls, tsv_file_list: list[str | Path], id_value: str, id_field: str = "guid"
+    ) -> bool:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1720,7 +2114,16 @@ class Validator:
         return False
 
     @classmethod
-    def validate_tsv_in_db(cls, driver: "GraphDatabase.driver", tsv_file_path: str | Path, tsv_file_set: list[str | Path], mdf_instance: MDFReader,id_prop_name: str, delimiter: str = ";", validation_mode: TestModeList = "Upsert") -> list[dict[str, Any]]:
+    def validate_tsv_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        tsv_file_path: str | Path,
+        tsv_file_set: list[str | Path],
+        mdf_instance: MDFReader,
+        id_prop_name: str,
+        delimiter: str = ";",
+        validation_mode: TestModeList = "Upsert",
+    ) -> list[dict[str, Any]]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -1739,21 +2142,65 @@ class Validator:
         validation_results = []
         passed_row_list = []
         combined_record_reading = zip(
-            cls.read_tsv_records_id(
-                tsv_file_path=tsv_file_path, id_field=id_prop_name
-            ),
+            cls.read_tsv_records_id(tsv_file_path=tsv_file_path, id_field=id_prop_name),
             cls.read_tsv_rels_id(
                 tsv_file_path=tsv_file_path, id_field=id_prop_name, delimiter=delimiter
             ),
         )
-        for row_num, (record_id, rels_in_record) in enumerate(combined_record_reading, start=2):  # row_num starts from 2 because the first row is header and the second row is the first data row
+        # get file type from test file
+        with open(tsv_file_path, mode="r", encoding="utf-8", newline="") as tsv_file:
+            reader = csv.DictReader(tsv_file, delimiter="\t")
+            # DictReader already consumes the header, so its first row is row 2.
+            # index into the data rows: row_number 2 -> data index 0
+            # if the row_number is less than 2 or past the end of the file, it will return None
+            row = next(islice(reader, 0, 1), None)
+            file_type = row.get("type") if row else None
+        if file_type is None:
+            raise ValueError(
+                f"File {tsv_file_path} does not contain a 'type' column or the first data row is missing."
+            )
+        else:
+            pass
+
+        # batch checking if records in the tsv file already exist in the database
+        # if the record doesn't exist, the returned dict will have None for the row number key
+        # such as {5: None}
+        file_records_if_exist_in_db = cls.if_file_records_exist_in_db(
+            driver=driver,
+            file_path=tsv_file_path,
+            id_prop_name=id_prop_name,
+            node_label=file_type,
+        )
+        # batch fetching file records in the tsv if the reocrd(via id_prop_name value) already exist in the db
+        # if the record doesn't exist, the returned dict will have None for the row number key
+        file_records_in_db = cls.get_file_records_in_db(
+            driver=driver,
+            file_path=tsv_file_path,
+            id_prop_name=id_prop_name,
+            node_label=file_type,
+        )
+        # batch fetching outgoing edges of the record in the tsv if the record already exist in the db
+        # if the record doesn't exist, the returned dict will have None for the row number key
+        file_records_outgoing_edges_in_db = cls.get_file_records_outgoing_edges_in_db(
+            driver=driver,
+            file_path=tsv_file_path,
+            id_prop_name=id_prop_name,
+            node_label=file_type,
+        )
+        
+        # iterate through each row in the tsv file and validate against db according to the validation mode
+        for row_num, (record_id, rels_in_record) in enumerate(
+            combined_record_reading, start=2
+        ):  # row_num starts from 2 because the first row is header and the second row is the first data row
             record_type, record_id_dict = record_id
 
             # row_pass is set to True at the begining of each row validation
             row_pass = True
-            if_record_exist_in_db = cls.if_node_exist_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
-            if validation_mode == "New": # testing mode New
-                if if_record_exist_in_db: # record already exists in db, this is not New data node
+            if_record_exist_in_db = file_records_if_exist_in_db.get(row_num, False)
+            if validation_mode == "New":  # testing mode New
+                if (
+                    if_record_exist_in_db
+                ):  # record already exists in db, this is not New data node
                     validation_results.append(
                         {
                             "row": row_num,
@@ -1762,20 +2209,29 @@ class Validator:
                             "level": "error",
                             "type": "record_already_exist_in_db",
                             "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' already exists in the database, but the test mode is 'New'.",
-                            "hint": None
+                            "hint": None,
                         }
                     )
                     row_pass = False
-                    continue # no need to further check for edges, 
-                else: # record doesn't exist in db, this is correct as a new node
+                    continue  # no need to further check for edges,
+                else:  # record doesn't exist in db, this is correct as a new node
                     # because src node doesn't exist in db, all edges in file must be new to db
                     # we can check if the dst node exist in db or in the file, if dst node can't be found in either place, it will be an error because the edge can't be created
                     invalid_edge_hint = []
                     for rel in rels_in_record:
                         # test if dst node exist in db
-                        if not cls.if_node_exist_in_db(driver=driver, id_prop_name=rel["dst_id_prop"], node_label=rel["dst_label"], id_prop_value=rel["dst_id_value"]):
+                        if not cls.if_record_exist_in_db(
+                            driver=driver,
+                            id_prop_name=rel["dst_id_prop"],
+                            node_label=rel["dst_label"],
+                            id_prop_value=rel["dst_id_value"],
+                        ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
-                            if not cls.if_node_id_in_tsv_list(tsv_file_list = tsv_file_set, id_value=rel["dst_id_value"], id_field=rel["dst_id_prop"]):
+                            if not cls.if_node_id_in_tsv_list(
+                                tsv_file_list=tsv_file_set,
+                                id_value=rel["dst_id_value"],
+                                id_field=rel["dst_id_prop"],
+                            ):
                                 # dst not exist in db or tsv (which means dst won't be created while loading
                                 invalid_edge_hint.append(rel)
                             else:
@@ -1791,14 +2247,16 @@ class Validator:
                                 "level": "error",
                                 "type": "invalid_edge_dst_node_not_found",
                                 "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edge_hint)}",
-                                "hint": invalid_edge_hint
+                                "hint": invalid_edge_hint,
                             }
                         )
                         row_pass = False
-                    else: # no invalid edge found. all dst node in edges can be found in either db or submission files
+                    else:  # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
-            elif validation_mode == "Update": # Update mode
-                if not if_record_exist_in_db: # update mode only work with exisitng node
+            elif validation_mode == "Update":  # Update mode
+                if (
+                    not if_record_exist_in_db
+                ):  # update mode only work with exisitng node
                     validation_results.append(
                         {
                             "row": row_num,
@@ -1807,25 +2265,27 @@ class Validator:
                             "level": "error",
                             "type": "record_not_found_in_db",
                             "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database. This record is a new record to DB, but the test mode is 'Update'.",
-                            "hint": None
+                            "hint": None,
                         }
                     )
                     row_pass = False
-                else: # record already exist in DB
+                else:  # record already exist in DB
                     # check if any prop value in the record is different from the record in db
                     row_record_in_file = cls.read_record_by_row_in_tsv(
                         tsv_file_path=tsv_file_path,
-                        row_number = row_num,
+                        row_number=row_num,
                         mdf_instance=mdf_instance,
                         keep_id_field=True,
                         id_field=id_prop_name,
-                        delimiter=delimiter
+                        delimiter=delimiter,
                     )
-                    row_record_in_db = cls.get_node_record_in_db(driver=driver, id_prop_name=id_prop_name, id_prop_value=record_id_dict[id_prop_name])
+                    row_record_in_db = file_records_in_db[row_num]
                     # row_record_in_db can not be none becasue we already checked
                     if row_record_in_file != row_record_in_db:
                         record_diff = cls.record_comparison(
-                            record_file=row_record_in_file, record_db=row_record_in_db, compare_mode="Update"
+                            record_file=row_record_in_file,
+                            record_db=row_record_in_db,
+                            compare_mode="Update",
                         )
                         # we know that two records are different, so record_diff can not be empty
                         validation_results.append(
@@ -1836,18 +2296,22 @@ class Validator:
                                 "level": "info",
                                 "type": "record_prop_value_will_be_updated",
                                 "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after update.",
-                                "hint": record_diff
+                                "hint": record_diff,
                             }
                         )
                     else:
-                        pass # no prop value change, no need to give info message
+                        pass  # no prop value change, no need to give info message
 
                     # find all outgoing edges of the src node in db
-                    outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
+                    outgoing_edges_in_db = file_records_outgoing_edges_in_db[row_num]
                     # unique edge in file for this src node
-                    uniq_edges_in_file = [i for i in rels_in_record if i not in outgoing_edges_in_db]
+                    uniq_edges_in_file = [
+                        i for i in rels_in_record if i not in outgoing_edges_in_db
+                    ]
                     # unique edge in db for this src node
-                    uniq_edges_in_db = [i for i in outgoing_edges_in_db if i not in rels_in_record]
+                    uniq_edges_in_db = [
+                        i for i in outgoing_edges_in_db if i not in rels_in_record
+                    ]
                     # if uniq_edges_in_db is not empty, these edges will be deleted after update,
                     if len(uniq_edges_in_db) > 0:
                         # give warnings to the validation results
@@ -1859,18 +2323,25 @@ class Validator:
                                 "level": "warning",
                                 "type": "edge_will_be_deleted",
                                 "message": f"Edge(s) in DB from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be deleted after update: {len(uniq_edges_in_db)}",
-                                "hint": uniq_edges_in_db
+                                "hint": uniq_edges_in_db,
                             }
                         )
                     else:
-                        pass # no existing edge to be deleted
+                        pass  # no existing edge to be deleted
 
                     # among unique edges in file, check if it is new edge to be created
-                    if len(uniq_edges_in_file) > 0: # we need to check is dst node in edges exist in db
+                    if (
+                        len(uniq_edges_in_file) > 0
+                    ):  # we need to check is dst node in edges exist in db
                         # to find if all edges in uniq_edges_in_file can be created in db
                         invalid_edges_hint = []
                         for edge in uniq_edges_in_file:
-                            if not cls.if_node_exist_in_db(driver=driver, id_prop_name=edge["dst_id_prop"], id_prop_value=edge["dst_id_value"], node_label=edge["dst_label"]):
+                            if not cls.if_record_exist_in_db(
+                                driver=driver,
+                                id_prop_name=edge["dst_id_prop"],
+                                id_prop_value=edge["dst_id_value"],
+                                node_label=edge["dst_label"],
+                            ):
                                 # dst not found in db, give error to the validation_results
                                 # if dst does not exist, submitter should submit dst node to db through upsert or new mode first
                                 # we DON'T test if dst exist in the submission files, because even if they can be found, the dst needs to be created as a New node in DB
@@ -1878,7 +2349,11 @@ class Validator:
                             else:
                                 pass
                         # get the VALID uniq edges in file
-                        valid_edges_in_file = [edge for edge in uniq_edges_in_file if edge not in invalid_edges_hint]
+                        valid_edges_in_file = [
+                            edge
+                            for edge in uniq_edges_in_file
+                            if edge not in invalid_edges_hint
+                        ]
                         if len(valid_edges_in_file) > 0:
                             validation_results.append(
                                 {
@@ -1888,7 +2363,7 @@ class Validator:
                                     "level": "info",
                                     "type": "new_edge_will_be_created",
                                     "message": f"Valid edge(s) in file from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be created in the database after update: {len(valid_edges_in_file)}",
-                                    "hint": valid_edges_in_file
+                                    "hint": valid_edges_in_file,
                                 }
                             )
                         # if any invalid edge is found, give error and turn row_pass to False
@@ -1901,13 +2376,13 @@ class Validator:
                                     "level": "error",
                                     "type": "invalid_edge_dst_node_not_found",
                                     "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database: {len(invalid_edges_hint)}",
-                                    "hint": invalid_edges_hint
+                                    "hint": invalid_edges_hint,
                                 }
                             )
                             row_pass = False
                         else:
                             pass
-            elif validation_mode == "Upsert": # Upsert mode
+            elif validation_mode == "Upsert":  # Upsert mode
                 # Upsert mode might create ERROR if the dst node of an edge can't be found in db or files
                 # no need to check if the src node exists in db or not
                 # because if yes, node will be updated, if no, node will be created in db
@@ -1916,21 +2391,27 @@ class Validator:
                     # check if any prop value in the record is different from the record in db
                     row_record_in_file = cls.read_record_by_row_in_tsv(
                         tsv_file_path=tsv_file_path,
-                        row_number = row_num,
+                        row_number=row_num,
                         mdf_instance=mdf_instance,
                         keep_id_field=True,
                         id_field=id_prop_name,
-                        delimiter=delimiter
+                        delimiter=delimiter,
                     )
-                    row_record_in_db = cls.get_node_record_in_db(driver=driver, id_prop_name=id_prop_name, id_prop_value=record_id_dict[id_prop_name])
+                    row_record_in_db = file_records_in_db[row_num]
                     if row_record_in_file != row_record_in_db:
                         record_diff = cls.record_comparison(
-                            record_file=row_record_in_file, record_db=row_record_in_db, compare_mode="Upsert"
+                            record_file=row_record_in_file,
+                            record_db=row_record_in_db,
+                            compare_mode="Upsert",
                         )
                         # record_diff can be empty
                         # the record_diff can be empty if the record in file is missing some prop values compared to the record in DB.
                         if all(v == {} for v in record_diff.values()):
-                            props_missed_in_file = {k: row_record_in_db[k] for k in row_record_in_db.keys() - row_record_in_file.keys()}
+                            props_missed_in_file = {
+                                k: row_record_in_db[k]
+                                for k in row_record_in_db.keys()
+                                - row_record_in_file.keys()
+                            }
                             validation_results.append(
                                 {
                                     "row": row_num,
@@ -1939,7 +2420,9 @@ class Validator:
                                     "level": "warning",
                                     "type": "record_prop_value_stay_the_same",
                                     "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' in file is different from db. But the prop values will stay the same due to Upsert mode.",
-                                    "hint": {"props_missed_in_file": props_missed_in_file}
+                                    "hint": {
+                                        "props_missed_in_file": props_missed_in_file
+                                    },
                                 }
                             )
                         else:
@@ -1952,14 +2435,14 @@ class Validator:
                                     "level": "info",
                                     "type": "record_prop_value_will_be_updated",
                                     "message": f"Record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be updated in the database after upsert.",
-                                    "hint": record_diff
+                                    "hint": record_diff,
                                 }
                             )
                     else:
-                        pass # no prop value change, no need to give info message
+                        pass  # no prop value change, no need to give info message
 
                     # if node already exist in db, get all outgoing edges of the src node in db
-                    outgoing_edges_in_db = cls.get_node_outgoing_edges_in_db(driver=driver, id_prop_value=record_id_dict[id_prop_name], id_prop_name=id_prop_name, node_label=record_type)
+                    outgoing_edges_in_db = file_records_outgoing_edges_in_db[row_num]
                     # unique edge in file for this src node
                     uniq_edges_in_file = [
                         i for i in rels_in_record if i not in outgoing_edges_in_db
@@ -1968,7 +2451,7 @@ class Validator:
                     uniq_edges_in_db = [
                         i for i in outgoing_edges_in_db if i not in rels_in_record
                     ]
-                    if  len(uniq_edges_in_db) > 0:
+                    if len(uniq_edges_in_db) > 0:
                         # give warnings to the validation results
                         validation_results.append(
                             {
@@ -1978,7 +2461,7 @@ class Validator:
                                 "level": "warning",
                                 "type": "existing_edges_in_db",
                                 "message": f"Existing edge(s) in DB (not noted in file) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be kept in the database after upsert: {len(uniq_edges_in_db)}",
-                                "hint": uniq_edges_in_db
+                                "hint": uniq_edges_in_db,
                             }
                         )
                     else:
@@ -1988,9 +2471,18 @@ class Validator:
                         # check uniq_edges_in_file if dst node exist in db, if not, check if dst exist in the submission files
                         # if dst can be found in db or in the files, the edge can be established
                         for edge in uniq_edges_in_file:
-                            if not cls.if_node_exist_in_db(driver=driver, id_prop_name=edge["dst_id_prop"], id_prop_value=edge["dst_id_value"], node_label=edge["dst_label"]):
+                            if not cls.if_record_exist_in_db(
+                                driver=driver,
+                                id_prop_name=edge["dst_id_prop"],
+                                id_prop_value=edge["dst_id_value"],
+                                node_label=edge["dst_label"],
+                            ):
                                 # dst not found in db, check if dst can be found in the submission files
-                                if not cls.if_node_id_in_tsv_list(tsv_file_list = tsv_file_set, id_value=edge["dst_id_value"], id_field=edge["dst_id_prop"]):
+                                if not cls.if_node_id_in_tsv_list(
+                                    tsv_file_list=tsv_file_set,
+                                    id_value=edge["dst_id_value"],
+                                    id_field=edge["dst_id_prop"],
+                                ):
                                     # dst not found in db or in the submission files, give error to the validation_results
                                     invalid_edges_hint.append(edge)
                                 else:
@@ -2006,7 +2498,7 @@ class Validator:
                                     "level": "error",
                                     "type": "invalid_edge_dst_node_not_found",
                                     "message": f"Destination node(s) in edge(s) from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' not found in the database or in the submission file: {len(invalid_edges_hint)}",
-                                    "hint": invalid_edges_hint
+                                    "hint": invalid_edges_hint,
                                 }
                             )
                             row_pass = False
@@ -2014,12 +2506,12 @@ class Validator:
                             pass
                     else:
                         pass
-                else: # if the node doesn't exist in db, it will be created as new node
+                else:  # if the node doesn't exist in db, it will be created as new node
                     # we only need to make sure the edges are valid
                     invalid_edge_hint = []
                     for rel in rels_in_record:
                         # test if dst node exist in db
-                        if not cls.if_node_exist_in_db(
+                        if not cls.if_record_exist_in_db(
                             driver=driver,
                             id_prop_name=rel["dst_id_prop"],
                             node_label=rel["dst_label"],
