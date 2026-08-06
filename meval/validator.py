@@ -2246,6 +2246,8 @@ class Validator:
         """
         validation_results = []
         passed_row_list = []
+        processed_rows = 0
+        progress_interval = 10000
         combined_record_reading = zip(
             cls.read_tsv_records_id(tsv_file_path=tsv_file_path, id_field=id_prop_name),
             cls.read_tsv_rels_id(
@@ -2276,6 +2278,7 @@ class Validator:
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
+        print("Finished checking all records in the tsv file if they exist in the database.")
         # batch fetching file records in the tsv if the reocrd(via id_prop_name value) already exist in the db
         # if the record doesn't exist, the returned dict will have None for the row number key
         file_records_in_db = cls.get_file_records_in_db(
@@ -2284,6 +2287,7 @@ class Validator:
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
+        print("Finished fetching all database records in the tsv file that already exist in the database")
         # batch fetching outgoing edges of the record in the tsv if the record already exist in the db
         # if the record doesn't exist, the returned dict will have None for the row number key
         file_records_outgoing_edges_in_db = cls.get_file_records_outgoing_edges_in_db(
@@ -2292,17 +2296,26 @@ class Validator:
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
+        print("Finished fetching all outgoing edges of all record in file if they exist in the database")
         # fetch if parent nodes exist in the db for all parent nodes in a file
         parent_nodes_if_exist_in_db = cls.if_parent_nodes_exist_in_db(
             driver=driver,
             file_path=tsv_file_path,
             id_prop_name=id_prop_name,
             delimiter=delimiter)
+        print("Finished checking all parent nodes appearing in the tsv file if they exist in the database")
 
         # iterate through each row in the tsv file and validate against db according to the validation mode
         for row_num, (record_id, rels_in_record) in enumerate(
             combined_record_reading, start=2
         ):  # row_num starts from 2 because the first row is header and the second row is the first data row
+            processed_rows += 1
+            if progress_interval > 0 and processed_rows % progress_interval == 0:
+                print(
+                    f"Processed {processed_rows} rows from {tsv_file_path}...",
+                    flush=True,
+                )
+
             record_type, record_id_dict = record_id
 
             # row_pass is set to True at the begining of each row validation
@@ -2649,4 +2662,8 @@ class Validator:
                 )
             if row_pass:
                 passed_row_list.append(row_num)
+        print(
+            f"Finished validating {processed_rows} rows from {tsv_file_path}.",
+            flush=True,
+        )
         return passed_row_list, validation_results
