@@ -2080,6 +2080,111 @@ class Validator:
         }
 
     @classmethod
+    def _read_file_parent_nodes_id(cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";") -> list[Tuple[str, str, str]]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to read the parent node id property values from a TSV file. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database.
+
+        Args:
+            file_path: Path to the TSV file containing id property values
+            id_prop_name: The name of the id property, default is "guid"
+            delimiter: The delimiter used in the TSV file, default is ";"
+        Returns:
+            list[tuple[str, str, str]]: A list of tuple found in the TSV file. Each tuple contains (parent_type, id_prop_name, id_prop_value).
+        """
+        # if the file type is a root node, the parent_node_ids can be empty
+        seen = set()
+        with open(file_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            parent_cols = [id_col for id_col in reader.fieldnames if id_col.endswith(f".{id_prop_name}")]
+            if not parent_cols:
+                return seen
+            for row in reader:
+                # we had make sure that the parent_col exists
+                for parent_col in parent_cols:
+                    parent_type = parent_col.split(".")[0].strip()
+                    val = (row.get(parent_col) or "").strip()
+                    val_list = [v.strip() for v in val.split(delimiter)]
+                    for v in val_list:
+                        if v != "":
+                            seen.add((parent_type, id_prop_name, v))
+        return seen
+
+    @classmethod
+    def if_parent_nodes_exist_in_db(
+        cls,
+        driver: "GraphDatabase.driver",
+        file_path: str,
+        id_prop_name: str = "guid",
+        delimiter: str = ";",
+        batch_size: int = 10000,
+    ) -> dict[tuple[str, str, str], bool]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        A helper function to check if parent node id property values exist in the database. The id property values are read from a TSV file.
+
+        Raise ValueError: If any (parent_type, id_prop_name, id_prop_value) maps to more
+        than one node in the database (indicates duplicate data to fix before
+        validation).
+        
+        Args:
+            driver: GraphDatabase driver instance with proper connection to a graph database
+            file_path: Path to the TSV file containing id property values
+            id_prop_name: The name of the id property, default is "guid"
+            delimiter: The delimiter used in the TSV file, default is ";"
+        Returns:
+            dict[tuple[str, str, str], bool]: A dictionary where keys are tuples of (parent node type, id_prop_name, parent node id property value) and values are booleans indicating existence in the database.
+        """
+        # Step 1: read the file into unique (parent_type, id_prop_name, id_prop_value) tuples
+        parent_node_ids = cls._read_file_parent_nodes_id(file_path=file_path, id_prop_name=id_prop_name, delimiter=delimiter)
+        unique_triples = list(parent_node_ids)  # accepts a set or a list
+        if not unique_triples:
+            return {}
+
+        # Step 2: batch-check existence in the DB.
+        # id_prop_name can vary per item, so it must be compared as a value inside the
+        # query rather than baked into the Cypher. We match a property dynamically using
+        # the map-access-by-key form n[prop_name].
+        query = """
+        UNWIND $items AS item
+        OPTIONAL MATCH (n)
+        WHERE labels(n)[0] = item.parent_type
+          AND n[item.id_prop_name] = item.id_prop_value
+        WITH item, count(n) AS node_count
+        RETURN item.parent_type AS parent_type,
+               item.id_prop_name AS id_prop_name,
+               item.id_prop_value AS id_prop_value,
+               node_count
+        """
+        results: dict[tuple[str, str, str], bool] = {}
+        with driver.session() as session:
+            for start in range(0, len(unique_triples), batch_size):
+                batch = unique_triples[start : start + batch_size]
+                params = [
+                    {"parent_type": t, "id_prop_name": p, "id_prop_value": v}
+                    for t, p, v in batch
+                ]
+                for record in session.run(query, items=params):
+                    key = (
+                        record["parent_type"],
+                        record["id_prop_name"],
+                        record["id_prop_value"],
+                    )
+                    node_count = record["node_count"]
+                    if node_count > 1:
+                        raise ValueError(
+                            f"Found {node_count} nodes in database with "
+                            f"label='{key[0]}' and {key[1]}='{key[2]}'. "
+                            f"Expected at most 1 unique node."
+                        )
+                    results[key] = node_count == 1 # it will be False if the node_count == 0
+        return results
+
+    @classmethod
     def if_node_id_in_tsv_list(
         cls, tsv_file_list: list[str | Path], id_value: str, id_field: str = "guid"
     ) -> bool:
@@ -2187,7 +2292,13 @@ class Validator:
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
-        
+        # fetch if parent nodes exist in the db for all parent nodes in a file
+        parent_nodes_if_exist_in_db = cls.if_parent_nodes_exist_in_db(
+            driver=driver,
+            file_path=tsv_file_path,
+            id_prop_name=id_prop_name,
+            delimiter=delimiter)
+
         # iterate through each row in the tsv file and validate against db according to the validation mode
         for row_num, (record_id, rels_in_record) in enumerate(
             combined_record_reading, start=2
@@ -2220,11 +2331,8 @@ class Validator:
                     invalid_edge_hint = []
                     for rel in rels_in_record:
                         # test if dst node exist in db
-                        if not cls.if_record_exist_in_db(
-                            driver=driver,
-                            id_prop_name=rel["dst_id_prop"],
-                            node_label=rel["dst_label"],
-                            id_prop_value=rel["dst_id_value"],
+                        if not parent_nodes_if_exist_in_db.get(
+                            (rel["dst_label"], rel["dst_id_prop"], rel["dst_id_value"])
                         ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
                             if not cls.if_node_id_in_tsv_list(
@@ -2336,11 +2444,8 @@ class Validator:
                         # to find if all edges in uniq_edges_in_file can be created in db
                         invalid_edges_hint = []
                         for edge in uniq_edges_in_file:
-                            if not cls.if_record_exist_in_db(
-                                driver=driver,
-                                id_prop_name=edge["dst_id_prop"],
-                                id_prop_value=edge["dst_id_value"],
-                                node_label=edge["dst_label"],
+                            if not parent_nodes_if_exist_in_db.get(
+                                (edge["dst_label"], edge["dst_id_prop"], edge["dst_id_value"])
                             ):
                                 # dst not found in db, give error to the validation_results
                                 # if dst does not exist, submitter should submit dst node to db through upsert or new mode first
@@ -2471,12 +2576,9 @@ class Validator:
                         # check uniq_edges_in_file if dst node exist in db, if not, check if dst exist in the submission files
                         # if dst can be found in db or in the files, the edge can be established
                         for edge in uniq_edges_in_file:
-                            if not cls.if_record_exist_in_db(
-                                driver=driver,
-                                id_prop_name=edge["dst_id_prop"],
-                                id_prop_value=edge["dst_id_value"],
-                                node_label=edge["dst_label"],
-                            ):
+                            if not parent_nodes_if_exist_in_db.get(
+                                (edge["dst_label"], edge["dst_id_prop"], edge["dst_id_value"])
+                                ):
                                 # dst not found in db, check if dst can be found in the submission files
                                 if not cls.if_node_id_in_tsv_list(
                                     tsv_file_list=tsv_file_set,
@@ -2511,11 +2613,8 @@ class Validator:
                     invalid_edge_hint = []
                     for rel in rels_in_record:
                         # test if dst node exist in db
-                        if not cls.if_record_exist_in_db(
-                            driver=driver,
-                            id_prop_name=rel["dst_id_prop"],
-                            node_label=rel["dst_label"],
-                            id_prop_value=rel["dst_id_value"],
+                        if not parent_nodes_if_exist_in_db.get(
+                            (rel["dst_label"], rel["dst_id_prop"], rel["dst_id_value"])
                         ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
                             if not cls.if_node_id_in_tsv_list(
