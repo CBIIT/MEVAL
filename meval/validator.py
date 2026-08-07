@@ -2308,9 +2308,10 @@ class Validator:
             file_path=tsv_file_path,
             id_prop_name=id_prop_name,
             delimiter=delimiter)
-        print("Finished checking all parent nodes appearing in the tsv file if they exist in the database")
+        print("Finished checking all parent nodes found in the tsv file if they exist in the database")
 
         # iterate through each row in the tsv file and validate against db according to the validation mode
+        print("Starting to validate each record")
         for row_num, (record_id, rels_in_record) in enumerate(
             combined_record_reading, start=2
         ):  # row_num starts from 2 because the first row is header and the second row is the first data row
