@@ -157,6 +157,8 @@ Subgraph value will be used to generate UUIDs for records along with the project
     logger.info(f"Downloaded properties yaml: {props_yaml}")
     mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
     logger.info("Created MDFReader instance for data model features reading")
+    val_instance = Validator(mdf=mdf_instance)
+    logger.info("Created Validator instance for validation against db")
 
     # driver instance for db connection
     # retrieve db creds from AWS secrets manager
@@ -181,13 +183,17 @@ Subgraph value will be used to generate UUIDs for records along with the project
         driver = GraphDatabase.driver(uri)
     logger.info("Created a driver instance for db connection")
 
+    # create id_prop_value set across all the tsv files
+    id_value_set = val_instance.build_tsv_id_set(submission_file_set, id_field=uuid_col_name)
+    logger.info("Built a set of uuid values across all submission files for fast uuid look up during validation")
+
     validation_result = {}
     for tsv_file in submission_file_set:
         logger.info(f"Validating file: {os.path.basename(tsv_file)} against the database")
-        passed_rows, file_validation = Validator.validate_tsv_in_db(
+        passed_rows, file_validation = val_instance.validate_tsv_in_db(
             driver=driver,
             tsv_file_path=tsv_file,
-            tsv_file_set=submission_file_set,
+            tsv_id_set=id_value_set,
             mdf_instance=mdf_instance,
             id_prop_name=uuid_col_name,
             delimiter=delimiter,

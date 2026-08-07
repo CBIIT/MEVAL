@@ -2190,45 +2190,72 @@ class Validator:
         return results
 
     @classmethod
-    def if_node_id_in_tsv_list(
-        cls, tsv_file_list: list[str | Path], id_value: str, id_field: str = "guid"
-    ) -> bool:
+    def build_tsv_id_set(
+        cls, tsv_file_list: list[str | Path], id_field: str = "guid"
+    ) -> set[str]:
         """
         ########################
         # FOR VALIDATION IN DB #
         ########################
-        A helper function to find a node record with specific id property value in a list of tsv files.
-        This function was intended to be used for validating tsv against DB in new mode.
-        node ---> if node exist in DB ---> yes ---> check edge ---> if dst node not found in DB --> check if dst node can be found in tsv list
-        This function returns True if id_value can be found in the set of tsv files
+        Reads a list of TSV files once and collects all values of `id_field` into a set.
+        Build this set a single time, then test membership with `id_value in the_set`
+        (an O(1) lookup) instead of re-scanning the files for every id you want to check.
 
+        Intended for the "check if dst node can be found in the tsv list" step of DB
+        validation, when many ids must be checked against the same, possibly very large,
+        set of files.
 
         Args:
-            tsv_file_list: A list of paths to TSV files to be validated for unique entries in the id field column.
-            id_field: The name of the id property to be checked
-            id_value: The value of the id property to be checked
+            tsv_file_list: Paths to TSV files to read.
+            id_field: The name of the id property/column, default "guid".
+
         Returns:
-            bool: True if id_value can be found in the set of tsv files, False otherwise.
+            set[str]: All non-empty id_field values found across the files.
         """
+        id_set: set[str] = set()
         for file_path in tsv_file_list:
             try:
                 tsv_id_iter = cls.read_tsv_records_id(
                     tsv_file_path=file_path, id_field=id_field
                 )
                 for _, id_dict in tsv_id_iter:
-                    if id_dict.get(id_field, None) == id_value:
-                        return True
+                    val = id_dict.get(id_field)
+                    if val:  # skip None and empty strings
+                        id_set.add(val)
             except Exception as e:
                 print(f"Error processing {str(file_path)}: {e}")
-                raise e
-        return False
+                raise
+        return id_set
+
+
+    @classmethod
+    def if_node_id_in_tsv_list(
+        cls,
+        id_value: str,
+        tsv_id_set: set[str],
+    ) -> bool:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Returns True if id_value is present in a prebuilt set of TSV ids (see
+        build_tsv_id_set). This is an O(1) membership test.
+
+        Args:
+            id_value: The id value to look for.
+            tsv_id_set: A set of ids previously built from the TSV files.
+
+        Returns:
+            bool: True if id_value is in the set, False otherwise.
+        """
+        return id_value in tsv_id_set
 
     @classmethod
     def validate_tsv_in_db(
         cls,
         driver: "GraphDatabase.driver",
         tsv_file_path: str | Path,
-        tsv_file_set: list[str | Path],
+        tsv_id_set: set[str],
         mdf_instance: MDFReader,
         id_prop_name: str,
         delimiter: str = ";",
@@ -2242,7 +2269,7 @@ class Validator:
 
         Args:
             tsv_file_path: The path to the TSV file to be validated.
-            tsv_file_set: A list of TSV file paths that are part of the validation set.
+            tsv_id_set: A set of ids previously built from the TSV files.
             id_prop_name: The name of the ID property in the TSV file.
             delimiter: The delimiter used in the TSV file, default is ";"
             validation_mode: The mode of validation to be performed, default is "Upsert"
@@ -2355,9 +2382,8 @@ class Validator:
                         ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
                             if not cls.if_node_id_in_tsv_list(
-                                tsv_file_list=tsv_file_set,
+                                tsv_id_set=tsv_id_set,
                                 id_value=rel["dst_id_value"],
-                                id_field=rel["dst_id_prop"],
                             ):
                                 # dst not exist in db or tsv (which means dst won't be created while loading
                                 invalid_edge_hint.append(rel)
@@ -2600,9 +2626,8 @@ class Validator:
                                 ):
                                 # dst not found in db, check if dst can be found in the submission files
                                 if not cls.if_node_id_in_tsv_list(
-                                    tsv_file_list=tsv_file_set,
-                                    id_value=edge["dst_id_value"],
-                                    id_field=edge["dst_id_prop"],
+                                    tsv_id_set=tsv_id_set,
+                                    id_value=edge["dst_id_value"]
                                 ):
                                     # dst not found in db or in the submission files, give error to the validation_results
                                     invalid_edges_hint.append(edge)
@@ -2637,9 +2662,8 @@ class Validator:
                         ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
                             if not cls.if_node_id_in_tsv_list(
-                                tsv_file_list=tsv_file_set,
-                                id_value=rel["dst_id_value"],
-                                id_field=rel["dst_id_prop"],
+                                tsv_id_set=tsv_id_set,
+                                id_value=rel["dst_id_value"]
                             ):
                                 # dst not exist in db or tsv (which means dst won't be created while loading
                                 invalid_edge_hint.append(rel)
