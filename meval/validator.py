@@ -11,6 +11,8 @@ from typing import Literal, Tuple
 from collections.abc import Iterator
 from meval.parser import ModelParser
 from itertools import islice
+from collections import defaultdict
+import re
 
 # for validating record from a submission file against db
 TestModeList = Literal["New", "Update", "Upsert"]
@@ -2080,7 +2082,7 @@ class Validator:
         }
 
     @classmethod
-    def _read_file_parent_nodes_id(cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";") -> list[Tuple[str, str, str]]:
+    def _read_file_parent_nodes_id(cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";") -> set[Tuple[str, str, str]]:
         """
         ########################
         # FOR VALIDATION IN DB #
@@ -2145,43 +2147,46 @@ class Validator:
         if not unique_triples:
             return {}
 
-        # Step 2: batch-check existence in the DB.
-        # id_prop_name can vary per item, so it must be compared as a value inside the
-        # query rather than baked into the Cypher. We match a property dynamically using
-        # the map-access-by-key form n[prop_name].
-        query = """
-        UNWIND $items AS item
-        OPTIONAL MATCH (n)
-        WHERE labels(n)[0] = item.parent_type
-          AND n[item.id_prop_name] = item.id_prop_value
-        WITH item, count(n) AS node_count
-        RETURN item.parent_type AS parent_type,
-               item.id_prop_name AS id_prop_name,
-               item.id_prop_value AS id_prop_value,
-               node_count
-        """
+        # Step 2: group ids by (parent_type, id_prop_name) so each group shares one label
+        # and one property name that we can bake into the query text.
+        groups: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for parent_type, prop_name, prop_value in parent_node_ids:
+            groups[(parent_type, prop_name)].append(prop_value)
+
+        # Step 3: batch-check existence in the DB.
+        _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
         results: dict[tuple[str, str, str], bool] = {}
         with driver.session() as session:
-            for start in range(0, len(unique_triples), batch_size):
-                batch = unique_triples[start : start + batch_size]
-                params = [
-                    {"parent_type": t, "id_prop_name": p, "id_prop_value": v}
-                    for t, p, v in batch
-                ]
-                for record in session.run(query, items=params):
-                    key = (
-                        record["parent_type"],
-                        record["id_prop_name"],
-                        record["id_prop_value"],
-                    )
-                    node_count = record["node_count"]
-                    if node_count > 1:
-                        raise ValueError(
-                            f"Found {node_count} nodes in database with "
-                            f"label='{key[0]}' and {key[1]}='{key[2]}'. "
-                            f"Expected at most 1 unique node."
-                        )
-                    results[key] = node_count == 1 # it will be False if the node_count == 0
+            for (parent_type, prop_name), id_values in groups.items():
+                # Validate before interpolating: labels/prop names can't be parameters, so
+                # they enter the query as literal text. Reject anything that isn't a plain
+                # identifier to prevent Cypher injection.
+                if not _SAFE_IDENTIFIER.match(parent_type):
+                    raise ValueError(f"Unsafe parent type for query: {parent_type!r}")
+                if not _SAFE_IDENTIFIER.match(prop_name):
+                    raise ValueError(f"Unsafe id property name for query: {prop_name!r}")
+
+                # Label and property name are literal text; only the id values are parameters.
+                query = f"""
+                    UNWIND $ids AS id_val
+                    OPTIONAL MATCH (n:{parent_type}) WHERE n.{prop_name} = id_val
+                    WITH id_val, count(n) AS node_count
+                    RETURN id_val, node_count
+                """
+
+                for start in range(0, len(id_values), batch_size):
+                    batch = id_values[start : start + batch_size]
+                    for record in session.run(query, ids=batch):
+                        id_val = record["id_val"]
+                        node_count = record["node_count"]
+                        if node_count > 1:
+                            raise ValueError(
+                                f"Found {node_count} nodes in database with "
+                                f"label='{parent_type}' and {prop_name}='{id_val}'. "
+                                f"Expected at most 1 unique node."
+                            )
+                        results[(parent_type, prop_name, id_val)] = node_count == 1
+
         return results
 
     @classmethod
