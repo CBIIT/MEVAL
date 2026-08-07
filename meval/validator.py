@@ -2690,6 +2690,25 @@ class Validator:
                             row_pass = False
                         else:
                             pass
+                        valid_uniq_edges_in_file = [
+                            edge
+                            for edge in uniq_edges_in_file
+                            if edge not in invalid_edges_hint
+                        ]
+                        if len(valid_uniq_edges_in_file) > 0:
+                            validation_results.append(
+                                {
+                                    "row": row_num,
+                                    "record_type": record_type,
+                                    "validation_mode": validation_mode,
+                                    "level": "info",
+                                    "type": "new_edge_will_be_created",
+                                    "message": f"Valid edge(s) in file from record {record_type} with {id_prop_name}='{record_id_dict[id_prop_name]}' will be created in the database after upsert: {len(valid_uniq_edges_in_file)}",
+                                    "hint": valid_uniq_edges_in_file,
+                                }
+                            )
+                        else:
+                            pass
                     else:
                         pass
                 else:  # if the node doesn't exist in db, it will be created as new node
