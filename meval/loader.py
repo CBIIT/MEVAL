@@ -188,7 +188,7 @@ class Loader:
             records.append(cleaned_record)
         return chunk_type, records
 
-    # upsert records of a chunk with session.begin_transaction as input
+    # UPSERT records of a chunk with session.begin_transaction as input
     @staticmethod
     def upsert_chunk_records_with_tx(
         tx,
@@ -225,7 +225,7 @@ class Loader:
                 ts.rollback()
                 raise e
 
-    # upsert all records of a file
+    # UPSERT all records of a file
     def upsert_file_records(
         self,
         file_path: str,
@@ -374,6 +374,23 @@ class Loader:
             "handle": "of_sample"
         }
 
+        grouped_edges will look like this:
+        {
+            ("sample", "participant", "of_sample"): [
+                {
+                    "src_label": "sample",
+                    "src_prop": "guid",
+                    "src_match": "123",
+                    "dst_label": "participant",
+                    "dst_prop": "guid",
+                    "dst_match": "456",
+                    "handle": "of_sample"
+                },
+                ...
+            ],
+            ...
+        }
+
         Args:
             tx (session.begin_transaction): A neo4j transaction object.
             edge_list (list[dict]): A list of edge dictionaries to upsert.
@@ -392,6 +409,7 @@ class Loader:
         with tx.begin_transaction() as ts:
             for (src_label, dst_label, handle), group in grouped_edges.items():
                 # create variable for src_prop, and dst_prop
+                # all src_prop and dst_prop are assumed to be the same across grouped items
                 src_prop = group[0]["src_prop"]
                 dst_prop = group[0]["dst_prop"]
 
