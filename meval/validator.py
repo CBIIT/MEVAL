@@ -567,6 +567,60 @@ class Validator:
             print(f"Error reading row {row_number} from {tsv_file_path}: {e}")
             raise e
 
+    @staticmethod
+    def read_full_records_in_tsv(
+        tsv_file_path: str,
+        mdf_instance: MDFReader,
+        keep_id_field: bool,
+        id_field: str = "guid",
+        delimiter: str = ";",
+    ) -> Iterator[dict[str, str]]:
+        """
+        ########################
+        # FOR VALIDATION IN DB #
+        ########################
+        Streams every data row of a TSV file as a prepared record, in file order, using a
+        single pass over the file. This is the iterator counterpart of
+        read_record_by_row_in_tsv: use it inside a sequential row loop (e.g. zipped with the
+        id/rels streams) instead of calling read_record_by_row_in_tsv per row, which would
+        re-scan the file each time (quadratic on large files).
+
+        Note: like read_record_by_row_in_tsv, this lets you decide whether to keep id_field
+        in the record.
+
+        Args:
+            tsv_file_path: Path to the TSV file.
+            mdf_instance: MDFReader instance passed to record_prep.
+            keep_id_field: Whether to keep the id_field value in each returned record.
+            id_field: The name of the id field, default "guid".
+            delimiter: The delimiter used within multi-value cells, default ";".
+
+        Yields:
+            dict[str, str]: The prepared record for each data row, in file order (first
+                yielded record corresponds to data row 2, since the header is row 1).
+        """
+        encoding = Validator.check_encoding(tsv_file_path)
+        try:
+            with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+                reader = csv.DictReader(tsv_file, delimiter="\t")
+                for row in reader:
+                    # capture id_field value before record_prep mutates the dict
+                    id_field_value = row.get(id_field, None)
+                    # prep the record
+                    row_record = Validator.record_prep(
+                        row,
+                        mdf=mdf_instance,
+                        subgraph_col=None,
+                        id_field=id_field,
+                        delimiter=delimiter,
+                    )
+                    if keep_id_field:
+                        row_record[id_field] = id_field_value
+                    yield row_record
+        except Exception as e:
+            print(f"Error reading records from {tsv_file_path}: {e}")
+            raise
+
     @classmethod
     def read_tsv_records(
         cls,
@@ -2227,7 +2281,6 @@ class Validator:
                 raise
         return id_set
 
-
     @classmethod
     def if_node_id_in_tsv_list(
         cls,
@@ -2285,6 +2338,9 @@ class Validator:
             cls.read_tsv_rels_id(
                 tsv_file_path=tsv_file_path, id_field=id_prop_name, delimiter=delimiter
             ),
+            cls.read_full_records_in_tsv(
+                tsv_file_path=tsv_file_path, mdf_instance=mdf_instance, id_field=id_prop_name, delimiter=delimiter, keep_id_field=True
+            )
         )
         # get file type from test file
         with open(tsv_file_path, mode="r", encoding="utf-8", newline="") as tsv_file:
@@ -2339,7 +2395,7 @@ class Validator:
 
         # iterate through each row in the tsv file and validate against db according to the validation mode
         print("Starting to validate each record")
-        for row_num, (record_id, rels_in_record) in enumerate(
+        for row_num, (record_id, rels_in_record, row_record_in_file) in enumerate(
             combined_record_reading, start=2
         ):  # row_num starts from 2 because the first row is header and the second row is the first data row
             processed_rows += 1
@@ -2424,14 +2480,6 @@ class Validator:
                     row_pass = False
                 else:  # record already exist in DB
                     # check if any prop value in the record is different from the record in db
-                    row_record_in_file = cls.read_record_by_row_in_tsv(
-                        tsv_file_path=tsv_file_path,
-                        row_number=row_num,
-                        mdf_instance=mdf_instance,
-                        keep_id_field=True,
-                        id_field=id_prop_name,
-                        delimiter=delimiter,
-                    )
                     row_record_in_db = file_records_in_db[row_num]
                     # row_record_in_db can not be none becasue we already checked
                     if row_record_in_file != row_record_in_db:
@@ -2539,14 +2587,6 @@ class Validator:
                 if if_record_exist_in_db:
                     # if record exist in db, check if the record in db is different from the file
                     # check if any prop value in the record is different from the record in db
-                    row_record_in_file = cls.read_record_by_row_in_tsv(
-                        tsv_file_path=tsv_file_path,
-                        row_number=row_num,
-                        mdf_instance=mdf_instance,
-                        keep_id_field=True,
-                        id_field=id_prop_name,
-                        delimiter=delimiter,
-                    )
                     row_record_in_db = file_records_in_db[row_num]
                     if row_record_in_file != row_record_in_db:
                         record_diff = cls.record_comparison(
