@@ -84,7 +84,7 @@ def validate_submission_against_db(
         uri_secret_key: The key name in the secret that contains the database URI.
         commons_acronym (ProjectDropDownChoices): The acronym of the commons project, e.g., "ccdi", "icdc", "cds", "c3dc".
         tag (str): The tag of the data model to be used for validation.
-        does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no".
+        does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no". If "no", the pipeline will pause to ask for a subgraph value to generate UUIDs for the records in the submission files.
         uuid_col_name (str, optional): The name of the UUID column in the submission files. If no UUID column is present, the pipeline will generate UUIDs for the records in the submission files. Defaults to "guid".
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
         validation_mode (Literal["Upsert", "New", "Update"], optional): The mode of validation to be performed. Defaults to "Upsert".
@@ -110,6 +110,9 @@ def validate_submission_against_db(
 **Please provide a subgraph value for your submission file**
 Subgraph value is a string that indicates which study or program of these files belong to, for example, "phs000123". It means all the records from your submission files are from study phs000123.
 Subgraph value will be used to generate UUIDs for records along with the project acronym, the record type, and the record key prop value.
+
+**ATTENTION**: 
+If you have used MEVAL to generate UUIDs for your submission, please use the same subgraph value as before to ensure that the UUIDs generated for the same records are consistent across different runs of MEVAL. If you use a different subgraph value, the UUIDs generated for the same records will be different, which may cause issues in tracking and managing your data.
 
 - **subgraph_value**: e.g., phs000123
 """))
