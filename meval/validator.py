@@ -2597,10 +2597,11 @@ class Validator:
                 if row_pass:
                     if row_record_in_file != row_record_in_db:
                         projected_changes_of_passed_rows["nodes_to_update"] += 1
-                    if len(valid_edges_in_file) > 0: # valid uniq edges in file but not in DB
-                        projected_changes_of_passed_rows["edges_to_create"] += len(
-                            valid_edges_in_file
-                        )
+                    if len(uniq_edges_in_file) > 0: # uniq edges in file but not in DB
+                        if len(valid_edges_in_file) > 0: # valid uniq edges in file but not in DB
+                            projected_changes_of_passed_rows["edges_to_create"] += len(
+                                valid_edges_in_file
+                            )
                     if len(uniq_edges_in_db) > 0: # uniq edges in DB but not in file
                         projected_changes_of_passed_rows["edges_to_delete"] += len(
                             uniq_edges_in_db
