@@ -1,6 +1,8 @@
 import sys
 import os
 import json
+
+from fastapi import logger
 from meval import Validator
 from add_uuid_to_files import add_uuid_to_files
 from upsert_workflow import get_secret_task, file_ul
@@ -84,7 +86,7 @@ def validate_submission_against_db(
         uri_secret_key: The key name in the secret that contains the database URI.
         commons_acronym (ProjectDropDownChoices): The acronym of the commons project, e.g., "ccdi", "icdc", "cds", "c3dc".
         tag (str): The tag of the data model to be used for validation.
-        does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no".
+        does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no". If "no", the pipeline will pause to ask for a subgraph value to generate UUIDs for the records in the submission files.
         uuid_col_name (str, optional): The name of the UUID column in the submission files. If no UUID column is present, the pipeline will generate UUIDs for the records in the submission files. Defaults to "guid".
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
         validation_mode (Literal["Upsert", "New", "Update"], optional): The mode of validation to be performed. Defaults to "Upsert".
@@ -110,6 +112,9 @@ def validate_submission_against_db(
 **Please provide a subgraph value for your submission file**
 Subgraph value is a string that indicates which study or program of these files belong to, for example, "phs000123". It means all the records from your submission files are from study phs000123.
 Subgraph value will be used to generate UUIDs for records along with the project acronym, the record type, and the record key prop value.
+
+**ATTENTION**: 
+If you have used MEVAL to generate UUIDs for your submission, please use the same subgraph value as before to ensure that the UUIDs generated for the same records are consistent across different runs of MEVAL. If you use a different subgraph value, the UUIDs generated for the same records will be different, which may cause issues in tracking and managing your data.
 
 - **subgraph_value**: e.g., phs000123
 """))
@@ -188,9 +193,14 @@ Subgraph value will be used to generate UUIDs for records along with the project
     logger.info("Built a set of uuid values across all submission files for fast uuid look up during validation")
 
     validation_result = {}
+    validation_summary = {}
+    validation_summary["validation_mode"] = validation_mode
+    validation_summary["total_files"] = len(submission_file_set)
+    validation_summary["timestamp"] = get_time()
+    validation_summary["submission_files"] = {}
     for tsv_file in submission_file_set:
         logger.info(f"Validating file: {os.path.basename(tsv_file)} against the database")
-        passed_rows, file_validation = val_instance.validate_tsv_in_db(
+        passed_rows, failed_rows, val_summary, file_validation = val_instance.validate_tsv_in_db(
             driver=driver,
             tsv_file_path=tsv_file,
             tsv_id_set=id_value_set,
@@ -200,16 +210,16 @@ Subgraph value will be used to generate UUIDs for records along with the project
             validation_mode=validation_mode
         )
         validation_result[os.path.basename(tsv_file)] = file_validation
-        num_of_failed_records_in_file = num_of_failed_records(passed_rows, tsv_file)
+        validation_summary["submission_files"][os.path.basename(tsv_file)] = val_summary
+        num_of_failed_records_in_file = len(failed_rows)
+        logger.info(f"Total number of records in file: {val_summary['total_rows']}")
         logger.info(f"Number of failed records in file {os.path.basename(tsv_file)}: {num_of_failed_records_in_file}")
 
-    # write vlaidation result to a json file and upload to s3 bucket
-    validation_output_filename = f"validation_against_db_result_{get_time()}.json"
+    # write validation result to a json file and upload to s3 bucket
+    validation_output_filename = f"validation_against_db_report_{get_time()}.json"
     with open(validation_output_filename, "w") as f:
         json.dump(validation_result, f, indent=4)
-    logger.info(f"Validation result written to {validation_output_filename}")
-
-    # upload the validation result json file to s3 bucket
+    logger.info(f"Validation report was written to {validation_output_filename}")
     # upload the log file to s3
     file_ul(
         bucket=output_bucket,
@@ -217,5 +227,20 @@ Subgraph value will be used to generate UUIDs for records along with the project
         sub_folder=output_subfolder,
         newfile=validation_output_filename,
     )
-    logger.info(f"Validation result uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_output_filename}")
+    logger.info(f"Validation report was uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_output_filename}")
+
+    # write validation summmary to a json file and upload to s3 bucket
+    validation_summary_filename = f"validation_against_db_summary_{get_time()}.json"
+    with open(validation_summary_filename, "w") as f:
+        json.dump(validation_summary, f, indent=4)
+    logger.info(f"Validation summary was written to {validation_summary_filename}")
+    # upload the log file to s3
+    file_ul(
+        bucket=output_bucket,
+        output_folder=output_key_prefix,
+        sub_folder=output_subfolder,
+        newfile=validation_summary_filename,
+    )
+    
+    logger.info(f"Validation summary uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_summary_filename}")
     logger.info("Validation workflow completed")

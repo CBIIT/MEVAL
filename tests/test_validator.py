@@ -699,7 +699,12 @@ class TestValidator(unittest.TestCase):
                  patch.object(Validator, "get_file_records_in_db", return_value={2: None}), \
                  patch.object(Validator, "get_file_records_outgoing_edges_in_db", return_value={2: None}), \
                  patch.object(Validator, "if_parent_nodes_exist_in_db", return_value={}):
-                passed_rows, validation_results = Validator.validate_tsv_in_db(
+                (
+                    passed_rows,
+                    failed_rows,
+                    val_summary,
+                    validation_results,
+                ) = Validator.validate_tsv_in_db(
                     driver=MagicMock(),
                     tsv_file_path=str(tsv_path),
                     tsv_id_set=tsv_id_set,
@@ -709,6 +714,19 @@ class TestValidator(unittest.TestCase):
                 )
 
         self.assertEqual(passed_rows, [])
+        self.assertEqual(failed_rows, [2])
+        self.assertEqual(val_summary["total_rows"], 1)
+        self.assertEqual(val_summary["passed_row_count"], 0)
+        self.assertEqual(val_summary["failed_row_count"], 1)
+        self.assertEqual(
+            val_summary["projected_changes_of_passed_rows"],
+            {
+                "nodes_to_create": 0,
+                "nodes_to_update": 0,
+                "edges_to_create": 0,
+                "edges_to_delete": 0,
+            },
+        )
         self.assertEqual(len(validation_results), 1)
         self.assertEqual(validation_results[0]["type"], "record_already_exist_in_db")
         self.assertEqual(validation_results[0]["row"], 2)
