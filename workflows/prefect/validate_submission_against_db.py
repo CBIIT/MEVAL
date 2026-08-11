@@ -1,6 +1,8 @@
 import sys
 import os
 import json
+
+from fastapi import logger
 from meval import Validator
 from add_uuid_to_files import add_uuid_to_files
 from upsert_workflow import get_secret_task, file_ul
@@ -214,10 +216,10 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
         logger.info(f"Number of failed records in file {os.path.basename(tsv_file)}: {num_of_failed_records_in_file}")
 
     # write validation result to a json file and upload to s3 bucket
-    validation_output_filename = f"validation_against_db_result_{get_time()}.json"
+    validation_output_filename = f"validation_against_db_report_{get_time()}.json"
     with open(validation_output_filename, "w") as f:
         json.dump(validation_result, f, indent=4)
-    logger.info(f"Validation result written to {validation_output_filename}")
+    logger.info(f"Validation report was written to {validation_output_filename}")
     # upload the log file to s3
     file_ul(
         bucket=output_bucket,
@@ -225,12 +227,13 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
         sub_folder=output_subfolder,
         newfile=validation_output_filename,
     )
+    logger.info(f"Validation report was uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_output_filename}")
 
     # write validation summmary to a json file and upload to s3 bucket
     validation_summary_filename = f"validation_against_db_summary_{get_time()}.json"
     with open(validation_summary_filename, "w") as f:
         json.dump(validation_summary, f, indent=4)
-    logger.info(f"Validation summary written to {validation_summary_filename}")
+    logger.info(f"Validation summary was written to {validation_summary_filename}")
     # upload the log file to s3
     file_ul(
         bucket=output_bucket,
@@ -238,6 +241,6 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
         sub_folder=output_subfolder,
         newfile=validation_summary_filename,
     )
-    logger.info(f"Validation result uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_output_filename}")
+    
     logger.info(f"Validation summary uploaded to s3 bucket {output_bucket} at {output_key_prefix}/{output_subfolder}/{validation_summary_filename}")
     logger.info("Validation workflow completed")
