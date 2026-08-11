@@ -2742,11 +2742,15 @@ class Validator:
                     if row_pass:
                         if row_record_in_file != row_record_in_db and not all(v == {} for v in record_diff.values()):
                             projected_changes_of_passed_rows["nodes_to_update"] += 1
-                        if len(valid_uniq_edges_in_file) > 0: # valid uniq edges in file but not in DB
-                            projected_changes_of_passed_rows["edges_to_create"] += len(
-                                valid_uniq_edges_in_file
-                            )
-
+                        if len(uniq_edges_in_file) > 0: # uniq edges in file but not in DB
+                            if len(valid_uniq_edges_in_file) > 0: # valid uniq edges in file but not in DB
+                                projected_changes_of_passed_rows["edges_to_create"] += len(
+                                    valid_uniq_edges_in_file
+                                )
+                            else:
+                                pass # no valid uniq edges to be created
+                        else:
+                            pass # no uniq edges in file but not in DB. most likely edges in file are the same with DB
                     
                 else:  # if the node doesn't exist in db, it will be created as new node
                     # we only need to make sure the edges are valid
