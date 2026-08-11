@@ -2331,8 +2331,16 @@ class Validator:
         """
         validation_results = []
         passed_row_list = []
+        failed_row_list = []
         processed_rows = 0
         progress_interval = 10000
+        # This will only include counts of passed rows. Failed rows are not counted here.
+        projected_changes_of_passed_rows={
+            "nodes_to_create": 0,
+            "nodes_to_update": 0,
+            "edges_to_create": 0,
+            "edges_to_delete": 0,
+        }
         combined_record_reading = zip(
             cls.read_tsv_records_id(tsv_file_path=tsv_file_path, id_field=id_prop_name),
             cls.read_tsv_rels_id(
@@ -2462,6 +2470,12 @@ class Validator:
                         row_pass = False
                     else:  # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
+                if row_pass:
+                    projected_changes_of_passed_rows["nodes_to_create"] += 1
+                    projected_changes_of_passed_rows["edges_to_create"] += len(rels_in_record)
+                else:
+                    pass # don't count the failed row in the projected_changes_of_passed_rows
+
             elif validation_mode == "Update":  # Update mode
                 if (
                     not if_record_exist_in_db
@@ -2580,6 +2594,20 @@ class Validator:
                             row_pass = False
                         else:
                             pass
+                if row_pass:
+                    if row_record_in_file != row_record_in_db:
+                        projected_changes_of_passed_rows["nodes_to_update"] += 1
+                    if len(valid_edges_in_file) > 0: # valid uniq edges in file but not in DB
+                        projected_changes_of_passed_rows["edges_to_create"] += len(
+                            valid_edges_in_file
+                        )
+                    if len(uniq_edges_in_db) > 0: # uniq edges in DB but not in file
+                        projected_changes_of_passed_rows["edges_to_delete"] += len(
+                            uniq_edges_in_db
+                        )
+                else:
+                    pass # don't count the failed row in the projected_changes_of_passed_rows
+
             elif validation_mode == "Upsert":  # Upsert mode
                 # Upsert mode might create ERROR if the dst node of an edge can't be found in db or files
                 # no need to check if the src node exists in db or not
@@ -2711,6 +2739,15 @@ class Validator:
                             pass
                     else:
                         pass
+                    if row_pass:
+                        if row_record_in_file != row_record_in_db and not all(v == {} for v in record_diff.values()):
+                            projected_changes_of_passed_rows["nodes_to_update"] += 1
+                        if len(valid_uniq_edges_in_file) > 0: # valid uniq edges in file but not in DB
+                            projected_changes_of_passed_rows["edges_to_create"] += len(
+                                valid_uniq_edges_in_file
+                            )
+
+                    
                 else:  # if the node doesn't exist in db, it will be created as new node
                     # we only need to make sure the edges are valid
                     invalid_edge_hint = []
@@ -2745,14 +2782,26 @@ class Validator:
                         row_pass = False
                     else:  # no invalid edge found. all dst node in edges can be found in either db or submission files
                         pass
+                    if row_pass:
+                        projected_changes_of_passed_rows["nodes_to_create"] += 1
+                        projected_changes_of_passed_rows["edges_to_create"] += len(rels_in_record)
+
             else:
                 raise ValueError(
                     f"Invalid validation_mode '{validation_mode}' provided. Expected one of: 'New', 'Update', 'Upsert'."
                 )
             if row_pass:
                 passed_row_list.append(row_num)
+            else:
+                failed_row_list.append(row_num)
         print(
             f"Finished validating {processed_rows} rows from {tsv_file_path}.",
             flush=True,
         )
-        return passed_row_list, validation_results
+        # val_summary
+        val_summary = {
+            "total_rows": processed_rows,
+            "passed_row_count": len(passed_row_list),
+            "failed_row_count": len(failed_row_list),
+            "projected_changes_of_passed_rows": projected_changes_of_passed_rows,}
+        return passed_row_list, failed_row_list, val_summary, validation_results
