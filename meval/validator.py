@@ -2434,7 +2434,6 @@ class Validator:
                         }
                     )
                     row_pass = False
-                    continue  # no need to further check for edges,
                 else:  # record doesn't exist in db, this is correct as a new node
                     # because src node doesn't exist in db, all edges in file must be new to db
                     # we can check if the dst node exist in db or in the file, if dst node can't be found in either place, it will be an error because the edge can't be created
