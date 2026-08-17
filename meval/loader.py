@@ -71,6 +71,20 @@ class Loader:
             return cp1252
 
     @staticmethod
+    def to_number(value: str) -> float | int | str:
+        """Convert a string value (read through csv.DictReader) to a number (int or float) when the property type(value_domain or item domain for a list) is a number/integer based on the model.
+        Value can not be None or empty string
+        The function doesn't convert the display of the value. If the value can not be converted to number, it will stay as string
+        """
+        try:
+            if "." in value:
+                return float(value)
+            else:
+                return int(value)
+        except ValueError:
+            return value
+
+    @staticmethod
     def read_file_in_chunks(
         file_path: str, encoding: str = "utf-8", chunk_size: int = 3000
     ) -> Generator[pd.DataFrame, None, None]:
@@ -88,7 +102,7 @@ class Loader:
             reader = pd.read_csv(
                 file_path,
                 sep="\t",
-                # dtype=str, # let pandas to infer data types
+                dtype=str, # Don't let pandas to infer data types
                 encoding=encoding,
                 chunksize=chunk_size,
                 quotechar='"',
@@ -113,6 +127,8 @@ class Loader:
     ) -> tuple[str, list[dict]]:
         """
         Generate records from a given chunk of data based on the model parser.
+        The chunk was generated through self.read_file_in_chunks. All dtypes were enforced to be str.
+        This function will change the certain dtypes according to MDF instance
 
         Args:
             chunk (pd.DataFrame): DataFrame chunk containing data rows
@@ -153,35 +169,65 @@ class Loader:
                 k: v for k, v in record.items() if k not in keys_to_remove
             }
 
+            # remove whitespace for all values
+            for u in cleaned_record:
+                u_value = cleaned_record[u] # since all dtype is str
+                u_value_strip = u_value.strip()
+                cleaned_record[u] = u_value_strip
+
             # if the propery is a list type, convert the value to list by a delimiter, such as ";"
             if len(list_type_props) > 0:
                 for prop in cleaned_record:
                     if prop in list_type_props:
+                        prop_instance = model_parser.model.nodes[chunk_type].props[prop]
+                        # we already know that the prop value_domain is list
+                        # now check for item_domain
+                        prop_item_domain = prop_instance.item_domain # in most cases, item_domain is str or value_set
                         prop_value = cleaned_record[prop]
                         prop_list = []
                         if delimiter not in prop_value:
-                            prop_list.append(prop_value.strip())
+                            if prop_item_domain == "number" or prop_item_domain == "integer":
+                                prop_list.append(Loader.to_number(prop_value.strip()))
+                            else:
+                                prop_list.append(prop_value.strip())
                         else:
-                            prop_list = [
-                                item.strip() for item in prop_value.split(delimiter)
-                            ]
+                            if prop_item_domain == "number" or prop_item_domain == "integer":
+                                prop_list = [
+                                    Loader.to_number(item.strip())
+                                    for item in prop_value.split(delimiter)
+                                ]
+                            else:
+                                prop_list = [
+                                    item.strip() for item in prop_value.split(delimiter)
+                                ]
                         cleaned_record[prop] = prop_list
                     else:
                         pass
 
             # for remaining keys, if the cleaned_record value is an int/floar, check the model
             # we have cases of str type property that are mis inferred as number/int during loading
+            # for u in cleaned_record:
+            #     if isinstance(cleaned_record[u], (int, float)):
+            #         expected_type = model_parser.get_prop_type(
+            #             node_name=chunk_type, prop_name=u
+            #         )
+            #         if expected_type == "number" or expected_type == "integer":
+            #             # all good
+            #             pass
+            #         else:
+            #             # convert to str
+            #             cleaned_record[u] = str(cleaned_record[u])
+            #     else:
+            #         # all good
+            #         pass
+
+            # for the remaining keys, if the prop value domain is number/integer, we need to convert the str type value back to number or integer
             for u in cleaned_record:
-                if isinstance(cleaned_record[u], (int, float)):
-                    expected_type = model_parser.get_prop_type(
-                        node_name=chunk_type, prop_name=u
-                    )
-                    if expected_type == "number" or expected_type == "integer":
-                        # all good
-                        pass
-                    else:
-                        # convert to str
-                        cleaned_record[u] = str(cleaned_record[u])
+                expected_type = model_parser.get_prop_type(
+                    node_name=chunk_type, prop_name=u
+                )
+                if expected_type == "number" or expected_type == "integer":
+                    cleaned_record[u] = Loader.to_number(cleaned_record[u].strip())
                 else:
                     # all good
                     pass
