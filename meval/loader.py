@@ -152,6 +152,7 @@ class Loader:
 
         # get a list of list type properties (if any) in node == chunk_type
         list_type_props = model_parser.get_node_props_if_list_type(chunk_type)
+        chunk_type_props = model_parser.get_node_props_list(chunk_type)
 
         # create a list of records
         records = []
@@ -223,13 +224,16 @@ class Loader:
 
             # for the remaining keys, if the prop value domain is number/integer, we need to convert the str type value back to number or integer
             for u in cleaned_record:
-                expected_type = model_parser.get_prop_type(
-                    node_name=chunk_type, prop_name=u
-                )
-                if expected_type == "number" or expected_type == "integer":
-                    cleaned_record[u] = Loader.to_number(cleaned_record[u].strip())
+                if u in chunk_type_props: # in case the u isn't a valid prop in mdf
+                    expected_type = model_parser.get_prop_type(
+                        node_name=chunk_type, prop_name=u
+                    )
+                    if expected_type == "number" or expected_type == "integer":
+                        cleaned_record[u] = Loader.to_number(cleaned_record[u].strip())
+                    else:
+                        # all good
+                        pass
                 else:
-                    # all good
                     pass
             records.append(cleaned_record)
         return chunk_type, records

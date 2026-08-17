@@ -2,6 +2,7 @@ import sys
 import unittest
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -14,6 +15,17 @@ from meval.loader import Loader
 
 
 class FakeModelParser:
+	def __init__(self) -> None:
+		self.model = SimpleNamespace(
+			nodes={
+				"sample": SimpleNamespace(
+					props={
+						"tags": SimpleNamespace(item_domain="string"),
+					}
+				)
+			}
+		)
+
 	def get_node_props_if_list_type(self, node_name: str) -> list[str]:
 		if node_name == "sample":
 			return ["tags"]
@@ -28,6 +40,11 @@ class FakeModelParser:
 		if edge_src == "sample" and edge_dst == "participant":
 			return "of_participant"
 		return "related_to"
+
+	def get_node_props_list(self, node_name: str) -> list[str]:
+		if node_name == "sample":
+			return ["guid", "name", "tag", "count"]
+		return []
 
 
 class TestLoader(unittest.TestCase):
@@ -50,6 +67,27 @@ class TestLoader(unittest.TestCase):
 		result = list(Loader.chunks(data, size=2))
 		self.assertEqual(result, [[1, 2], [3, 4], [5]])
 
+	def test_read_file_in_chunks_preserves_values_as_strings(self) -> None:
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			tsv_path = Path(tmp_dir) / "sample.tsv"
+			tsv_path.write_text(
+				"type\tguid\tcount\n"
+				"sample\ts1\t7\n"
+				"sample\ts2\t8\n",
+				encoding="utf-8",
+			)
+
+			chunks = list(
+				Loader.read_file_in_chunks(
+					file_path=str(tsv_path), chunk_size=1
+				)
+			)
+
+		self.assertEqual(len(chunks), 2)
+		self.assertEqual(chunks[0]["count"].tolist(), ["7"])
+		self.assertEqual(chunks[1]["count"].tolist(), ["8"])
+		self.assertEqual(chunks[0]["count"].map(type).tolist(), [str])
+
 	def test_generate_chunk_records_cleans_and_converts_types(self) -> None:
 		parser = FakeModelParser()
 		chunk = pd.DataFrame(
@@ -58,7 +96,7 @@ class TestLoader(unittest.TestCase):
 				"guid": ["s1", "s2"],
 				"name": ["alpha", "beta"],
 				"tags": ["a ; b", "single"],
-				"count": [7, 8],
+				"count": ["7", "8"],
 				"participant.guid": ["p1", "p2"],
 				"subgraph": ["sg1", "sg1"],
 				"notes": [float("nan"), "ok"],
