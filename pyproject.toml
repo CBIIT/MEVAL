@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ctos-meval"
-version = "1.1.1"
+version = "1.2.0"
 description = "MDF Enforced Validator and Loader"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,7 +14,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "bento-mdf>=0.13.1",
+  "bento-mdf>=0.13.3",
   "boto3>=1.36.11,<2.0",
   "pandas>=2.2.3,<3.0",
   "neo4j-viz>=1.0.0,<2.0",
