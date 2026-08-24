@@ -10,10 +10,8 @@
 <style>
   .site-nav { margin-top: 1.5em; }
   .site-nav details { margin-bottom: .5em; }
-
   /* nested groups indent under their parent */
   .site-nav details details { margin-left: 1em; }
-
   .site-nav summary {
     cursor: pointer;
     font-weight: 600;
@@ -24,8 +22,17 @@
   .site-nav summary::-webkit-details-marker { display: none; }
   .site-nav summary::before { content: "\25B8"; margin-right: .4em; font-size: .8em; }  /* ▸ collapsed */
   .site-nav details[open] > summary::before { content: "\25BE"; }                        /* ▾ expanded */
-
   .site-nav ul { list-style: none; margin: .25em 0 .5em 1.2em; padding: 0; }
   .site-nav li { margin: 3px 0; }
   .site-nav a.active { font-weight: 700; text-decoration: underline; }
+
+  /* Make the left panel scroll internally so expanded nav doesn't overrun the footer.
+     Scoped to desktop, where the theme fixes the header in place. */
+  @media (min-width: 961px) {
+    header {
+      max-height: 100vh;
+      overflow-y: auto;
+      padding-bottom: 2em;
+    }
+  }
 </style>

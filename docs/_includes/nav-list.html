@@ -1,7 +1,6 @@
 <ul>
   {% for item in include.items %}
     {% if item.items %}
-      {# group with children → nested expandable #}
       <li>
         <details{% if item.open %} open{% endif %}>
           <summary>{{ item.name }}</summary>
@@ -9,7 +8,6 @@
         </details>
       </li>
     {% else %}
-      {# leaf → plain link #}
       <li>
         <a href="{{ item.url | relative_url }}"{% if page.url == item.url %} class="active"{% endif %}>{{ item.name }}</a>
       </li>
