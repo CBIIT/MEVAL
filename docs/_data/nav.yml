@@ -1,0 +1,27 @@
+- title: Getting Started
+  open: true          # optional: starts expanded
+  items:
+    - name: Install MEVAL
+      url: /install/
+- title: Module Guides
+  items:
+    - name: ModelParser
+      items:
+        - name: ModelParser Usage
+          url: /modelparser/usage/
+    - name: Loader
+      items:
+        - name: Loader Usage
+          url: /loader/usage/
+        - name: Loader workflows
+          url: /loader/workflows/
+    - name: Validator
+      items:
+        - name: Validator Usage
+          url: /validator/usage/
+        - name: Validator workflows
+          url: /validator/workflows/
+- title: Prefect Workflow Deployment
+  items:
+    - name: Prefect Workflow Deployment
+      url: /prefect/

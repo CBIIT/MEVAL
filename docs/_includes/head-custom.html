@@ -1,0 +1,31 @@
+<!-- start custom head snippets, customize with your own _includes/head-custom.html file -->
+
+<!-- Setup Google Analytics -->
+{% include head-custom-google-analytics.html %}
+
+<!-- You can set your favicon here -->
+<!-- link rel="shortcut icon" type="image/x-icon" href="{{ '/favicon.ico' | relative_url }}" -->
+
+<!-- end custom head snippets -->
+<style>
+  .site-nav { margin-top: 1.5em; }
+  .site-nav details { margin-bottom: .5em; }
+
+  /* nested groups indent under their parent */
+  .site-nav details details { margin-left: 1em; }
+
+  .site-nav summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px 0;
+    list-style: none;          /* hide default triangle */
+    outline: none;
+  }
+  .site-nav summary::-webkit-details-marker { display: none; }
+  .site-nav summary::before { content: "\25B8"; margin-right: .4em; font-size: .8em; }  /* ▸ collapsed */
+  .site-nav details[open] > summary::before { content: "\25BE"; }                        /* ▾ expanded */
+
+  .site-nav ul { list-style: none; margin: .25em 0 .5em 1.2em; padding: 0; }
+  .site-nav li { margin: 3px 0; }
+  .site-nav a.active { font-weight: 700; text-decoration: underline; }
+</style>
