@@ -26,13 +26,27 @@
   .site-nav li { margin: 3px 0; }
   .site-nav a.active { font-weight: 700; text-decoration: underline; }
 
-  /* Make the left panel scroll internally so expanded nav doesn't overrun the footer.
-     Scoped to desktop, where the theme fixes the header in place. */
+  /* Desktop: make the whole left column scroll as one unit */
   @media (min-width: 961px) {
-    header {
-      max-height: 100vh;
-      overflow-y: auto;
-      padding-bottom: 2em;
+    .wrapper header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 270px;              /* theme's default header width */
+      height: 100vh;             /* full viewport height */
+      overflow-y: auto;          /* vertical scroll when tall */
+      overflow-x: hidden;        /* kill the horizontal scrollbar */
+      box-sizing: border-box;
+      padding: 50px 25px 30px;   /* top / side / bottom breathing room */
     }
+  }
+
+  /* Prevent long nav labels from forcing horizontal scroll */
+  .site-nav summary,
+  .site-nav a {
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
   }
 </style>
