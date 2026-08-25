@@ -8,10 +8,13 @@
 
 <!-- end custom head snippets -->
 <style>
+  /* ===== Expandable navigation ===== */
   .site-nav { margin-top: 1.5em; }
   .site-nav details { margin-bottom: .5em; }
+
   /* nested groups indent under their parent */
   .site-nav details details { margin-left: 1em; }
+
   .site-nav summary {
     cursor: pointer;
     font-weight: 600;
@@ -22,24 +25,10 @@
   .site-nav summary::-webkit-details-marker { display: none; }
   .site-nav summary::before { content: "\25B8"; margin-right: .4em; font-size: .8em; }  /* ▸ collapsed */
   .site-nav details[open] > summary::before { content: "\25BE"; }                        /* ▾ expanded */
+
   .site-nav ul { list-style: none; margin: .25em 0 .5em 1.2em; padding: 0; }
   .site-nav li { margin: 3px 0; }
   .site-nav a.active { font-weight: 700; text-decoration: underline; }
-
-  /* Desktop: make the whole left column scroll as one unit */
-  @media (min-width: 961px) {
-    .wrapper header {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 270px;              /* theme's default header width */
-      height: 100vh;             /* full viewport height */
-      overflow-y: auto;          /* vertical scroll when tall */
-      overflow-x: hidden;        /* kill the horizontal scrollbar */
-      box-sizing: border-box;
-      padding: 50px 25px 30px;   /* top / side / bottom breathing room */
-    }
-  }
 
   /* Prevent long nav labels from forcing horizontal scroll */
   .site-nav summary,
@@ -48,5 +37,20 @@
     word-wrap: break-word;
     overflow-wrap: break-word;
     white-space: normal;
+  }
+
+  /* ===== Desktop left-column behavior ===== */
+  @media (min-width: 961px) {
+    .wrapper header {
+      /* narrow the theme's default left/right padding so the column
+         (title, buttons, nav, footer) shares one left edge */
+      padding-left: 20px;
+      padding-right: 20px;
+
+      /* let the column scroll internally instead of overrunning the footer */
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
   }
 </style>
