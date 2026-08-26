@@ -1,5 +1,4 @@
 - title: Getting Started
-  open: true          # optional: starts expanded
   items:
     - name: Install MEVAL
       url: /install/
@@ -22,5 +21,7 @@
           url: /validator/usage/
         - name: Workflows
           url: /validator/workflows/
-- title: Prefect Workflow Deployment
-  url: /prefect/
+- title: Workflow Deployment
+  items:
+    - name: Prefect Workflow Deployment
+      url: /prefect/
