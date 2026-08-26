@@ -4,3 +4,4 @@ description: Documentation for MEVAL.
 show_downloads: true
 google_analytics:
 theme: jekyll-theme-minimal
+baseurl: "/MEVAL"
