@@ -7,6 +7,13 @@ permalink: /modelparser/usage/
 
 `ModelParser` (`meval/parser.py`) is a higher-level wrapper around `bento_mdf.MDFReader` that offers direct and easy access to MDF model features — nodes, properties, edges, and their attributes — without needing to work with the underlying `bento_mdf.MDFReader` objects directly. `Validator` and `Loader` both use a `ModelParser` instance to interpret the model when validating or loading data.
 
+## Contents
+
+- [Instantiation](#instantiation)
+- [Node introspection](#node-introspection)
+- [Property introspection](#property-introspection)
+- [Node relationships (edges)](#node-relationships-edges)
+
 ## Instantiation
 
 ```python

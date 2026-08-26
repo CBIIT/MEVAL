@@ -7,6 +7,16 @@ permalink: /loader/usage/
 
 `Loader` (`meval/loader.py`) handles ingestion of TSV data files into a Neo4j/Memgraph graph database, using MDF model metadata (via `ModelParser`) to interpret node types, property types, and relationships. It reads files in chunks, upserts nodes and relationships, manages indexes, and provides utilities for graph maintenance such as deleting subgraphs and finding orphan nodes.
 
+## Contents
+
+- [Instantiation](#instantiation)
+- [Loading nodes and relationships](#loading-nodes-and-relationships)
+- [Index management](#index-management)
+- [Deleting records from database](#deleting-records-from-database)
+- [Finding orphan / floating nodes](#finding-orphan--floating-nodes)
+- [Traversal / graph inspection utilities](#traversal--graph-inspection-utilities)
+- [Notes](#notes)
+
 ## Instantiation
 
 ```python

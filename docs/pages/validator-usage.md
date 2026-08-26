@@ -12,6 +12,14 @@ permalink: /validator/usage/
 
 It also provides utilities for deterministic UUID5 generation and adding a `guid` column to TSV files before loading.
 
+## Contents
+
+- [Instantiation](#instantiation)
+- [Local validation](#local-validation)
+- [UUID generation](#uuid-generation)
+- [Validation against an existing database](#validation-against-an-existing-database)
+- [Notes](#notes)
+
 ## Instantiation
 
 ```python
