@@ -70,11 +70,39 @@
   body.dark-mode table td { border-color: #444 !important; }
   body.dark-mode hr { background-color: #444 !important; }
 
-  /* Toggle button */
+  /* In dark mode, lighten the theme's syntax-highlight tokens so
+     none render as near-black on the dark code background */
+  body.dark-mode pre code,
+  body.dark-mode pre code * { color: #e0e0e0 !important; }
+  body.dark-mode .highlight .n,   /* names */
+  body.dark-mode .highlight .nn,  /* namespace */
+  body.dark-mode .highlight .nc,  /* class */
+  body.dark-mode .highlight .nf,  /* function */
+  body.dark-mode .highlight .nb,  /* builtin */
+  body.dark-mode .highlight .p,   /* punctuation */
+  body.dark-mode .highlight .o    /* operator */
+    { color: #d4d4d4 !important; }
+  body.dark-mode .highlight .k,   /* keyword */
+  body.dark-mode .highlight .kn,
+  body.dark-mode .highlight .kd
+    { color: #7fb3ff !important; }
+  body.dark-mode .highlight .s,   /* strings */
+  body.dark-mode .highlight .s1,
+  body.dark-mode .highlight .s2
+    { color: #ce9178 !important; }
+  body.dark-mode .highlight .mi,  /* numbers */
+  body.dark-mode .highlight .mf
+    { color: #b5cea8 !important; }
+  body.dark-mode .highlight .c,   /* comments */
+  body.dark-mode .highlight .c1,
+  body.dark-mode .highlight .cm
+    { color: #9aa0a6 !important; }
+
+  /* Toggle button — placed at the top of the content area, left side */
   #dark-toggle {
     position: fixed;
     top: 12px;
-    right: 12px;
+    left: 300px;          /* just past the left panel, over the content */
     z-index: 1000;
     padding: 6px 12px;
     font-size: 13px;
@@ -85,6 +113,11 @@
     color: #333;
   }
   body.dark-mode #dark-toggle { background: #2a2a2a; color: #e0e0e0; border-color: #666; }
+
+  /* On narrow screens the layout stacks, so keep the button in a safe spot */
+  @media (max-width: 960px) {
+    #dark-toggle { left: auto; right: 12px; }
+  }
 </style>
 
 <button id="dark-toggle" onclick="toggleDark()">🌙 Dark</button>
