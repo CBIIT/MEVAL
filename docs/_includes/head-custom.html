@@ -64,7 +64,11 @@
   body.dark-mode .site-nav summary { color: #e0e0e0 !important; }
   body.dark-mode pre,
   body.dark-mode code { background: #2a2a2a !important; color: #e0e0e0 !important; }
-  body.dark-mode pre { border-color: #444 !important; }
+  body.dark-mode pre {
+    border: 1px solid #3a3a3a !important;
+    border-radius: 6px !important;   /* match the rounded background so corners align */
+    overflow: hidden;                /* clip content to the rounded corners */
+  }
   body.dark-mode blockquote { color: #b0b0b0 !important; border-left-color: #444 !important; }
   body.dark-mode table th,
   body.dark-mode table td { border-color: #444 !important; }
@@ -98,11 +102,11 @@
   body.dark-mode .highlight .cm
     { color: #9aa0a6 !important; }
 
-  /* Toggle button — placed at the top of the content area, left side */
+  /* Toggle button — right side, pulled inward toward the middle */
   #dark-toggle {
     position: fixed;
     top: 12px;
-    left: 300px;          /* just past the left panel, over the content */
+    right: 120px;         /* larger offset = further from the right edge, toward center */
     z-index: 1000;
     padding: 6px 12px;
     font-size: 13px;
@@ -114,9 +118,9 @@
   }
   body.dark-mode #dark-toggle { background: #2a2a2a; color: #e0e0e0; border-color: #666; }
 
-  /* On narrow screens the layout stacks, so keep the button in a safe spot */
+  /* On narrow screens the layout stacks, so keep the button near the edge */
   @media (max-width: 960px) {
-    #dark-toggle { left: auto; right: 12px; }
+    #dark-toggle { right: 12px; }
   }
 </style>
 
