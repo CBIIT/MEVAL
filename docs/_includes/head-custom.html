@@ -11,10 +11,8 @@
   /* ===== Expandable navigation ===== */
   .site-nav { margin-top: 1.5em; }
   .site-nav details { margin-bottom: .5em; }
-
   /* nested groups indent under their parent */
   .site-nav details details { margin-left: 1em; }
-
   .site-nav summary {
     cursor: pointer;
     font-weight: 600;
@@ -25,11 +23,9 @@
   .site-nav summary::-webkit-details-marker { display: none; }
   .site-nav summary::before { content: "\25B8"; margin-right: .4em; font-size: .8em; }  /* ▸ collapsed */
   .site-nav details[open] > summary::before { content: "\25BE"; }                        /* ▾ expanded */
-
   .site-nav ul { list-style: none; margin: .25em 0 .5em 1.2em; padding: 0; }
   .site-nav li { margin: 3px 0; }
   .site-nav a.active { font-weight: 700; text-decoration: underline; }
-
   /* Prevent long nav labels from forcing horizontal scroll */
   .site-nav summary,
   .site-nav a {
@@ -45,13 +41,68 @@
       /* narrow the theme's default left/right padding so the column
          (title, buttons, nav, footer) shares one left edge */
       padding-left: 15px;
-      padding-right: 15px; 
+      padding-right: 15px;
       margin-left: 10px;  /* pull the whole column toward the page edge */
-
       /* let the column scroll internally instead of overrunning the footer */
       max-height: calc(100vh - 100px);
       overflow-y: auto;
       overflow-x: hidden;
     }
   }
+
+  /* ===== Dark mode ===== */
+  body.dark-mode { background: #1a1a1a !important; color: #e0e0e0 !important; }
+  body.dark-mode .wrapper header,
+  body.dark-mode .wrapper section { background: #1a1a1a !important; }
+  body.dark-mode h1,
+  body.dark-mode h2,
+  body.dark-mode h3,
+  body.dark-mode h4,
+  body.dark-mode h5,
+  body.dark-mode h6 { color: #f0f0f0 !important; }
+  body.dark-mode a { color: #6ab0f3 !important; }
+  body.dark-mode .site-nav summary { color: #e0e0e0 !important; }
+  body.dark-mode pre,
+  body.dark-mode code { background: #2a2a2a !important; color: #e0e0e0 !important; }
+  body.dark-mode pre { border-color: #444 !important; }
+  body.dark-mode blockquote { color: #b0b0b0 !important; border-left-color: #444 !important; }
+  body.dark-mode table th,
+  body.dark-mode table td { border-color: #444 !important; }
+  body.dark-mode hr { background-color: #444 !important; }
+
+  /* Toggle button */
+  #dark-toggle {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 1000;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid #999;
+    border-radius: 4px;
+    background: #fff;
+    color: #333;
+  }
+  body.dark-mode #dark-toggle { background: #2a2a2a; color: #e0e0e0; border-color: #666; }
 </style>
+
+<button id="dark-toggle" onclick="toggleDark()">🌙 Dark</button>
+<script>
+  function applyDark(on) {
+    document.body.classList.toggle('dark-mode', on);
+    var btn = document.getElementById('dark-toggle');
+    if (btn) btn.textContent = on ? '☀️ Light' : '🌙 Dark';
+  }
+  function toggleDark() {
+    var on = !document.body.classList.contains('dark-mode');
+    applyDark(on);
+    try { localStorage.setItem('meval-dark', on ? '1' : '0'); } catch (e) {}
+  }
+  // Restore saved preference on every page load
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('meval-dark'); } catch (e) {}
+    if (saved === '1') applyDark(true);
+  })();
+</script>
