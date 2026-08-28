@@ -63,11 +63,31 @@
   body.dark-mode a { color: #6ab0f3 !important; }
   body.dark-mode .site-nav summary { color: #e0e0e0 !important; }
   body.dark-mode pre,
-  body.dark-mode code { background: #2a2a2a !important; color: #e0e0e0 !important; }
+  body.dark-mode code,
+  body.dark-mode .highlight,
+  body.dark-mode div.highlight,
+  body.dark-mode figure.highlight { background: #2a2a2a !important; color: #e0e0e0 !important; }
+  body.dark-mode .highlight,
+  body.dark-mode div.highlight,
+  body.dark-mode figure.highlight {
+    border: 1px solid #3a3a3a !important;
+    border-radius: 6px !important;
+    overflow: hidden;                /* clip inner pre to the rounded corners */
+  }
+  /* the inner pre sits inside .highlight, so remove its own border/radius
+     to avoid a double outline, but keep its padding */
+  body.dark-mode .highlight pre,
+  body.dark-mode div.highlight pre,
+  body.dark-mode figure.highlight pre {
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+  /* standalone pre (not wrapped in .highlight) still gets its own rounding */
   body.dark-mode pre {
     border: 1px solid #3a3a3a !important;
-    border-radius: 6px !important;   /* match the rounded background so corners align */
-    overflow: hidden;                /* clip content to the rounded corners */
+    border-radius: 6px !important;
+    overflow: hidden;
   }
   body.dark-mode blockquote { color: #b0b0b0 !important; border-left-color: #444 !important; }
   body.dark-mode table th,
