@@ -61,6 +61,24 @@
   body.dark-mode h5,
   body.dark-mode h6 { color: #f0f0f0 !important; }
   body.dark-mode a { color: #6ab0f3 !important; }
+  /* inline emphasis the theme colors separately — force readable light text */
+  body.dark-mode strong,
+  body.dark-mode b,
+  body.dark-mode em,
+  body.dark-mode i,
+  body.dark-mode li,
+  body.dark-mode p,
+  body.dark-mode td,
+  body.dark-mode th,
+  body.dark-mode dt,
+  body.dark-mode dd,
+  body.dark-mode span { color: #e8e8e8 !important; }
+  /* keep links their blue even when bold/inside emphasis */
+  body.dark-mode a,
+  body.dark-mode strong a,
+  body.dark-mode a strong,
+  body.dark-mode em a,
+  body.dark-mode a em { color: #6ab0f3 !important; }
   body.dark-mode .site-nav summary { color: #e0e0e0 !important; }
   body.dark-mode pre,
   body.dark-mode code,
@@ -95,9 +113,11 @@
   body.dark-mode hr { background-color: #444 !important; }
 
   /* In dark mode, lighten the theme's syntax-highlight tokens so
-     none render as near-black on the dark code background */
+     none render as near-black on the dark code background.
+     These sit AFTER the inline-text rule so they win inside code blocks. */
   body.dark-mode pre code,
-  body.dark-mode pre code * { color: #e0e0e0 !important; }
+  body.dark-mode pre code *,
+  body.dark-mode code span { color: #e0e0e0 !important; }
   body.dark-mode .highlight .n,   /* names */
   body.dark-mode .highlight .nn,  /* namespace */
   body.dark-mode .highlight .nc,  /* class */
