@@ -804,6 +804,13 @@ class Validator:
                 self.record_validator._validation_warnings
             )
             warning_error_messages["errors"] = self.record_validator._validation_errors
+            no_error = True
+            for key, value in warning_error_messages["errors"].items():
+                if len(value) > 0:
+                    no_error = False
+                    break
+            if no_error:
+                is_valid = True
         return is_valid, warning_error_messages
 
     def validate_one_record(
@@ -857,6 +864,10 @@ class Validator:
                 warning_error_messages["errors"] = short_errors
             else:
                 warning_error_messages["errors"] = []
+
+            # if there is no error, only warning messages, is_valid is True
+            if len(warning_error_messages["errors"]) == 0:
+                is_valid = True
         return is_valid, warning_error_messages
 
     def _validate_records_messages_cleanup(
@@ -976,12 +987,15 @@ class Validator:
             else:  # use the validator_record to validate
                 is_valid, messages = self.validate_one_record(node_name, record)
 
-                if not is_valid:
+                if not is_valid: # there is at lease one error message
                     validation_results.append(
                         {"row": row_num, "is_valid": is_valid, "messages": messages}
                     )
-                else:
-                    pass
+                else: # this case applied to record that only has warnings but not errors
+                    if "warnings" in messages and messages["warnings"] != []:
+                        validation_results.append(
+                            {"row": row_num, "is_valid": is_valid, "messages": messages}
+                        )
             row_num += 1
         # quick check of invalid records found
         # if len(validation_results) == 0:
