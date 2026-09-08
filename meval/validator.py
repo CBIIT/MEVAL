@@ -987,12 +987,15 @@ class Validator:
             else:  # use the validator_record to validate
                 is_valid, messages = self.validate_one_record(node_name, record)
 
-                if not is_valid:
+                if not is_valid: # there is at lease one error message
                     validation_results.append(
                         {"row": row_num, "is_valid": is_valid, "messages": messages}
                     )
-                else:
-                    pass
+                else: # this case applied to record that only has warnings but not errors
+                    if "warnings" in messages and messages["warnings"] != []:
+                        validation_results.append(
+                            {"row": row_num, "is_valid": is_valid, "messages": messages}
+                        )
             row_num += 1
         # quick check of invalid records found
         # if len(validation_results) == 0:

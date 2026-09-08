@@ -56,6 +56,61 @@ class TestValidator(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def test_validate_one_record_allows_warning_only_values(self) -> None:
+        warning_record = {
+            "survival_id": "survival_001",
+            "last_known_survival_status": "Dead",
+            "age_at_last_known_survival_status": 1234,
+            "adverse_event": ["Back Pain", "Eye Pain"],
+            "guid": "survival-guid-001",
+        }
+
+        is_valid, messages = self.validator.validate_one_record("survival", warning_record)
+
+        self.assertTrue(is_valid)
+        self.assertIn("warnings", messages)
+        self.assertIn("errors", messages)
+        self.assertEqual(messages["errors"], [])
+        self.assertTrue(any(msg.get("level") == "warning" for msg in messages["warnings"]))
+
+    def test_validate_one_record_returns_error_when_record_is_invalid(self) -> None:
+        invalid_record = {
+            "survival_id": "survival_001",
+            "last_known_survival_status": "Dead",
+            "age_at_last_known_survival_status": "not-a-number",
+            "adverse_event": ["Back Pain", "Blurred Vision"],
+            "guid": "survival-guid-001"
+        }
+
+        is_valid, messages = self.validator.validate_one_record("survival", invalid_record)
+
+        self.assertFalse(is_valid)
+        self.assertTrue(messages["errors"])
+        self.assertIn("errors", messages)
+
+    def test_validate_records_allows_warning_only_lists(self) -> None:
+        valid_record = {
+            "survival_id": "survival_101",
+            "last_known_survival_status": "Dead",
+            "age_at_last_known_survival_status": 1234,
+            "adverse_event": ["Back Pain", "Blurred Vision"],
+            "guid": "survival-guid-101",
+        }
+        warning_record = {
+            "survival_id": "survival_102",
+            "last_known_survival_status": "Dead",
+            "age_at_last_known_survival_status": 5678,
+            "adverse_event": ["Back Pain", "Eye Pain"],
+            "guid": "survival-guid-102",
+        }
+
+        is_valid, messages = self.validator.validate_records("survival", [valid_record, warning_record])
+
+        self.assertTrue(is_valid)
+        self.assertIn("warnings", messages)
+        self.assertIn("errors", messages)
+        self.assertTrue(messages["warnings"])
+
     def test_validate_tsv_records_survival_file(self) -> None:
         tsv_path = PROJECT_ROOT / "tests" / "test_files" / "survival_test.tsv"
 
@@ -71,7 +126,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(first_issue["row"], 3) # row number of first record with error
         self.assertIn("is_valid", first_issue)
         self.assertIn("messages", first_issue)
-        self.assertFalse(first_issue["is_valid"])
+        self.assertTrue(first_issue["is_valid"]) # only warnings found in the first issue
         self.assertIn("errors", first_issue["messages"])
 
         # emtpy line check
