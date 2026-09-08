@@ -804,6 +804,13 @@ class Validator:
                 self.record_validator._validation_warnings
             )
             warning_error_messages["errors"] = self.record_validator._validation_errors
+            no_error = True
+            for key, value in warning_error_messages["errors"].items():
+                if len(value) > 0:
+                    no_error = False
+                    break
+            if no_error:
+                is_valid = True
         return is_valid, warning_error_messages
 
     def validate_one_record(
@@ -857,6 +864,10 @@ class Validator:
                 warning_error_messages["errors"] = short_errors
             else:
                 warning_error_messages["errors"] = []
+
+            # if there is no error, only warning messages, is_valid is True
+            if len(warning_error_messages["errors"]) == 0:
+                is_valid = True
         return is_valid, warning_error_messages
 
     def _validate_records_messages_cleanup(
