@@ -23,11 +23,8 @@ TestModeList = Literal["New", "Update", "Upsert"]
 CompareRecordMode = Literal["Update", "Upsert"]
 
 
-class Validator:
-    def __init__(self, mdf: MDFReader):
-        self.mdf = mdf
-        self.model = self.mdf.model
-        self.record_validator = MDFDataValidator(mdf=self.mdf)
+class ValidatorUtilities:
+    """Shared TSV, record-normalization, and UUID utilities for validators."""
 
     @staticmethod
     def to_number(value: str) -> float | int | str:
@@ -773,6 +770,14 @@ class Validator:
                     else:
                         pass
                 yield row_rel_list
+
+class LocalValidator(ValidatorUtilities):
+    """Validate submission files against an MDF model without database access."""
+
+    def __init__(self, mdf: MDFReader):
+        self.mdf = mdf
+        self.model = self.mdf.model
+        self.record_validator = MDFDataValidator(mdf=self.mdf)
 
     def validate_records(
         self, node_name: str, list_of_records: List[dict]
@@ -1622,6 +1627,9 @@ class Validator:
             else:
                 pass
         return validation_errors
+
+class DatabaseValidator(ValidatorUtilities):
+    """Validate submission files against records and relationships in a graph database."""
 
     @classmethod
     def if_record_exist_in_db(
@@ -2823,3 +2831,7 @@ class Validator:
             "failed_row_count": len(failed_row_list),
             "projected_changes_of_passed_rows": projected_changes_of_passed_rows,}
         return passed_row_list, failed_row_list, val_summary, validation_results
+
+
+# Retain the established local-validation import while callers migrate to LocalValidator.
+Validator = LocalValidator

@@ -3,7 +3,7 @@ import os
 import json
 
 from fastapi import logger
-from meval import Validator
+from meval import DatabaseValidator
 from add_uuid_to_files import add_uuid_to_files
 from upsert_workflow import get_secret_task, file_ul
 from prefect import flow, get_run_logger, pause_flow_run, task
@@ -162,8 +162,8 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
     logger.info(f"Downloaded properties yaml: {props_yaml}")
     mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
     logger.info("Created MDFReader instance for data model features reading")
-    val_instance = Validator(mdf=mdf_instance)
-    logger.info("Created Validator instance for validation against db")
+    val_instance = DatabaseValidator()
+    logger.info("Created DatabaseValidator instance for validation against db")
 
     # driver instance for db connection
     # retrieve db creds from AWS secrets manager

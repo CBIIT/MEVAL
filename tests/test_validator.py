@@ -13,7 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from meval.parser import ModelParser
-from meval.validator import Validator
+from meval.validator import DatabaseValidator, LocalValidator
+
+
+# Keep existing static utility/DB test call sites concise while testing the explicit types.
+Validator = DatabaseValidator
 
 
 class TestValidator(unittest.TestCase):
@@ -33,7 +37,7 @@ class TestValidator(unittest.TestCase):
                 cls.model_parser.props_file,
                 handle="ccdi_dcc",
             )
-            cls.validator = Validator(cls.mdf_reader)
+            cls.validator = LocalValidator(cls.mdf_reader)
         except Exception as error:
             raise unittest.SkipTest(
                 f"Could not initialize model from remote URLs: {error}"
