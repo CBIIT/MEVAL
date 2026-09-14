@@ -2,10 +2,10 @@
 
 from .loader import Loader
 from .parser import ModelParser
-from .validator import DatabaseValidator, LocalValidator, Validator, ValidatorUtilities
+from .validator import RemoteValidator, LocalValidator, Validator, ValidatorUtilities
 
 __all__ = [
-	"DatabaseValidator",
+	"RemoteValidator",
 	"Loader",
 	"LocalValidator",
 	"ModelParser",

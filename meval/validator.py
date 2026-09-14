@@ -1628,7 +1628,7 @@ class LocalValidator(ValidatorUtilities):
                 pass
         return validation_errors
 
-class DatabaseValidator(ValidatorUtilities):
+class RemoteValidator(ValidatorUtilities):
     """Validate submission files against records and relationships in a graph database."""
 
     @classmethod
@@ -1640,9 +1640,9 @@ class DatabaseValidator(ValidatorUtilities):
         node_label: str | None = None,
     ) -> bool:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to check if a node with specific id property value already exist in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database.
         Raise ValueError: If more than one node with the specified id property value is found in the database. This indicates DB problem of having duplicate nodes with the same uuid/guid.
 
@@ -1679,9 +1679,9 @@ class DatabaseValidator(ValidatorUtilities):
         batch_size: int = 10000,
     ) -> dict[str, bool]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to check if multiple nodes with specific id property values exist in the database. The id property values are read from a TSV file.
 
         Args:
@@ -1769,9 +1769,9 @@ class DatabaseValidator(ValidatorUtilities):
         cls, driver: "GraphDatabase.driver", rel_dict_item: dict[str, Any]
     ) -> bool:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to validate if a specifc edge exists in the database based on guids of src and dst node.
         An example of rel_dict_item would be:
         {
@@ -1820,11 +1820,9 @@ class DatabaseValidator(ValidatorUtilities):
         id_prop_name: str = "guid",
     ) -> dict[str, Any] | None:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
-        A helper function to find a node record with specific id property value in the database. The return will be used to compare the record found in the submission file.
-        We only expect one record found in the database since this is a check based on the unique id property value. If more than one record is found, it indicates there is duplicated data issue in the database, which should be fixed before the validation of submission files.
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         # This helper function also cleans up the records by removing timestamp properties (["created", "updated"])
         # The return will contain id_property property value, such as guid
 
@@ -1877,9 +1875,9 @@ class DatabaseValidator(ValidatorUtilities):
         batch_size: int = 10000,
     ) -> dict[int, dict[str, Any] | None]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         Batched version of get_node_record_in_db. Reads a TSV file and, for each data row,
         fetches the matching node record from the database using UNWIND so a large file
         only needs a handful of queries. Timestamp properties (["created", "updated"]) are
@@ -1970,9 +1968,9 @@ class DatabaseValidator(ValidatorUtilities):
         node_label: str | None = None,
     ) -> list[dict[str, Any]]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to find all outgoing edges of a node with specific id property value in the database. The return will be used to compare the edges found in the submission file.
         If NO match is found in the database for target node, or NO outgoing edges are found for the target node, the function will return an empty list, [].
         # Example of dictionary item in the return list can be:
@@ -2034,9 +2032,9 @@ class DatabaseValidator(ValidatorUtilities):
         batch_size: int = 10000,
     ) -> dict[int, list[dict[str, Any]] | None]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         Batched version of get_record_outgoing_edges_in_db. Reads a TSV file and, for each
         data row, finds all outgoing edges of the node with that row's id property value,
         using UNWIND so a large file only needs a handful of queries.
@@ -2160,10 +2158,10 @@ class DatabaseValidator(ValidatorUtilities):
     @classmethod
     def _read_file_parent_nodes_id(cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";") -> set[Tuple[str, str, str]]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
-        A helper function to read the parent node id property values from a TSV file. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database.
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
+        This function reads the parent id property values from a TSV file.
 
         Args:
             file_path: Path to the TSV file containing id property values
@@ -2200,9 +2198,9 @@ class DatabaseValidator(ValidatorUtilities):
         batch_size: int = 10000,
     ) -> dict[tuple[str, str, str], bool]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to check if parent node id property values exist in the database. The id property values are read from a TSV file.
 
         Raise ValueError: If any (parent_type, id_prop_name, id_prop_value) maps to more
@@ -2270,9 +2268,9 @@ class DatabaseValidator(ValidatorUtilities):
         cls, tsv_file_list: list[str | Path], id_field: str = "guid"
     ) -> set[str]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         Reads a list of TSV files once and collects all values of `id_field` into a set.
         Build this set a single time, then test membership with `id_value in the_set`
         (an O(1) lookup) instead of re-scanning the files for every id you want to check.
@@ -2310,9 +2308,9 @@ class DatabaseValidator(ValidatorUtilities):
         tsv_id_set: set[str],
     ) -> bool:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         Returns True if id_value is present in a prebuilt set of TSV ids (see
         build_tsv_id_set). This is an O(1) membership test.
 
@@ -2337,9 +2335,9 @@ class DatabaseValidator(ValidatorUtilities):
         validation_mode: TestModeList = "Upsert",
     ) -> list[dict[str, Any]]:
         """
-        ########################
-        # FOR VALIDATION IN DB #
-        ########################
+        #############################
+        # FOR VALIDATION AGAINST DB #
+        #############################
         A helper function to validate  in the submission file against the record found in the database. This is used for validating relationship column value in the tsv file. If the parent node key prop value specified in the relationship column doesn't exist in the parent node file, we want to further check if this value exist in the database, which indicates this value can still be valid as long as it exist in the database. The validation will be based on the validation_mode defined as below:
 
         Args:
