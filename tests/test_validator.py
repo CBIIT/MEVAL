@@ -13,8 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from meval.parser import ModelParser
-from meval.validator import Validator
-
+from meval.validator import RemoteValidator, LocalValidator, ValidatorUtilities
 
 class TestValidator(unittest.TestCase):
     MODEL_URL = PROJECT_ROOT / "tests" / "test_files" / "ccdi-dcc-model-test.yml"
@@ -33,7 +32,7 @@ class TestValidator(unittest.TestCase):
                 cls.model_parser.props_file,
                 handle="ccdi_dcc",
             )
-            cls.validator = Validator(cls.mdf_reader)
+            cls.validator = LocalValidator(cls.mdf_reader)
         except Exception as error:
             raise unittest.SkipTest(
                 f"Could not initialize model from remote URLs: {error}"
@@ -168,7 +167,7 @@ class TestValidator(unittest.TestCase):
     def test_get_project_namespace(self) -> None:
         project_name = "ccdi_dcc"
 
-        namespace = Validator.get_project_namespace(project_name)
+        namespace = ValidatorUtilities.get_project_namespace(project_name)
 
         self.assertIsInstance(namespace, UUID)
         self.assertEqual(str(namespace), "267de2c8-1884-2485-5561-06ad836cdc42")
@@ -179,7 +178,7 @@ class TestValidator(unittest.TestCase):
         record_type = "participant"
         record_key_value = "participant_1"
 
-        generated = Validator.generate_uuid5(
+        generated = ValidatorUtilities.generate_uuid5(
             project_name=project_name,
             subgraph_value=subgraph_value,
             record_type=record_type,
@@ -188,14 +187,14 @@ class TestValidator(unittest.TestCase):
 
         expected = str(
             uuid5(
-                Validator.get_project_namespace(project_name),
+                ValidatorUtilities.get_project_namespace(project_name),
                 f"{subgraph_value}::{record_type}::{record_key_value}",
             )
         )
         self.assertEqual(generated, expected)
         # if the record_key_value is empty, the guid should be empty  string
         self.assertEqual(
-            Validator.generate_uuid5(
+            ValidatorUtilities.generate_uuid5(
                 project_name=project_name,
                 subgraph_value=subgraph_value,
                 record_type=record_type,
@@ -217,7 +216,7 @@ class TestValidator(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            Validator.add_uuid_to_tsv_file(
+            ValidatorUtilities.add_uuid_to_tsv_file(
                 file_path=input_path,
                 project_name=project_name,
                 mdf=self.mdf_reader,
@@ -237,13 +236,13 @@ class TestValidator(unittest.TestCase):
             first_row = output_lines[1].split("\t")
             second_row = output_lines[2].split("\t")
 
-            expected_first_guid = Validator.generate_uuid5(
+            expected_first_guid = ValidatorUtilities.generate_uuid5(
                 project_name=project_name,
                 subgraph_value="phs001",
                 record_type="participant",
                 record_key_value=first_row[idx_participant_id],
             )
-            expected_second_guid = Validator.generate_uuid5(
+            expected_second_guid = ValidatorUtilities.generate_uuid5(
                 project_name=project_name,
                 subgraph_value="phs001",
                 record_type="participant",
@@ -288,7 +287,7 @@ class TestValidator(unittest.TestCase):
             "subgraph": "phs001",
         }
 
-        prepared = Validator.record_prep(
+        prepared = ValidatorUtilities.record_prep(
             test_record,
             mdf=self.mdf_reader,
             subgraph_col="subgraph",
@@ -308,14 +307,14 @@ class TestValidator(unittest.TestCase):
             tsv_path = Path(tmp_dir) / "survival.tsv"
             self._write_survival_tsv(tsv_path)
 
-            without_id = Validator.read_record_by_row_in_tsv(
+            without_id = ValidatorUtilities.read_record_by_row_in_tsv(
                 tsv_file_path=str(tsv_path),
                 row_number=2,
                 mdf_instance=self.mdf_reader,
                 keep_id_field=False,
                 id_field="guid",
             )
-            with_id = Validator.read_record_by_row_in_tsv(
+            with_id = ValidatorUtilities.read_record_by_row_in_tsv(
                 tsv_file_path=str(tsv_path),
                 row_number=2,
                 mdf_instance=self.mdf_reader,
@@ -340,7 +339,7 @@ class TestValidator(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rel_rows = list(Validator.read_tsv_rels_id(str(tsv_path), id_field="guid", delimiter=";"))
+            rel_rows = list(ValidatorUtilities.read_tsv_rels_id(str(tsv_path), id_field="guid", delimiter=";"))
 
             self.assertEqual(len(rel_rows), 1)
             self.assertEqual(len(rel_rows[0]), 3)
@@ -358,21 +357,21 @@ class TestValidator(unittest.TestCase):
 
         result.single.return_value = {"node_count": 0}
         self.assertFalse(
-            Validator.if_record_exist_in_db(
+            RemoteValidator.if_record_exist_in_db(
                 driver, "missing-guid", node_label="participant"
             )
         )
 
         result.single.return_value = {"node_count": 1}
         self.assertTrue(
-            Validator.if_record_exist_in_db(
+            RemoteValidator.if_record_exist_in_db(
                 driver, "present-guid", node_label="participant"
             )
         )
 
         result.single.return_value = {"node_count": 2}
         with self.assertRaises(ValueError):
-            Validator.if_record_exist_in_db(
+            RemoteValidator.if_record_exist_in_db(
                 driver, "duplicate-guid", node_label="participant"
             )
 
@@ -391,14 +390,14 @@ class TestValidator(unittest.TestCase):
         }
 
         result.single.return_value = {"edge_count": 0}
-        self.assertFalse(Validator.if_edge_exist_in_db(driver, rel_dict))
+        self.assertFalse(RemoteValidator.if_edge_exist_in_db(driver, rel_dict))
 
         result.single.return_value = {"edge_count": 1}
-        self.assertTrue(Validator.if_edge_exist_in_db(driver, rel_dict))
+        self.assertTrue(RemoteValidator.if_edge_exist_in_db(driver, rel_dict))
 
         result.single.return_value = {"edge_count": 2}
         with self.assertRaises(ValueError):
-            Validator.if_edge_exist_in_db(driver, rel_dict)
+            RemoteValidator.if_edge_exist_in_db(driver, rel_dict)
 
     def test_get_node_record_in_db_removes_timestamps_and_raises_on_duplicates(self) -> None:
         session = MagicMock()
@@ -415,15 +414,15 @@ class TestValidator(unittest.TestCase):
                 "updated": "2026-01-02T00:00:00",
             },
         }
-        record = Validator.get_node_record_in_db(driver, "study-guid-001", id_prop_name="guid")
+        record = RemoteValidator.get_node_record_in_db(driver, "study-guid-001", id_prop_name="guid")
         self.assertEqual(record, {"guid": "study-guid-001", "study_id": "phs001"})
 
         result.single.return_value = {"node_count": 0, "node": None}
-        self.assertIsNone(Validator.get_node_record_in_db(driver, "missing-guid", id_prop_name="guid"))
+        self.assertIsNone(RemoteValidator.get_node_record_in_db(driver, "missing-guid", id_prop_name="guid"))
 
         result.single.return_value = {"node_count": 2, "node": {"guid": "duplicate-guid"}}
         with self.assertRaises(ValueError):
-            Validator.get_node_record_in_db(driver, "duplicate-guid", id_prop_name="guid")
+            RemoteValidator.get_node_record_in_db(driver, "duplicate-guid", id_prop_name="guid")
 
     def test_get_record_outgoing_edges_in_db_returns_flat_relationship_list(self) -> None:
         session = MagicMock()
@@ -446,7 +445,7 @@ class TestValidator(unittest.TestCase):
         ]
         driver = self._build_driver_with_session(session)
 
-        edges = Validator.get_record_outgoing_edges_in_db(
+        edges = RemoteValidator.get_record_outgoing_edges_in_db(
             driver,
             id_prop_value="sample-guid-001",
             id_prop_name="guid",
@@ -498,17 +497,17 @@ class TestValidator(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            tsv_id_set = Validator.build_tsv_id_set(
+            tsv_id_set = RemoteValidator.build_tsv_id_set(
                 [str(file_a), str(file_b)], id_field="guid"
             )
             self.assertTrue(
-                Validator.if_node_id_in_tsv_list(
+                RemoteValidator.if_node_id_in_tsv_list(
                     tsv_id_set=tsv_id_set,
                     id_value="participant-guid-002",
                 )
             )
             self.assertFalse(
-                Validator.if_node_id_in_tsv_list(
+                RemoteValidator.if_node_id_in_tsv_list(
                     tsv_id_set=tsv_id_set,
                     id_value="participant-guid-999",
                 )
@@ -534,7 +533,7 @@ class TestValidator(unittest.TestCase):
             ]
             driver = self._build_driver_with_session(session)
 
-            exists_by_row = Validator.if_file_records_exist_in_db(
+            exists_by_row = RemoteValidator.if_file_records_exist_in_db(
                 driver=driver,
                 file_path=str(tsv_path),
                 id_prop_name="guid",
@@ -558,7 +557,7 @@ class TestValidator(unittest.TestCase):
             driver = self._build_driver_with_session(session)
 
             with self.assertRaisesRegex(ValueError, "Expected at most 1 unique node"):
-                Validator.if_file_records_exist_in_db(
+                RemoteValidator.if_file_records_exist_in_db(
                     driver=driver,
                     file_path=str(tsv_path),
                     id_prop_name="guid",
@@ -594,7 +593,7 @@ class TestValidator(unittest.TestCase):
             ]
             driver = self._build_driver_with_session(session)
 
-            records_by_row = Validator.get_file_records_in_db(
+            records_by_row = RemoteValidator.get_file_records_in_db(
                 driver=driver,
                 file_path=str(tsv_path),
                 id_prop_name="guid",
@@ -627,7 +626,7 @@ class TestValidator(unittest.TestCase):
             driver = self._build_driver_with_session(session)
 
             with self.assertRaisesRegex(ValueError, "Expected exactly 0 or 1 node"):
-                Validator.get_file_records_in_db(
+                RemoteValidator.get_file_records_in_db(
                     driver=driver,
                     file_path=str(tsv_path),
                     id_prop_name="guid",
@@ -680,7 +679,7 @@ class TestValidator(unittest.TestCase):
             ]
             driver = self._build_driver_with_session(session)
 
-            edges_by_row = Validator.get_file_records_outgoing_edges_in_db(
+            edges_by_row = RemoteValidator.get_file_records_outgoing_edges_in_db(
                 driver=driver,
                 file_path=str(tsv_path),
                 id_prop_name="guid",
@@ -737,7 +736,7 @@ class TestValidator(unittest.TestCase):
             driver = self._build_driver_with_session(session)
 
             with self.assertRaisesRegex(ValueError, "Expected exactly 0 or 1 node"):
-                Validator.get_file_records_outgoing_edges_in_db(
+                RemoteValidator.get_file_records_outgoing_edges_in_db(
                     driver=driver,
                     file_path=str(tsv_path),
                     id_prop_name="guid",
@@ -748,18 +747,18 @@ class TestValidator(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tsv_path = Path(tmp_dir) / "survival.tsv"
             self._write_survival_tsv(tsv_path)
-            tsv_id_set = Validator.build_tsv_id_set([str(tsv_path)], id_field="guid")
+            tsv_id_set = RemoteValidator.build_tsv_id_set([str(tsv_path)], id_field="guid")
 
-            with patch.object(Validator, "if_file_records_exist_in_db", return_value={2: True}), \
-                 patch.object(Validator, "get_file_records_in_db", return_value={2: None}), \
-                 patch.object(Validator, "get_file_records_outgoing_edges_in_db", return_value={2: None}), \
-                 patch.object(Validator, "if_parent_nodes_exist_in_db", return_value={}):
+            with patch.object(RemoteValidator, "if_file_records_exist_in_db", return_value={2: True}), \
+                 patch.object(RemoteValidator, "get_file_records_in_db", return_value={2: None}), \
+                 patch.object(RemoteValidator, "get_file_records_outgoing_edges_in_db", return_value={2: None}), \
+                 patch.object(RemoteValidator, "if_parent_nodes_exist_in_db", return_value={}):
                 (
                     passed_rows,
                     failed_rows,
                     val_summary,
                     validation_results,
-                ) = Validator.validate_tsv_in_db(
+                ) = RemoteValidator.validate_tsv_in_db(
                     driver=MagicMock(),
                     tsv_file_path=str(tsv_path),
                     tsv_id_set=tsv_id_set,
@@ -790,14 +789,14 @@ class TestValidator(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tsv_path = Path(tmp_dir) / "survival.tsv"
             self._write_survival_tsv(tsv_path)
-            tsv_id_set = Validator.build_tsv_id_set([str(tsv_path)], id_field="guid")
+            tsv_id_set = RemoteValidator.build_tsv_id_set([str(tsv_path)], id_field="guid")
 
-            with patch.object(Validator, "if_file_records_exist_in_db", return_value={2: False}), \
-                 patch.object(Validator, "get_file_records_in_db", return_value={2: None}), \
-                 patch.object(Validator, "get_file_records_outgoing_edges_in_db", return_value={2: None}), \
-                 patch.object(Validator, "if_parent_nodes_exist_in_db", return_value={}):
+            with patch.object(RemoteValidator, "if_file_records_exist_in_db", return_value={2: False}), \
+                 patch.object(RemoteValidator, "get_file_records_in_db", return_value={2: None}), \
+                 patch.object(RemoteValidator, "get_file_records_outgoing_edges_in_db", return_value={2: None}), \
+                 patch.object(RemoteValidator, "if_parent_nodes_exist_in_db", return_value={}):
                 with self.assertRaisesRegex(ValueError, "Invalid validation_mode"):
-                    Validator.validate_tsv_in_db(
+                    RemoteValidator.validate_tsv_in_db(
                         driver=MagicMock(),
                         tsv_file_path=str(tsv_path),
                         tsv_id_set=tsv_id_set,
