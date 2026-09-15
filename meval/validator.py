@@ -242,9 +242,9 @@ class ValidatorUtilities:
             axis=1,
         )
 
-        # second write guid for all relationship columns
+        # second write guid for all relationship columns, it excludes linkage columns ends with .<uuid_column>
         # relationship column might need delimiter if it is present
-        rel_col = [col for col in file_df.columns if "." in col]
+        rel_col = [col for col in file_df.columns if "." in col and not col.endswith("." + uuid_column)]
         for col in rel_col:
             parent_type = col.split(".")[0]
             new_rel_col = parent_type + "." + uuid_column
