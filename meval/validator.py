@@ -107,6 +107,9 @@ class ValidatorUtilities:
         Returns:
             UUID: UUID instance
         """
+        # enforce ccdi_dcc to use ccdi-dcc string
+        if project_name == "ccdi_dcc":
+            project_name = "ccdi-dcc"
         hex_string = hashlib.md5(project_name.encode("UTF-8")).hexdigest()
         project_namespace = UUID(hex=hex_string)
         return project_namespace
