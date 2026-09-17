@@ -1719,7 +1719,6 @@ class Loader:
             ]
             return return_nodes # if target is leaf node, it return an emtpy list
 
-
     def find_upstream_nodes_batch(
             self, property_values: List[str], property_name: str = "guid"
         ) -> Dict[str, List[Dict[str, Any]]]:
@@ -1740,7 +1739,7 @@ class Loader:
         UNWIND $property_values AS pv
         OPTIONAL MATCH (m)
         WHERE m.{property_name} = pv
-        OPTIONAL MATCH (n)-[*]->(m)
+        OPTIONAL MATCH (n)-[*1..10]->(m)
         RETURN pv AS property_value, collect(DISTINCT n) AS upstream_nodes
         """
         with self.driver.session() as session:
@@ -1817,18 +1816,19 @@ class Loader:
 
         query = f"""
         UNWIND $pairs AS pair
-        OPTIONAL MATCH (target)
-        WHERE target.{property_name} = pair.target
-        OPTIONAL MATCH (node_to_avoid)
-        WHERE node_to_avoid.{property_name} = pair.avoid
-        OPTIONAL MATCH p = (target)-[*]->(root:{root_label})
-        WHERE NOT node_to_avoid IN nodes(p)
-        RETURN pair.avoid AS avoid, pair.target AS target, count(p) AS alternative_paths_count
+        MATCH (target {{{property_name}: pair.target}})
+        MATCH (node_to_avoid {{{property_name}: pair.avoid}})
+        RETURN pair.avoid AS avoid,
+               pair.target AS target,
+               EXISTS {{
+                 MATCH p = (target)-[*1..10]->(root:{root_label})
+                 WHERE NOT node_to_avoid IN nodes(p)
+               }} AS has_path
         """
         with self.driver.session() as session:
             result = session.run(query, pairs=pairs)
             counts = {
-                (record["avoid"], record["target"]): record["alternative_paths_count"]
+                (record["avoid"], record["target"]): record["has_path"]
                 for record in result
             }
 
@@ -1836,9 +1836,7 @@ class Loader:
         for pair in avoid_to_targets_pairs:
             avoid_value = pair["avoid"]
             target_value = pair["target"]
-            if avoid_value not in results:
-                results[avoid_value] = {}
-            count = counts.get((avoid_value, target_value), 0)
-            results[avoid_value][target_value] = count > 0
-
+            results.setdefault(avoid_value, {})[target_value] = counts.get(
+                (avoid_value, target_value), False
+            )
         return results
