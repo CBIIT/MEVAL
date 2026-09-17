@@ -189,7 +189,10 @@ def precision_deletion_guid(
         find_upstream_nodes_results = {}
         logger.warning(f"Large number of GUIDs that passed uniqueness check: {len(guids_passed_uniq)}. The workflow will process them in multiple batches.")
         guids_batches = [guids_passed_uniq[i:i + 5000] for i in range(0, len(guids_passed_uniq), 5000)]
+        batch_progress = 0
         for batch in guids_batches:
+            batch_progress += 1
+            logger.info(f"Processing batch {batch_progress}/{len(guids_batches)}")
             batch_results = myloader.find_upstream_nodes_batch(
                 property_name=uuid_property_name,
                 property_values=batch
@@ -212,10 +215,14 @@ def precision_deletion_guid(
     if if_alt_path_upstream_input: # if the list is not empty
         logger.info("Found upstream nodes for the provided guids, will check if alt path to root node can be found for upstream nodes")
         if len(if_alt_path_upstream_input) > 5000:
+            logger.warning("Large number of upstream nodes to check, will process them in multiple batches")
             combined_if_alt_path_results = {}
             # process it in batches
             if_alt_path_upstream_batches = [if_alt_path_upstream_input[i:i + 5000] for i in range(0, len(if_alt_path_upstream_input), 5000)]
+            batch_progress = 0
             for batch in if_alt_path_upstream_batches:
+                batch_progress += 1
+                logger.info(f"Processing batch {batch_progress}/{len(if_alt_path_upstream_batches)}")
                 batch_results = myloader.if_alternative_path_to_root_batch(
                     property_name=uuid_property_name,
                     avoid_to_targets_pairs=batch,
@@ -251,7 +258,7 @@ def precision_deletion_guid(
                     unfound_upstream_nodes.append(upstream_node)
                     guid_to_delete.append(upstream_node_guid)
                 else:
-                    # upstream_node_guid already in guid_list
+                    # upstream_node_guid already in guid_list, when testing unique of this guid, it will be added to the guid_to_delete
                     pass
             if not unfound_upstream_nodes:
                     guid_inspections[guid].append({
