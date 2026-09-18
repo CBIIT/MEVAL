@@ -399,6 +399,130 @@ class TestLoader(unittest.TestCase):
 
 		self.assertFalse(has_path)
 
+	def test_list_all_labels_collects_distinct_labels(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.__iter__.return_value = iter([
+			{"labels": ["sample", "participant"]},
+			{"labels": ["study"]},
+			{"labels": ["participant"]},
+		])
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		labels = loader._list_all_labels()
+
+		self.assertCountEqual(labels, ["sample", "participant", "study"])
+
+	def test_check_unique_nodes_batch_returns_results_for_each_value(self) -> None:
+		session = MagicMock()
+		node_a = self._FakeGraphNode(labels={"sample"}, properties={"guid": "g1", "name": "A"})
+		node_b = self._FakeGraphNode(labels={"sample"}, properties={"guid": "g2", "name": "B"})
+		label_result = MagicMock()
+		label_result.__iter__.return_value = iter([{"labels": ["sample"]}])
+		unique_result = MagicMock()
+		unique_result.__iter__.return_value = iter([
+			{"property_value": "g1", "node": node_a},
+			{"property_value": "g2", "node": node_b},
+			{"property_value": "missing", "node": None},
+		])
+
+		def run_side_effect(query, **kwargs):
+			if "RETURN DISTINCT labels(n)" in query:
+				return label_result
+			self.assertEqual(kwargs["property_values"], ["g1", "g2", "missing"])
+			return unique_result
+
+		session.run.side_effect = run_side_effect
+		loader = self._build_loader_with_mock_session(session)
+
+		results = loader.check_unique_nodes(
+			property_values=["g1", "g2", "missing"],
+			property_name="guid",
+		)
+
+		self.assertTrue(results["g1"][0])
+		self.assertEqual(results["g1"][1]["check_result"], "Pass")
+		self.assertTrue(results["g2"][0])
+		self.assertFalse(results["missing"][0])
+		self.assertEqual(results["missing"][1]["matched_node(s)"], [])
+
+	def test_find_upstream_nodes_batch_returns_upstream_nodes_per_target(self) -> None:
+		session = MagicMock()
+		label_result = MagicMock()
+		label_result.__iter__.return_value = iter([{"labels": ["sample"]}])
+		upstream_result = MagicMock()
+		upstream_result.__iter__.return_value = iter([
+			{"property_value": "target-guid", "labels": ["participant"], "properties": {"guid": "p1", "name": "P1"}},
+			{"property_value": "target-guid", "labels": ["study"], "properties": {"guid": "st1", "name": "Study 1"}},
+			{"property_value": "other-guid", "labels": ["study"], "properties": {"guid": "st2", "name": "Study 2"}},
+		])
+
+		def run_side_effect(query, **kwargs):
+			if "RETURN DISTINCT labels(n)" in query:
+				return label_result
+			self.assertEqual(kwargs["property_values"], ["target-guid", "other-guid"])
+			return upstream_result
+
+		session.run.side_effect = run_side_effect
+		loader = self._build_loader_with_mock_session(session)
+
+		results = loader.find_upstream_nodes_batch(
+			property_values=["target-guid", "other-guid"],
+			property_name="guid",
+		)
+
+		self.assertSetEqual(
+			{node["properties"]["guid"] for node in results["target-guid"]},
+			{"p1", "st1"},
+		)
+		self.assertEqual(results["other-guid"][0]["labels"], ["study"])
+
+	def test_if_alternative_path_to_root_batch_returns_nested_bool_map(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.__iter__.return_value = iter([
+			{"avoid": "avoid-guid", "target": "target-a", "has_path": True},
+			{"avoid": "other-avoid", "target": "target-a", "has_path": False},
+		])
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		out = loader.if_alternative_path_to_root_batch(
+			property_name="guid",
+			avoid_to_targets_pairs=[
+				{"avoid": "avoid-guid", "target": "target-a"},
+				{"avoid": "avoid-guid", "target": "target-b"},
+				{"avoid": "other-avoid", "target": "target-a"},
+			],
+			root_label="study",
+		)
+
+		self.assertTrue(out["avoid-guid"]["target-a"])
+		self.assertFalse(out["avoid-guid"]["target-b"])
+		self.assertFalse(out["other-avoid"]["target-a"])
+
+	def test_if_multiple_outgoing_edges_batch_detects_multiple_outgoing_edges(self) -> None:
+		session = MagicMock()
+		result = MagicMock()
+		result.__iter__.return_value = iter([
+			{"property_value": "g1", "has_multiple_outgoing_edges": True},
+			{"property_value": "g2", "has_multiple_outgoing_edges": False},
+		])
+		session.run.return_value = result
+		loader = self._build_loader_with_mock_session(session)
+
+		out = loader.if_multiple_outgoing_edges_batch(
+			[
+				{"label": "sample", "property_name": "guid", "property_value": "g1"},
+				{"label": "sample", "property_name": "guid", "property_value": "g2"},
+			]
+		)
+
+		self.assertTrue(out["g1"])
+		self.assertFalse(out["g2"])
+		session.run.assert_called_once()
+
 
 if __name__ == "__main__":
 	unittest.main()
