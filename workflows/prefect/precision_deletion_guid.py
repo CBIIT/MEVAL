@@ -358,7 +358,7 @@ def precision_deletion_guid(
                         "message": f"This is NOT a leaf node, but All upstream/children nodes (if any) can be found in the provided guid list",
                         "unfound_upstream_node(s)": unfound_upstream_nodes # this should be an empty list
                     })
-                    logger.info(f"Node with {uuid_property_name}={guid} is NOT a leaf node. But all upstream/children nodes (if any) can be found in the provided guid list.")
+                    #logger.info(f"Node with {uuid_property_name}={guid} is NOT a leaf node. But all upstream/children nodes (if any) can be found in the provided guid list.")
             else:
                 guid_inspections[guid].append({
                     "check_item": "upstream/children node check",
@@ -375,14 +375,13 @@ def precision_deletion_guid(
                 "message": f"This is a leaf node. No upstream/children nodes found.",
                 "unfound_upstream_node(s)": [] # this should be an empty list
             })
-            logger.info(f"Node with {uuid_property_name}={guid} is a leaf node. No upstream/children nodes found.")
+            #logger.info(f"Node with {uuid_property_name}={guid} is a leaf node. No upstream/children nodes found.")
 
     # parse output bucket location
     output_bucket, output_folder = parse_file_url(output_bucket_loc)
     output_subfolder = f"precision_deletion_{get_time()}"
 
     # write guid_to_delete into a file
-    
     if len(guid_to_delete) > 0:
         guid_to_delete_output_file = f"guid_ready_to_delete_{get_time()}.json"
         with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
