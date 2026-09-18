@@ -185,6 +185,8 @@ def precision_deletion_guid(
     logger.info(f"GUIDs that passed uniqueness check: {len(guids_passed_uniq)}")
 
     # For guids that passed uniq node test, check if they have upsteam nodes
+    logger.info("Checking for upstream nodes for GUIDs that passed uniqueness check.")
+    
     if len(guids_passed_uniq) > 5000:
         find_upstream_nodes_results = {}
         logger.warning(f"Large number of GUIDs that passed uniqueness check: {len(guids_passed_uniq)}. The workflow will process them in multiple batches.")
@@ -203,56 +205,86 @@ def precision_deletion_guid(
             property_name=uuid_property_name,
             property_values=guids_passed_uniq
         )
-    # go through find_upstream_nodes_results to check which GUIDs have upstream nodes
-    if_alt_path_upstream_input = []
-    for guid, upstream_nodes in find_upstream_nodes_results.items():
-        if upstream_nodes:
-            # extract guid for upstream_nodes only
-            upstream_nodes_guids = [node["properties"][uuid_property_name] for node in upstream_nodes]
-            if_alt_path_upstream_input.extend([{"avoid": guid, "target": upstream_node_guid} for upstream_node_guid in upstream_nodes_guids])
-        else:
-            pass
-    if if_alt_path_upstream_input: # if the list is not empty
-        logger.info("Found upstream nodes for the provided guids, will check if alt path to root node can be found for upstream nodes")
-        if len(if_alt_path_upstream_input) > 5000:
-            logger.warning("Large number of upstream nodes to check, will process them in multiple batches")
-            combined_if_alt_path_results = {}
-            # process it in batches
-            if_alt_path_upstream_batches = [if_alt_path_upstream_input[i:i + 5000] for i in range(0, len(if_alt_path_upstream_input), 5000)]
-            batch_progress = 0
-            for batch in if_alt_path_upstream_batches:
-                batch_progress += 1
-                logger.info(f"Processing batch {batch_progress}/{len(if_alt_path_upstream_batches)}")
-                batch_results = myloader.if_alternative_path_to_root_batch(
-                    property_name=uuid_property_name,
-                    avoid_to_targets_pairs=batch,
-                    root_label=root_node_label  # replace with the actual root label if different
-                )
-                # process batch_results as needed
-                # targets should be {"guid1": True/False}
-                for avoid, targets in batch_results.items():
-                    if avoid not in combined_if_alt_path_results:
-                        combined_if_alt_path_results[avoid] = {}
-                    combined_if_alt_path_results[avoid].update(targets)
-        else:
-            combined_if_alt_path_results = myloader.if_alternative_path_to_root_batch(
-                property_name=uuid_property_name,
-                avoid_to_targets_pairs=if_alt_path_upstream_input,
-                root_label=root_node_label  # replace with the actual root label if different
-            )
-    else:
-        combined_if_alt_path_results = {}
+    logger.info(f"Completed checking for upstream nodes.")
+    ## go through find_upstream_nodes_results to check which GUIDs have upstream nodes
+    #if_alt_path_upstream_input = []
+    #for guid, upstream_nodes in find_upstream_nodes_results.items():
+    #    if upstream_nodes:
+    #        # extract guid for upstream_nodes only
+    #        upstream_nodes_guids = [node["properties"][uuid_property_name] for node in upstream_nodes]
+    #        if_alt_path_upstream_input.extend([{"avoid": guid, "target": upstream_node_guid} for upstream_node_guid in upstream_nodes_guids])
+    #    else:
+    #        pass
+    #if if_alt_path_upstream_input: # if the list is not empty
+    #    logger.info("Found upstream nodes for the provided guids, will check if alt path to root node can be found for upstream nodes")
+    #    if len(if_alt_path_upstream_input) > 5000:
+    #        logger.warning("Large number of upstream nodes to check, will process them in multiple batches")
+    #        combined_if_alt_path_results = {}
+    #        # process it in batches
+    #        if_alt_path_upstream_batches = [if_alt_path_upstream_input[i:i + 5000] for i in range(0, len(if_alt_path_upstream_input), 5000)]
+    #        batch_progress = 0
+    #        for batch in if_alt_path_upstream_batches:
+    #            batch_progress += 1
+    #            logger.info(f"Processing batch {batch_progress}/{len(if_alt_path_upstream_batches)}")
+    #            batch_results = myloader.if_alternative_path_to_root_batch(
+    #                property_name=uuid_property_name,
+    #                avoid_to_targets_pairs=batch,
+    #                root_label=root_node_label  # replace with the actual root label if different
+    #            )
+    #            # process batch_results as needed
+    #            # targets should be {"guid1": True/False}
+    #            for avoid, targets in batch_results.items():
+    #                if avoid not in combined_if_alt_path_results:
+    #                    combined_if_alt_path_results[avoid] = {}
+    #                combined_if_alt_path_results[avoid].update(targets)
+    #    else:
+    #        combined_if_alt_path_results = myloader.if_alternative_path_to_root_batch(
+    #            property_name=uuid_property_name,
+    #            avoid_to_targets_pairs=if_alt_path_upstream_input,
+    #            root_label=root_node_label  # replace with the actual root label if different
+    #        )
+    #else:
+    #    combined_if_alt_path_results = {}
 
+    # go through find_upstream_nodes_results to check if the upstream nodes if they have more than one outgoing edges
+    
+    if_multi_out_edges = {}
+    upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
+    # only look for uniq guids in upstream_node_guids
+    upstream_node_guids = list(set(upstream_node_guids))
+    if upstream_node_guids:
+        logger.info("Checking if upstream nodes have multiple outgoing edges.")
+        if len(upstream_node_guids) > 5000:
+            batch_progress = 0
+            upstream_node_guid_batches = [upstream_node_guids[i:i + 5000] for i in range(0, len(upstream_node_guids), 5000)]
+            for batch in upstream_node_guid_batches:
+                batch_progress += 1
+                logger.info(f"Processing batch {batch_progress}/{len(upstream_node_guid_batches)}")
+                if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
+                    property_name=uuid_property_name,
+                    property_values=batch
+                ))
+        else:
+            if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
+                property_name=uuid_property_name,
+                property_values=upstream_node_guids
+            ))
+        logger.info("Completed checking if upstream nodes have multiple outgoing edges.")
+    else:
+        logger.info("No upstream nodes found with the provided GUIDs")
+        pass # upstream_node_guids is empty, no need to look for outgoig edges of these upstream nodes
+
+    logger.info("Preparing for GUIDs inspection results")
     for guid, upstream_nodes in find_upstream_nodes_results.items():
         if upstream_nodes: # this guid is not a leaf node, so upsteam_nodes is not empty
             unfound_upstream_nodes = []
             for upstream_node in upstream_nodes: # inspect every upstream node
                 upstream_node_guid = upstream_node["properties"][uuid_property_name]
                 if upstream_node_guid not in guid_list:
-                    if_upstream_node_alt = combined_if_alt_path_results[guid][upstream_node_guid]
+                    if_upstream_node_alt = if_multi_out_edges[upstream_node_guid] # check if the upstream node has multiple outgoing edges
                     if if_upstream_node_alt:
                         upstream_node = {
-                            "warning": f"This upstream/child node has at least ONE alternative path to a root node that does not go through the target node ({uuid_property_name}={guid}). Delete with caution.",
+                            "warning": f"This upstream/child node has multiple outgoing edges, which means it may have alternative paths to a root node. Delete with caution.",
                             **upstream_node,
                         }
                     unfound_upstream_nodes.append(upstream_node)

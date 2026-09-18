@@ -1846,3 +1846,24 @@ class Loader:
                 (avoid_value, target_value), False
             )
         return results
+
+    def if_multiple_outgoing_edges_batch(self, property_name: str, property_values: List[str])-> Dict[str, bool]:
+        """
+        Check if nodes with the given property values have multiple outgoing edges for large batch
+
+        Args:
+            property_name (str): The property name to match, e.g. "guid".
+            property_values (List[str]): A list of property values to check.
+
+        Returns:
+            Dict[str, bool]: A mapping from property value to a boolean indicating whether the node has multiple outgoing edges.
+        """
+        query = f"""
+            UNWIND $property_values AS value
+            MATCH (n {{{property_name}: value}})
+            RETURN value AS property_value,
+                   SIZE((n)-->() ) > 1 AS has_multiple_outgoing_edges
+        """
+        with self.driver.session() as session:
+            result = session.run(query, property_values=property_values)
+            return {record["property_value"]: record["has_multiple_outgoing_edges"] for record in result}
