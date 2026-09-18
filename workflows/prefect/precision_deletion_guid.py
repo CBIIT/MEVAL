@@ -1,3 +1,5 @@
+from typing import Dict, Any, List
+
 from meval.loader import Loader
 from neo4j import GraphDatabase
 from meval.utils import (
@@ -64,6 +66,59 @@ def read_string_list_file(filepath: str) -> list[str]:
         raise ValueError(f"File not found or invalid JSON format. {e}")  
 
 
+def prepare_multiple_outgoing_edges_input(
+    find_upstream_nodes_results: Dict[str, List[Dict[str, Any]]],
+    property_name: str = "guid",
+) -> List[Dict[str, str]]:
+    """Extract upstream nodes from find_upstream_nodes_batch results and build the
+    input list for if_multiple_outgoing_edges_batch.
+
+    Args:
+        find_upstream_nodes_results: Output of find_upstream_nodes_batch, mapping each
+            target property value to a list of upstream node dicts, where each node dict
+            has "labels" (a list) and "properties" (a dict).
+        property_name: The property to key on for the outgoing-edges check, e.g. "guid".
+
+    Returns:
+        List[Dict[str, str]]: A de-duplicated list of dicts of the form
+            {"label": <label>, "property_name": <property_name>, "property_value": <value>},
+            suitable for if_multiple_outgoing_edges_batch.
+    """
+    seen: set = set()
+    prepared: List[Dict[str, str]] = []
+
+    for upstream_nodes in find_upstream_nodes_results.values():
+        if not upstream_nodes:
+            continue
+        for node in upstream_nodes:
+            labels = node.get("labels") or []
+            properties = node.get("properties") or {}
+            value = properties.get(property_name)
+            if value is None:
+                # node has no value for the keying property; skip it
+                continue
+            if not labels:
+                # node has no label; can't use a label+property index for it
+                continue
+
+            # A node can carry multiple labels; use the first as the index label.
+            label = labels[0]
+
+            key = (label, property_name, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            prepared.append(
+                {
+                    "label": label,
+                    "property_name": property_name,
+                    "property_value": value,
+                }
+            )
+
+    return prepared
+
+
 @flow(
     name="Precision Deletion Nodes",
     log_prints=True,
@@ -114,6 +169,11 @@ def precision_deletion_guid(
         guid_list = uuid_value_input
     logger.info(f"Total number of guid received: {len(guid_list)}")
 
+    # check if all guid value are unique in the list
+    # remove duplicate GUIDs from the list
+    guid_list = list(set(guid_list))
+    logger.info(f"Total number of unique guid after removing duplicates: {len(guid_list)}")
+
     # get driver to connect to a database instance
     # retrieve db creds from AWS secrets manager
     uri = get_secret_task(
@@ -141,99 +201,158 @@ def precision_deletion_guid(
     guid_inspections = {}
     guid_to_delete = []
     error_count = 0 # keep track of number of issues fund in a giben guid list
-    # frist test if the guid exist in the database
-    for guid in guid_list:
-        logger.info(f"Checking guid: {guid} for uniqueness in the database")
-        guid_inspections[guid] = [] # initialize an empty list to store inspection information for each guid
-        check_uniq, check_uniq_info = myloader.check_unique_node(property_name=uuid_property_name, property_value=guid)
-        if not check_uniq:
-            # two types of errors can happen: 1) node not found, then there is nothing to delete with guid, 2) multiple nodes were found that that guid, then there is a data issue in the database that requires additional investigation before deletion.
-            # Both scenarios are not ideal for deletion.
-            logger.error(
-                f"Node with {uuid_property_name}={guid} either not exit or not unique.\n{json.dumps(check_uniq_info, indent=2, default=str)}"
+
+    # first test if the guid exist in the database
+    guids_passed_uniq = []
+    if len(guid_list) > 5000:
+        logger.warning(f"Large number of GUIDs received: {len(guid_list)}. The workflow will process in multiple batches.")
+        # Consider splitting the guid_list into smaller batches for processing
+        guid_batches = [guid_list[i:i + 5000] for i in range(0, len(guid_list), 5000)]
+        for batch in guid_batches:
+            logger.info(f"Processing batch of size: {len(batch)}")
+            uniq_check_results = myloader.check_unique_nodes(property_name=uuid_property_name, property_values=batch)
+            # Process the results for this batch
+            for guid, (is_unique, info_dict) in uniq_check_results.items():
+                guid_inspections[guid] = []
+                guid_inspections[guid].append(info_dict)
+                if not is_unique:
+                    error_count += 1
+                    logger.error(
+                        f"Node with {uuid_property_name}={guid} either not exit or not unique.\n{json.dumps(info_dict, indent=2, default=str)}"
+                    )
+                else:
+                    guid_to_delete.append(guid)
+                    guids_passed_uniq.append(guid)
+    else:
+        uniq_check_results = myloader.check_unique_nodes(property_name=uuid_property_name, property_values=guid_list)
+        # uniq_check_results if dict: {"guid1":(bool, info_dict)}
+        for guid, (is_unique, info_dict) in uniq_check_results.items():
+            guid_inspections[guid] = []
+            guid_inspections[guid].append(info_dict)
+            if not is_unique:
+                error_count += 1
+                logger.error(
+                    f"Node with {uuid_property_name}={guid} either not exit or not unique.\n{json.dumps(info_dict, indent=2, default=str)}"
+                )
+            else:
+                guid_to_delete.append(guid)
+                guids_passed_uniq.append(guid)
+    logger.info(f"GUIDs that passed uniqueness check: {len(guids_passed_uniq)}")
+
+    # For guids that passed uniq node test, check if they have upsteam nodes
+    logger.info("Checking for upstream nodes for GUIDs that passed uniqueness check.")
+    
+    if len(guids_passed_uniq) > 5000:
+        find_upstream_nodes_results = {}
+        logger.warning(f"Large number of GUIDs that passed uniqueness check: {len(guids_passed_uniq)}. The workflow will process them in multiple batches.")
+        guids_batches = [guids_passed_uniq[i:i + 5000] for i in range(0, len(guids_passed_uniq), 5000)]
+        batch_progress = 0
+        for batch in guids_batches:
+            batch_progress += 1
+            logger.info(f"Processing batch {batch_progress}/{len(guids_batches)}")
+            batch_results = myloader.find_upstream_nodes_batch(
+                property_name=uuid_property_name,
+                property_values=batch
             )
-            guid_inspections[guid].append(check_uniq_info) # add error information to the guid inspections
-            error_count += 1 # increment error count if guid does not exist or not unique in the database
+            find_upstream_nodes_results.update(batch_results)
+    else:
+        find_upstream_nodes_results = myloader.find_upstream_nodes_batch(
+            property_name=uuid_property_name,
+            property_values=guids_passed_uniq
+        )
+    logger.info(f"Completed checking for upstream nodes.")
 
-        else: # node passed uniqueness test
-            guid_inspections[guid].append(check_uniq_info) # add uniqueness check information to the guid inspections, even if it is a pass, because it is still valuable for users to review the check result and the matched node information for each guid before deletion.
-            logger.info(f"Checking guid:{guid} for upstream/children nodes.")
-            # check if the node is a non-leaf node with incoming relationships
-            guid_to_delete.append(guid) # guid is up for deltion
-            upstream_nodes = myloader.find_upstream_nodes(property_value=guid, property_name=uuid_property_name)
-            if len(upstream_nodes) > 0: # if children/upstream nodes found
-                unfound_upstream_nodes = [] # keep track of any upstream node that is not included in the original guid list
-                logger.warning(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found {len(upstream_nodes)} upstream/children nodes pointing to target node")
-                # there is a change that children/upstream nodes already included in the guid_list
-                for upstream_node in upstream_nodes:
-                    if_alt_path_upstrem_node = myloader.if_alternative_path_to_root(
-                        property_name=uuid_property_name, 
-                        target_property_value=upstream_node["properties"][uuid_property_name], 
-                        node_to_avoid_property_value=guid, 
-                        root_label=root_node_label)
-                    if (
-                        upstream_node["properties"][uuid_property_name]
-                        not in guid_list
-                    ):
-                        if if_alt_path_upstrem_node:
-                            upstream_node = {"warning": f"This upstream/child node has at least ONE alternative path to a root node that does not go through the target node ({uuid_property_name}={guid}). Delete with caution.", **upstream_node}
-                        else:
-                            pass # this upstream/child node can only pass target node to readch root node.
-                        logger.error(
-                            f"Node with {uuid_property_name}={guid} has an upstream node (guid: {upstream_node['properties'][uuid_property_name]}) not included in the deletion list."
-                        )
-                        unfound_upstream_nodes.append(upstream_node)
-                        guid_to_delete.append(upstream_node["properties"][uuid_property_name]) # add the guid of the upstream node to the guid_to_delete list, even if it is not in the original guid_list, because it is a child/upstream node of the target node, and it should be deleted together with the target node to avoid orphan nodes.
-                    else:
-                        # upstream_node already in the guid_list, no action needed
-                        # because it is already in the guid_list, no need to be added to the guid_to_delete
-                        pass
+    # go through find_upstream_nodes_results to check if the upstream nodes if they have more than one outgoing edges
+    logger.info("Preparing the input to check for multiple outgoing edges for upstream nodes")
+    if_multi_out_edges = {}
+    #upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
+    ## only look for uniq guids in upstream_node_guids
+    #upstream_node_guids = list(set(upstream_node_guids))
+    upstream_node_guids = prepare_multiple_outgoing_edges_input(
+        find_upstream_nodes_results=find_upstream_nodes_results,
+        property_name=uuid_property_name
+    )
+    
+    if upstream_node_guids:
+        logger.info("Checking if upstream nodes have multiple outgoing edges.")
+        if len(upstream_node_guids) > 5000:
+            batch_progress = 0
+            upstream_node_guid_batches = [upstream_node_guids[i:i + 5000] for i in range(0, len(upstream_node_guids), 5000)]
+            for batch in upstream_node_guid_batches:
+                batch_progress += 1
+                logger.info(f"Processing batch {batch_progress}/{len(upstream_node_guid_batches)}")
+                if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
+                    property_values=batch
+                ))
+        else:
+            if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
+                property_values=upstream_node_guids
+            ))
+        logger.info("Completed checking if upstream nodes have multiple outgoing edges.")
+    else:
+        logger.info("No upstream nodes found with the provided GUIDs")
+        pass # upstream_node_guids is empty, no need to look for outgoig edges of these upstream nodes
 
-                # add final list of unfound upstream nodes to the guid inspection
-                if len(unfound_upstream_nodes) == 0:
+    logger.info("Preparing for GUIDs inspection results")
+    for guid, upstream_nodes in find_upstream_nodes_results.items():
+        if upstream_nodes: # this guid is not a leaf node, so upsteam_nodes is not empty
+            unfound_upstream_nodes = []
+            for upstream_node in upstream_nodes: # inspect every upstream node
+                upstream_node_guid = upstream_node["properties"][uuid_property_name]
+                if upstream_node_guid not in guid_list:
+                    if_upstream_node_alt = if_multi_out_edges[upstream_node_guid] # check if the upstream node has multiple outgoing edges
+                    if if_upstream_node_alt:
+                        upstream_node = {
+                            "warning": f"This upstream/child node has multiple outgoing edges, which means it may have alternative paths to a root node. Delete with caution.",
+                            **upstream_node,
+                        }
+                    unfound_upstream_nodes.append(upstream_node)
+                    guid_to_delete.append(upstream_node_guid)
+                else:
+                    # upstream_node_guid already in guid_list, when testing unique of this guid, it will be added to the guid_to_delete
+                    pass
+            if not unfound_upstream_nodes:
                     guid_inspections[guid].append({
                         "check_item": "upstream/children node check",
                         "check_result": "Pass",
                         "message": f"This is NOT a leaf node, but All upstream/children nodes (if any) can be found in the provided guid list",
-                        "unfound_upstream_node(s)": unfound_upstream_nodes
+                        "unfound_upstream_node(s)": unfound_upstream_nodes # this should be an empty list
                     })
-                    logger.info(f"Node with {uuid_property_name}={guid} is NOT a leaf node. All upstream/children nodes (if any) can be found in the provided guid list.")
-                else:
-                    guid_inspections[guid].append({
-                        "check_item": "upstream/children node check",
-                        "check_result": "Fail",
-                        "message": f"This is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list, which may cause orphan node issue if deleted. Please review the unfound upstream nodes for this guid.",
-                        "unfound_upstream_node(s)": unfound_upstream_nodes
-                    })
-                    logger.error(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list. Please review the unfound upstream nodes for this guid.")
-                    error_count += 1 # increment error if there are any upstream/children nodes of the target node that are not included in the original guid list.
-            else: # no children/upstream nodes found, it is safe to be deleted, guid is already added to the guid_to_delete
-                guid_inspections[guid].append(
-                    {
-                        "check_item": "upstream/children node check",
-                        "check_result": "Pass",
-                        "message": f"It is a leaf node. No upstream/children node found for node with {uuid_property_name}={guid}.",
-                        "unfound_upstream_node(s)": [],
-                    }
-                )
-                logger.info(f"Node with {uuid_property_name}={guid} passed upstream/children node check. It is a leaf node.")
-                pass
+                    #logger.info(f"Node with {uuid_property_name}={guid} is NOT a leaf node. But all upstream/children nodes (if any) can be found in the provided guid list.")
+            else:
+                guid_inspections[guid].append({
+                    "check_item": "upstream/children node check",
+                    "check_result": "Fail",
+                    "message": f"This is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list, which may cause orphan node issue if deleted. Please review the unfound upstream nodes for this guid.",
+                    "unfound_upstream_node(s)": unfound_upstream_nodes
+                })
+                logger.error(f"Node with {uuid_property_name}={guid} is NOT a leaf node. Found upstream/children nodes that are not included in the provided guid list. Please review the unfound upstream nodes for this guid.")
+                error_count += 1 # increment error if there are any upstream/children nodes of the target node that are not included in the original guid list.
+        else: # no upstream nodes found, this is a leaf node
+            guid_inspections[guid].append({
+                "check_item": "upstream/children node check",
+                "check_result": "Pass",
+                "message": f"This is a leaf node. No upstream/children nodes found.",
+                "unfound_upstream_node(s)": [] # this should be an empty list
+            })
+            #logger.info(f"Node with {uuid_property_name}={guid} is a leaf node. No upstream/children nodes found.")
 
     # parse output bucket location
     output_bucket, output_folder = parse_file_url(output_bucket_loc)
     output_subfolder = f"precision_deletion_{get_time()}"
 
     # write guid_to_delete into a file
-    guid_to_delete_output_file = f"guid_ready_to_delete_{get_time()}.json"
-    with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
-        json.dump(guid_to_delete, f, indent=2, default=str)
     if len(guid_to_delete) > 0:
+        guid_to_delete = list(set(guid_to_delete)) # remove duplicates before writing to file, because unfound upstream nodes ananlysis might add same guid multiple times
+        guid_to_delete_output_file = f"guid_ready_to_delete_{get_time()}.json"
+        with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
+            json.dump(guid_to_delete, f, indent=2, default=str)
         file_ul(bucket=output_bucket, output_folder=output_folder, sub_folder=output_subfolder, newfile=guid_to_delete_output_file)
         logger.info(f"guid ready to delete list has been uploaded to {output_subfolder} under bucket {output_bucket_loc} for review")
         logger.warning("guid ready to delete list DOES NOT contain any guid that does not exist or not unique in the database. The list ONLY contains guids that passed uniquness test (from the provided guid list) and any potential upstream/children nodes of the provided guids")
     else:
         logger.warning(
-            "guid ready to delete list is empty. No guid passed the inspection, no deletion will be performed."
+            "guid ready to delete list is empty. No guid passed the inspection, no deletion can be performed."
         )
 
     # write guid inspection results into a file

@@ -1,6 +1,6 @@
 from time import time
 import pandas as pd
-from typing import Dict, Generator, Any, Tuple, Generator
+from typing import Dict, Generator, Any, List, Tuple, Generator
 from operator import itemgetter
 from itertools import groupby
 import os
@@ -966,8 +966,18 @@ class Loader:
                     return_summary[key] += value
             return dict(return_summary), processed_rel_dict
 
+    def _list_all_labels(self) -> list:
+        """List all possible labels in the graph database."""
+        with self.driver.session() as session:
+            result = session.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
+            label_set = set()
+            for record in result:
+                for label in record["labels"]:
+                    label_set.add(label)
+        return list(label_set)
+
     def _list_index(self) -> list:
-        """List all indexes in the database.
+        """List all label+property type indexes in the database.
         Example of returned index:
         [{'label': 'cell_line', 'property': 'id'}, {'label': 'clinical_measure_file', 'property': 'id'}]
         """
@@ -1616,6 +1626,88 @@ class Loader:
             else:
                 return False, {"check_item": "node uniqueness", "check_result": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
 
+    def check_unique_nodes(
+        self, property_values: List[str], property_name: str = "guid"
+    ) -> Dict[str, Tuple[bool, dict]]:
+        """Batched version of check_unique_node.
+        Check if nodes with the given property name and values exist in the database, and if each is unique.
+        Batched version of check_unique_node that processes a list of property values in a single query,
+        avoiding one call per value. For each value, if exactly one node exists it is considered unique (True);
+        if no node or more than one node exists, it is not unique (False).
+        Args:
+            property_values (List[str]): The property values to check, e.g. ["uuid1", "uuid2"].
+            property_name (str): The property name to check, e.g. "guid".
+        Returns:
+            Dict[str, Tuple[bool, dict]]: A mapping from each property value to a tuple containing
+                - A boolean indicating if the node is unique (True if exactly one node exists with that value)
+                - A dictionary containing details of the check result.
+        """
+        label_list = self._list_all_labels()
+        if not label_list:
+            raise ValueError("No labels found in the graph database.")
+
+        # Build one UNWIND+MATCH block per label so each uses that label's
+        # label+property index, then UNION the blocks together. Each block
+        # returns (property_value, node) rows.
+        blocks = [f"""UNWIND $property_values AS pv
+        MATCH (n:{label} {{{property_name}: pv}})
+        RETURN pv AS property_value, n AS node""" for label in label_list]
+        query = "\nUNION\n".join(blocks)
+
+        # Aggregate nodes per property value across all label blocks.
+        records: Dict[str, list] = {pv: [] for pv in property_values}
+        with self.driver.session() as session:
+            result = session.run(query, property_values=property_values)
+            for record in result:
+                pv = record["property_value"]
+                node = record["node"]
+                if node is not None:
+                    records.setdefault(pv, []).append(node)
+
+        results: Dict[str, Tuple[bool, dict]] = {}
+        for property_value in property_values:
+            nodes = records.get(property_value, [])
+            return_nodes = [
+                {
+                    "labels": list(node.labels),  # frozenset → list
+                    "properties": {
+                        k: self.serialize_datetime(v) for k, v in dict(node).items()
+                    },
+                }
+                for node in nodes
+            ]
+            if len(nodes) == 1:
+                results[property_value] = (
+                    True,
+                    {
+                        "check_item": "node uniqueness",
+                        "check_result": "Pass",
+                        "message": f"One unique node found with {property_name}={property_value}",
+                        "matched_node(s)": return_nodes,
+                    },
+                )
+            elif len(nodes) == 0:
+                results[property_value] = (
+                    False,
+                    {
+                        "check_item": "node uniqueness",
+                        "check_result": "Fail",
+                        "message": f"No node found with {property_name}={property_value}",
+                        "matched_node(s)": [],
+                    },
+                )
+            else:
+                results[property_value] = (
+                    False,
+                    {
+                        "check_item": "node uniqueness",
+                        "check_result": "Fail",
+                        "message": f"Multiple nodes found with {property_name}={property_value}",
+                        "matched_node(s)": return_nodes,
+                    },
+                )
+        return results
+
     def find_upstream_nodes(self, property_value: str, property_name: str = "guid") -> list[dict[str, Any]]:
         """Find all upstream nodes directly or indirectly connected to the node with the given property name and value. 
         We only expect this function to use uuid property for finding upsteam nodes of a target node. 
@@ -1649,6 +1741,76 @@ class Loader:
             ]
             return return_nodes # if target is leaf node, it return an emtpy list
 
+    def find_upstream_nodes_batch(
+        self, property_values: List[str], property_name: str = "guid"
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Batched version of find_upstream_nodes.
+        Find all upstream nodes directly or indirectly connected to each target node, for a list of property values.
+        Batched version of find_upstream_nodes that processes a list of property values in a single query,
+        avoiding one call per value. We only expect this function to use the uuid property for finding upstream
+        nodes of target nodes. We EXPECT each target node to be a UNIQUE node.
+
+        NOTE: The query limits the depth of upstream traversal to 10 hops. Adjust the range in the query if deeper traversal is needed.
+        Args:
+            property_values (List[str]): The property values to match, e.g. ["uuid1", "uuid2"].
+            property_name (str): The property name to match, e.g. "guid".
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: A mapping from each property value to a list of dictionaries
+                representing its upstream nodes. Each dictionary contains the labels and properties of an
+                upstream node. A target that is a leaf node maps to an empty list.
+        """
+        label_list = self._list_all_labels()
+        if not label_list:
+            raise ValueError("No labels found in the graph database.")
+
+        # Build one block per label so the target-node anchor (m) uses that label's
+        # label+property index. The BFS expansion to upstream nodes (n) is by
+        # traversal, so it needs no label in the pattern. UNION the blocks together.
+        blocks = [
+            f"""UNWIND $property_values AS pv
+            MATCH (m:{label} {{{property_name}: pv}})
+            MATCH (n)-[*BFS 1..10]->(m)
+            RETURN pv AS property_value, labels(n) AS labels, properties(n) AS properties"""
+            for label in label_list
+            ]
+        query = "\nUNION\n".join(blocks)
+
+        # Aggregate upstream nodes per target value across all label blocks,
+        # de-duplicating identical (labels, properties) entries.
+        records: Dict[str, list] = {pv: [] for pv in property_values}
+        seen: Dict[str, set] = {pv: set() for pv in property_values}
+        with self.driver.session() as session:
+            result = session.run(query, property_values=property_values)
+            for record in result:
+                pv = record["property_value"]
+                labels = record["labels"]
+                properties = record["properties"]
+                # Build a hashable dedup key from labels + sorted property items.
+                key = (
+                    tuple(sorted(labels)),
+                    tuple(sorted((str(k), str(v)) for k, v in properties.items())),
+                )
+                if pv not in seen:
+                    seen[pv] = set()
+                    records[pv] = []
+                if key not in seen[pv]:
+                    seen[pv].add(key)
+                    records[pv].append({"labels": labels, "properties": properties})
+
+        results: Dict[str, List[Dict[str, Any]]] = {}
+        for property_value in property_values:
+            upstream_nodes = records.get(property_value, [])
+            results[property_value] = [
+                {
+                    "labels": node["labels"],
+                    "properties": {
+                        k: self.serialize_datetime(v) for k, v in node["properties"].items()
+                    },
+                }
+                for node in upstream_nodes
+            ]
+        return results
+
     def if_alternative_path_to_root(self, property_name: str, target_property_value: str, node_to_avoid_property_value: str, root_label: str) -> bool:
         """Find if there is an alternative path from a node to a root labeled node that DOES NOT go through a node (of interest). 
         A common use case is to check if a upstream/child node of a target node (aka, node to avoid) can reach root node through an alternative path.
@@ -1681,3 +1843,85 @@ class Loader:
             record = result.single()
             alternative_paths_count = record["alternative_paths_count"] if record else 0
             return alternative_paths_count > 0
+
+    def if_alternative_path_to_root_batch(
+        self,
+        property_name: str,
+        avoid_to_targets_pairs: list[Dict[str, str]],
+        root_label: str,
+    ) -> Dict[str, Dict[str, bool]]:
+        """Batched version of if_alternative_path_to_root.
+        Find, for many (node_to_avoid, target) pairs, whether an alternative path exists from the target
+        to a root labeled node that DOES NOT go through the node to avoid.
+        Batched version of if_alternative_path_to_root that processes many pairs in a single query,
+        avoiding one call per pair. See the single-value version for the semantics of an alternative path.
+        NOTE: The query limits the depth of upstream traversal to 10 hops. Adjust the range in the query if deeper traversal is needed.
+        
+        Args:
+            property_name (str): The property name to match, e.g. "guid".
+            avoid_to_targets_pairs (list[Dict[str, str]]): A list of dictionaries, each containing a node_to_avoid_property_value and a target_property_value to check against it, e.g. [{"avoid": "uuid2", "target": "uuid1"}, {"avoid": "uuid2", "target": "uuid3"}].
+            root_label (str): The label of the root node, e.g. "study".
+        Returns:
+            Dict[str, Dict[str, bool]]: A nested mapping node_to_avoid_property_value -> target_property_value
+                -> bool, where the bool is True if an alternative path exists from that target to any root node
+                that doesn't go through that node to avoid, False otherwise.
+        """
+        pairs = avoid_to_targets_pairs
+        query = f"""
+            UNWIND $pairs AS pair
+            MATCH (target {{{property_name}: pair.target}})
+            MATCH (node_to_avoid {{{property_name}: pair.avoid}})
+            OPTIONAL MATCH p = (target)-[*BFS 1..10 (r, n | n <> node_to_avoid)]->(root:{root_label})
+            RETURN pair.avoid AS avoid,
+                   pair.target AS target,
+                   p IS NOT NULL AS has_path
+        """
+        with self.driver.session() as session:
+            result = session.run(query, pairs=pairs)
+            found = {
+                (record["avoid"], record["target"]): record["has_path"] for record in result
+            }
+
+        results: Dict[str, Dict[str, bool]] = {}
+        for pair in avoid_to_targets_pairs:
+            avoid_value = pair["avoid"]
+            target_value = pair["target"]
+            results.setdefault(avoid_value, {})[target_value] = found.get(
+                (avoid_value, target_value), False
+            )
+        return results
+
+    def if_multiple_outgoing_edges_batch(self, property_values: List[Dict[str, str]]) -> Dict[str, bool]:
+        """
+        Check if nodes have multiple outgoing edges, for a large batch.
+        Args:
+            property_values (List[Dict[str, str]]): A list of dicts, each of the form
+                {"label": <label>, "property_name": <name>, "property_value": <value>}.
+                The label and property_name are used to leverage label+property indexes.
+        Returns:
+            Dict[str, bool]: A mapping from property value to a boolean indicating whether
+                the node has multiple outgoing edges.
+        """
+        # Group values by (label, property_name) so each group can bake the label
+        # into the query and use the matching label+property index.
+        grouped: Dict[tuple, List[str]] = defaultdict(list)
+        for item in property_values:
+            key = (item["label"], item["property_name"])
+            grouped[key].append(item["property_value"])
+
+        results: Dict[str, bool] = {}
+        with self.driver.session() as session:
+            for (label, property_name), values in grouped.items():
+                query = f"""
+                    UNWIND $values AS value
+                    MATCH (n:{label} {{{property_name}: value}})
+                    OPTIONAL MATCH (n)-->(m)
+                    WITH value, count(m) AS out_degree
+                    RETURN value AS property_value,
+                           out_degree > 1 AS has_multiple_outgoing_edges
+                """
+                result = session.run(query, values=values)
+                for record in result:
+                    results[record["property_value"]] = record["has_multiple_outgoing_edges"]
+
+        return results
