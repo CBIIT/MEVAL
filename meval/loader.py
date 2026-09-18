@@ -1626,7 +1626,6 @@ class Loader:
             else:
                 return False, {"check_item": "node uniqueness", "check_result": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
 
-
     def check_unique_nodes(
         self, property_values: List[str], property_name: str = "guid"
     ) -> Dict[str, Tuple[bool, dict]]:
@@ -1743,15 +1742,15 @@ class Loader:
             return return_nodes # if target is leaf node, it return an emtpy list
 
     def find_upstream_nodes_batch(
-            self, property_values: List[str], property_name: str = "guid"
-        ) -> Dict[str, List[Dict[str, Any]]]:
+        self, property_values: List[str], property_name: str = "guid"
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """Batched version of find_upstream_nodes.
         Find all upstream nodes directly or indirectly connected to each target node, for a list of property values.
         Batched version of find_upstream_nodes that processes a list of property values in a single query,
         avoiding one call per value. We only expect this function to use the uuid property for finding upstream
         nodes of target nodes. We EXPECT each target node to be a UNIQUE node.
+
         NOTE: The query limits the depth of upstream traversal to 10 hops. Adjust the range in the query if deeper traversal is needed.
-        
         Args:
             property_values (List[str]): The property values to match, e.g. ["uuid1", "uuid2"].
             property_name (str): The property name to match, e.g. "guid".
@@ -1760,21 +1759,43 @@ class Loader:
                 representing its upstream nodes. Each dictionary contains the labels and properties of an
                 upstream node. A target that is a leaf node maps to an empty list.
         """
-        query = f"""
-        UNWIND $property_values AS pv
-        OPTIONAL MATCH (m)
-        WHERE m.{property_name} = pv
-        OPTIONAL MATCH (n)-[*BFS 1..10]->(m)
-        WITH pv, n
-        WHERE n IS NOT NULL
-        RETURN pv AS property_value,
-               collect(DISTINCT {{labels: labels(n), properties: properties(n)}}) AS upstream_nodes
-        """
+        label_list = self._list_all_labels()
+        if not label_list:
+            raise ValueError("No labels found in the graph database.")
+
+        # Build one block per label so the target-node anchor (m) uses that label's
+        # label+property index. The BFS expansion to upstream nodes (n) is by
+        # traversal, so it needs no label in the pattern. UNION the blocks together.
+        blocks = [
+            f"""UNWIND $property_values AS pv
+            MATCH (m:{label} {{{property_name}: pv}})
+            MATCH (n)-[*BFS 1..10]->(m)
+            RETURN pv AS property_value, labels(n) AS labels, properties(n) AS properties"""
+            for label in label_list
+            ]
+        query = "\nUNION\n".join(blocks)
+
+        # Aggregate upstream nodes per target value across all label blocks,
+        # de-duplicating identical (labels, properties) entries.
+        records: Dict[str, list] = {pv: [] for pv in property_values}
+        seen: Dict[str, set] = {pv: set() for pv in property_values}
         with self.driver.session() as session:
             result = session.run(query, property_values=property_values)
-            records = {
-                record["property_value"]: record["upstream_nodes"] for record in result
-            }
+            for record in result:
+                pv = record["property_value"]
+                labels = record["labels"]
+                properties = record["properties"]
+                # Build a hashable dedup key from labels + sorted property items.
+                key = (
+                    tuple(sorted(labels)),
+                    tuple(sorted((str(k), str(v)) for k, v in properties.items())),
+                )
+                if pv not in seen:
+                    seen[pv] = set()
+                    records[pv] = []
+                if key not in seen[pv]:
+                    seen[pv].add(key)
+                    records[pv].append({"labels": labels, "properties": properties})
 
         results: Dict[str, List[Dict[str, Any]]] = {}
         for property_value in property_values:
