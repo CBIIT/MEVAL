@@ -1622,6 +1622,7 @@ class Loader:
         Batched version of check_unique_node that processes a list of property values in a single query,
         avoiding one call per value. For each value, if exactly one node exists it is considered unique (True);
         if no node or more than one node exists, it is not unique (False).
+        
         Args:
             property_values (List[str]): The property values to check, e.g. ["uuid1", "uuid2"].
             property_name (str): The property name to check, e.g. "guid".
@@ -1727,6 +1728,8 @@ class Loader:
         Batched version of find_upstream_nodes that processes a list of property values in a single query,
         avoiding one call per value. We only expect this function to use the uuid property for finding upstream
         nodes of target nodes. We EXPECT each target node to be a UNIQUE node.
+        NOTE: The query limits the depth of upstream traversal to 10 hops. Adjust the range in the query if deeper traversal is needed.
+        
         Args:
             property_values (List[str]): The property values to match, e.g. ["uuid1", "uuid2"].
             property_name (str): The property name to match, e.g. "guid".
@@ -1796,12 +1799,20 @@ class Loader:
             alternative_paths_count = record["alternative_paths_count"] if record else 0
             return alternative_paths_count > 0
 
-    def if_alternative_path_to_root_batch(self, property_name: str, avoid_to_targets_pairs: list[Dict[str, str]], root_label: str) -> Dict[str, Dict[str, bool]]:
+
+    def if_alternative_path_to_root_batch(
+        self,
+        property_name: str,
+        avoid_to_targets_pairs: list[Dict[str, str]],
+        root_label: str,
+    ) -> Dict[str, Dict[str, bool]]:
         """Batched version of if_alternative_path_to_root.
         Find, for many (node_to_avoid, target) pairs, whether an alternative path exists from the target
         to a root labeled node that DOES NOT go through the node to avoid.
         Batched version of if_alternative_path_to_root that processes many pairs in a single query,
         avoiding one call per pair. See the single-value version for the semantics of an alternative path.
+        NOTE: The query limits the depth of upstream traversal to 10 hops. Adjust the range in the query if deeper traversal is needed.
+        
         Args:
             property_name (str): The property name to match, e.g. "guid".
             avoid_to_targets_pairs (list[Dict[str, str]]): A list of dictionaries, each containing a node_to_avoid_property_value and a target_property_value to check against it, e.g. [{"avoid": "uuid2", "target": "uuid1"}, {"avoid": "uuid2", "target": "uuid3"}].
@@ -1811,32 +1822,27 @@ class Loader:
                 -> bool, where the bool is True if an alternative path exists from that target to any root node
                 that doesn't go through that node to avoid, False otherwise.
         """
-        # Flatten the input into (avoid, target) pairs for UNWIND
         pairs = avoid_to_targets_pairs
-
         query = f"""
-        UNWIND $pairs AS pair
-        MATCH (target {{{property_name}: pair.target}})
-        MATCH (node_to_avoid {{{property_name}: pair.avoid}})
-        RETURN pair.avoid AS avoid,
-               pair.target AS target,
-               EXISTS {{
-                 MATCH p = (target)-[*1..10]->(root:{root_label})
-                 WHERE NOT node_to_avoid IN nodes(p)
-               }} AS has_path
+            UNWIND $pairs AS pair
+            MATCH (target {{{property_name}: pair.target}})
+            MATCH (node_to_avoid {{{property_name}: pair.avoid}})
+            OPTIONAL MATCH p = (target)-[*BFS 1..10 (r, n | n <> node_to_avoid)]->(root:{root_label})
+            RETURN pair.avoid AS avoid,
+                   pair.target AS target,
+                   p IS NOT NULL AS has_path
         """
         with self.driver.session() as session:
             result = session.run(query, pairs=pairs)
-            counts = {
-                (record["avoid"], record["target"]): record["has_path"]
-                for record in result
+            found = {
+                (record["avoid"], record["target"]): record["has_path"] for record in result
             }
 
         results: Dict[str, Dict[str, bool]] = {}
         for pair in avoid_to_targets_pairs:
             avoid_value = pair["avoid"]
             target_value = pair["target"]
-            results.setdefault(avoid_value, {})[target_value] = counts.get(
+            results.setdefault(avoid_value, {})[target_value] = found.get(
                 (avoid_value, target_value), False
             )
         return results
