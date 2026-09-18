@@ -966,8 +966,18 @@ class Loader:
                     return_summary[key] += value
             return dict(return_summary), processed_rel_dict
 
+    def _list_all_labels(self) -> list:
+        """List all possible labels in the graph database."""
+        with self.driver.session() as session:
+            result = session.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
+            label_set = set()
+            for record in result:
+                for label in record["labels"]:
+                    label_set.add(label)
+        return list(label_set)
+
     def _list_index(self) -> list:
-        """List all indexes in the database.
+        """List all label+property type indexes in the database.
         Example of returned index:
         [{'label': 'cell_line', 'property': 'id'}, {'label': 'clinical_measure_file', 'property': 'id'}]
         """
@@ -1616,13 +1626,15 @@ class Loader:
             else:
                 return False, {"check_item": "node uniqueness", "check_result": "Fail", "message": f"Multiple nodes found with {property_name}={property_value}", "matched_node(s)": return_nodes}
 
-    def check_unique_nodes(self, property_values: List[str], property_name: str = "guid") -> Dict[str, Tuple[bool, dict]]:
+
+    def check_unique_nodes(
+        self, property_values: List[str], property_name: str = "guid"
+    ) -> Dict[str, Tuple[bool, dict]]:
         """Batched version of check_unique_node.
         Check if nodes with the given property name and values exist in the database, and if each is unique.
         Batched version of check_unique_node that processes a list of property values in a single query,
         avoiding one call per value. For each value, if exactly one node exists it is considered unique (True);
         if no node or more than one node exists, it is not unique (False).
-        
         Args:
             property_values (List[str]): The property values to check, e.g. ["uuid1", "uuid2"].
             property_name (str): The property name to check, e.g. "guid".
@@ -1631,15 +1643,27 @@ class Loader:
                 - A boolean indicating if the node is unique (True if exactly one node exists with that value)
                 - A dictionary containing details of the check result.
         """
-        query = f"""
-        UNWIND $property_values AS pv
-        OPTIONAL MATCH (n)
-        WHERE n.{property_name} = pv
-        RETURN pv AS property_value, collect(n) AS nodes
-        """
+        label_list = self._list_all_labels()
+        if not label_list:
+            raise ValueError("No labels found in the graph database.")
+
+        # Build one UNWIND+MATCH block per label so each uses that label's
+        # label+property index, then UNION the blocks together. Each block
+        # returns (property_value, node) rows.
+        blocks = [f"""UNWIND $property_values AS pv
+        MATCH (n:{label} {{{property_name}: pv}})
+        RETURN pv AS property_value, n AS node""" for label in label_list]
+        query = "\nUNION\n".join(blocks)
+
+        # Aggregate nodes per property value across all label blocks.
+        records: Dict[str, list] = {pv: [] for pv in property_values}
         with self.driver.session() as session:
             result = session.run(query, property_values=property_values)
-            records = {record["property_value"]: record["nodes"] for record in result}
+            for record in result:
+                pv = record["property_value"]
+                node = record["node"]
+                if node is not None:
+                    records.setdefault(pv, []).append(node)
 
         results: Dict[str, Tuple[bool, dict]] = {}
         for property_value in property_values:
@@ -1653,7 +1677,6 @@ class Loader:
                 }
                 for node in nodes
             ]
-
             if len(nodes) == 1:
                 results[property_value] = (
                     True,
@@ -1684,7 +1707,6 @@ class Loader:
                         "matched_node(s)": return_nodes,
                     },
                 )
-
         return results
 
     def find_upstream_nodes(self, property_value: str, property_name: str = "guid") -> list[dict[str, Any]]:
