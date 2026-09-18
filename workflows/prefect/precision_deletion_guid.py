@@ -1,3 +1,5 @@
+from typing import Dict, Any, List
+
 from meval.loader import Loader
 from neo4j import GraphDatabase
 from meval.utils import (
@@ -62,6 +64,59 @@ def read_string_list_file(filepath: str) -> list[str]:
                 raise ValueError("File must contain a list of non-empty strings.")
     except (json.JSONDecodeError, OSError) as e:
         raise ValueError(f"File not found or invalid JSON format. {e}")  
+
+
+def prepare_multiple_outgoing_edges_input(
+    find_upstream_nodes_results: Dict[str, List[Dict[str, Any]]],
+    property_name: str = "guid",
+) -> List[Dict[str, str]]:
+    """Extract upstream nodes from find_upstream_nodes_batch results and build the
+    input list for if_multiple_outgoing_edges_batch.
+
+    Args:
+        find_upstream_nodes_results: Output of find_upstream_nodes_batch, mapping each
+            target property value to a list of upstream node dicts, where each node dict
+            has "labels" (a list) and "properties" (a dict).
+        property_name: The property to key on for the outgoing-edges check, e.g. "guid".
+
+    Returns:
+        List[Dict[str, str]]: A de-duplicated list of dicts of the form
+            {"label": <label>, "property_name": <property_name>, "property_value": <value>},
+            suitable for if_multiple_outgoing_edges_batch.
+    """
+    seen: set = set()
+    prepared: List[Dict[str, str]] = []
+
+    for upstream_nodes in find_upstream_nodes_results.values():
+        if not upstream_nodes:
+            continue
+        for node in upstream_nodes:
+            labels = node.get("labels") or []
+            properties = node.get("properties") or {}
+            value = properties.get(property_name)
+            if value is None:
+                # node has no value for the keying property; skip it
+                continue
+            if not labels:
+                # node has no label; can't use a label+property index for it
+                continue
+
+            # A node can carry multiple labels; use the first as the index label.
+            label = labels[0]
+
+            key = (label, property_name, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            prepared.append(
+                {
+                    "label": label,
+                    "property_name": property_name,
+                    "property_value": value,
+                }
+            )
+
+    return prepared
 
 
 @flow(
@@ -249,9 +304,14 @@ def precision_deletion_guid(
     # go through find_upstream_nodes_results to check if the upstream nodes if they have more than one outgoing edges
     
     if_multi_out_edges = {}
-    upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
-    # only look for uniq guids in upstream_node_guids
-    upstream_node_guids = list(set(upstream_node_guids))
+    #upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
+    ## only look for uniq guids in upstream_node_guids
+    #upstream_node_guids = list(set(upstream_node_guids))
+    upstream_node_guids = prepare_multiple_outgoing_edges_input(
+        find_upstream_nodes_results=find_upstream_nodes_results,
+        property_name=uuid_property_name
+    )
+    
     if upstream_node_guids:
         logger.info("Checking if upstream nodes have multiple outgoing edges.")
         if len(upstream_node_guids) > 5000:
@@ -261,12 +321,10 @@ def precision_deletion_guid(
                 batch_progress += 1
                 logger.info(f"Processing batch {batch_progress}/{len(upstream_node_guid_batches)}")
                 if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
-                    property_name=uuid_property_name,
                     property_values=batch
                 ))
         else:
             if_multi_out_edges.update(myloader.if_multiple_outgoing_edges_batch(
-                property_name=uuid_property_name,
                 property_values=upstream_node_guids
             ))
         logger.info("Completed checking if upstream nodes have multiple outgoing edges.")

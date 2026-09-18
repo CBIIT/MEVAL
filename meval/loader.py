@@ -1742,8 +1742,11 @@ class Loader:
         UNWIND $property_values AS pv
         OPTIONAL MATCH (m)
         WHERE m.{property_name} = pv
-        OPTIONAL MATCH (n)-[*1..10]->(m)
-        RETURN pv AS property_value, collect(DISTINCT n) AS upstream_nodes
+        OPTIONAL MATCH (n)-[*BFS 1..10]->(m)
+        WITH pv, n
+        WHERE n IS NOT NULL
+        RETURN pv AS property_value,
+               collect(DISTINCT {{labels: labels(n), properties: properties(n)}}) AS upstream_nodes
         """
         with self.driver.session() as session:
             result = session.run(query, property_values=property_values)
@@ -1756,14 +1759,13 @@ class Loader:
             upstream_nodes = records.get(property_value, [])
             results[property_value] = [
                 {
-                    "labels": list(node.labels),  # frozenset → list
+                    "labels": node["labels"],
                     "properties": {
-                        k: self.serialize_datetime(v) for k, v in dict(node).items()
+                        k: self.serialize_datetime(v) for k, v in node["properties"].items()
                     },
                 }
                 for node in upstream_nodes
             ]
-
         return results
 
     def if_alternative_path_to_root(self, property_name: str, target_property_value: str, node_to_avoid_property_value: str, root_label: str) -> bool:
@@ -1846,25 +1848,37 @@ class Loader:
             )
         return results
 
-    def if_multiple_outgoing_edges_batch(self, property_name: str, property_values: List[str])-> Dict[str, bool]:
+    def if_multiple_outgoing_edges_batch(self, property_values: List[Dict[str, str]]) -> Dict[str, bool]:
         """
-        Check if nodes with the given property values have multiple outgoing edges for large batch
-
+        Check if nodes have multiple outgoing edges, for a large batch.
         Args:
-            property_name (str): The property name to match, e.g. "guid".
-            property_values (List[str]): A list of property values to check.
-
+            property_values (List[Dict[str, str]]): A list of dicts, each of the form
+                {"label": <label>, "property_name": <name>, "property_value": <value>}.
+                The label and property_name are used to leverage label+property indexes.
         Returns:
-            Dict[str, bool]: A mapping from property value to a boolean indicating whether the node has multiple outgoing edges.
+            Dict[str, bool]: A mapping from property value to a boolean indicating whether
+                the node has multiple outgoing edges.
         """
-        query = f"""
-        UNWIND $property_values AS value
-        MATCH (n {{{property_name}: value}})
-        OPTIONAL MATCH (n)-->(m)
-        WITH value, count(m) AS out_degree
-        RETURN value AS property_value,
-               out_degree > 1 AS has_multiple_outgoing_edges
-        """
+        # Group values by (label, property_name) so each group can bake the label
+        # into the query and use the matching label+property index.
+        grouped: Dict[tuple, List[str]] = defaultdict(list)
+        for item in property_values:
+            key = (item["label"], item["property_name"])
+            grouped[key].append(item["property_value"])
+
+        results: Dict[str, bool] = {}
         with self.driver.session() as session:
-            result = session.run(query, property_values=property_values)
-            return {record["property_value"]: record["has_multiple_outgoing_edges"] for record in result}
+            for (label, property_name), values in grouped.items():
+                query = f"""
+                    UNWIND $values AS value
+                    MATCH (n:{label} {{{property_name}: value}})
+                    OPTIONAL MATCH (n)-->(m)
+                    WITH value, count(m) AS out_degree
+                    RETURN value AS property_value,
+                           out_degree > 1 AS has_multiple_outgoing_edges
+                """
+                result = session.run(query, values=values)
+                for record in result:
+                    results[record["property_value"]] = record["has_multiple_outgoing_edges"]
+
+        return results
