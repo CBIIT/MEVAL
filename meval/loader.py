@@ -1799,7 +1799,6 @@ class Loader:
             alternative_paths_count = record["alternative_paths_count"] if record else 0
             return alternative_paths_count > 0
 
-
     def if_alternative_path_to_root_batch(
         self,
         property_name: str,
@@ -1859,10 +1858,12 @@ class Loader:
             Dict[str, bool]: A mapping from property value to a boolean indicating whether the node has multiple outgoing edges.
         """
         query = f"""
-            UNWIND $property_values AS value
-            MATCH (n {{{property_name}: value}})
-            RETURN value AS property_value,
-                   SIZE((n)-->() ) > 1 AS has_multiple_outgoing_edges
+        UNWIND $property_values AS value
+        MATCH (n {{{property_name}: value}})
+        OPTIONAL MATCH (n)-->(m)
+        WITH value, count(m) AS out_degree
+        RETURN value AS property_value,
+               out_degree > 1 AS has_multiple_outgoing_edges
         """
         with self.driver.session() as session:
             result = session.run(query, property_values=property_values)
