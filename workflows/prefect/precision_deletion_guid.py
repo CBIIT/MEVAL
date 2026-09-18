@@ -383,6 +383,7 @@ def precision_deletion_guid(
 
     # write guid_to_delete into a file
     if len(guid_to_delete) > 0:
+        guid_to_delete = list(set(guid_to_delete)) # remove duplicates before writing to file, because unfound upstream nodes ananlysis might add same guid multiple times
         guid_to_delete_output_file = f"guid_ready_to_delete_{get_time()}.json"
         with open(guid_to_delete_output_file, "w", encoding="utf-8") as f:
             json.dump(guid_to_delete, f, indent=2, default=str)
