@@ -261,48 +261,8 @@ def precision_deletion_guid(
             property_values=guids_passed_uniq
         )
     logger.info(f"Completed checking for upstream nodes.")
-    ## go through find_upstream_nodes_results to check which GUIDs have upstream nodes
-    #if_alt_path_upstream_input = []
-    #for guid, upstream_nodes in find_upstream_nodes_results.items():
-    #    if upstream_nodes:
-    #        # extract guid for upstream_nodes only
-    #        upstream_nodes_guids = [node["properties"][uuid_property_name] for node in upstream_nodes]
-    #        if_alt_path_upstream_input.extend([{"avoid": guid, "target": upstream_node_guid} for upstream_node_guid in upstream_nodes_guids])
-    #    else:
-    #        pass
-    #if if_alt_path_upstream_input: # if the list is not empty
-    #    logger.info("Found upstream nodes for the provided guids, will check if alt path to root node can be found for upstream nodes")
-    #    if len(if_alt_path_upstream_input) > 5000:
-    #        logger.warning("Large number of upstream nodes to check, will process them in multiple batches")
-    #        combined_if_alt_path_results = {}
-    #        # process it in batches
-    #        if_alt_path_upstream_batches = [if_alt_path_upstream_input[i:i + 5000] for i in range(0, len(if_alt_path_upstream_input), 5000)]
-    #        batch_progress = 0
-    #        for batch in if_alt_path_upstream_batches:
-    #            batch_progress += 1
-    #            logger.info(f"Processing batch {batch_progress}/{len(if_alt_path_upstream_batches)}")
-    #            batch_results = myloader.if_alternative_path_to_root_batch(
-    #                property_name=uuid_property_name,
-    #                avoid_to_targets_pairs=batch,
-    #                root_label=root_node_label  # replace with the actual root label if different
-    #            )
-    #            # process batch_results as needed
-    #            # targets should be {"guid1": True/False}
-    #            for avoid, targets in batch_results.items():
-    #                if avoid not in combined_if_alt_path_results:
-    #                    combined_if_alt_path_results[avoid] = {}
-    #                combined_if_alt_path_results[avoid].update(targets)
-    #    else:
-    #        combined_if_alt_path_results = myloader.if_alternative_path_to_root_batch(
-    #            property_name=uuid_property_name,
-    #            avoid_to_targets_pairs=if_alt_path_upstream_input,
-    #            root_label=root_node_label  # replace with the actual root label if different
-    #        )
-    #else:
-    #    combined_if_alt_path_results = {}
 
     # go through find_upstream_nodes_results to check if the upstream nodes if they have more than one outgoing edges
-    
     logger.info("Preparing the input to check for multiple outgoing edges for upstream nodes")
     if_multi_out_edges = {}
     #upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
