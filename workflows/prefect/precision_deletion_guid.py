@@ -303,6 +303,7 @@ def precision_deletion_guid(
 
     # go through find_upstream_nodes_results to check if the upstream nodes if they have more than one outgoing edges
     
+    logger.info("Preparing the input to check for multiple outgoing edges for upstream nodes")
     if_multi_out_edges = {}
     #upstream_node_guids = [node["properties"][uuid_property_name] for upstream_nodes in find_upstream_nodes_results.values() if upstream_nodes for node in upstream_nodes]
     ## only look for uniq guids in upstream_node_guids
