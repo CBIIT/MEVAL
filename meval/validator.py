@@ -2833,6 +2833,114 @@ class RemoteValidator(ValidatorUtilities):
             "projected_changes_of_passed_rows": projected_changes_of_passed_rows,}
         return passed_row_list, failed_row_list, val_summary, validation_results
 
+class DatabaseValidator(LocalValidator):
+    """Validate records and inspect data integrity of the database.
+
+    Inherits from LocalValidator to leverage local validation capabilities
+    while adding database-specific validation methods.
+    Note: Initialization requires mdf instance because of LocalValidator inheritance.
+    """
+    @classmethod
+    def list_all_labels(cls, driver: "GraphDatabase.driver") -> list:
+        """List all possible labels in the graph database."""
+        with driver.session() as session:
+            result = session.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
+            label_set = set()
+            for record in result:
+                for label in record["labels"]:
+                    label_set.add(label)
+        return list(label_set)
+
+    @classmethod
+    def _clean_db_node_properties(cls, node_properties: dict, uuid_property: str, uuid_in_model: bool = False) -> dict:
+        """Cleanup the properties of a node and prepare the record for validation against data model.
+        Data nodes in DB comes with timestamp properties that is not part of the data model. These timestamp properties need to be removed before record validation against data model.
+        Depending on project, uuid properties may or may not be included in the data model. "guid" property is presented in every node type in CCDI-DCC model, while no uuid is found in every node type in GC model
+            - If uuid property is included in the data model, it can be kept.
+            - if uuid is not included in the data model, it should be removed.
+        
+        NOTE: This is different from fetching nodes from the database for validation against DB. The node fetching for validation against DB is for record comparison.
+        The records from DB don't need to be cleaned in the same way for validation against model.
+        Args:
+            node_properties (dict): The properties of the node fetched from the database.
+            uuid_property (str): The name of the UUID property.
+            uuid_in_model (bool, optional): Indicates whether the UUID property is present in the data model. Defaults to False.
+        Returns:
+            dict: The cleaned node properties with timestamp and optionally UUID properties removed.
+        """
+        keys_to_remove = ["created", "updated"]
+        if not uuid_in_model: # uuid not a part of the data model
+            keys_to_remove.append(uuid_property)
+        filtered = {k: v for k, v in node_properties.items() if k not in keys_to_remove}
+        return filtered
+
+    @classmethod
+    def fetch_nodes_by_label(cls, driver: "GraphDatabase.driver", label: str, batch_size:int = 3000) -> List[dict]:
+        """A generator that fetches all nodes with the specified label from the graph database.
+        NOTE: this method returns raw records from the database, which contains timestamp props (not in the data model) and uuid prop (may ot may not be in the data model)
+        """ 
+        with driver.session() as session:
+            offset = 0
+            while True:
+                result = session.run(
+                    f"MATCH (n:{label}) RETURN n SKIP $offset LIMIT $batch_size",
+                    offset=offset,
+                    batch_size=batch_size,
+                )
+                records = list(result)
+                if not records:
+                    break
+                return_records = []
+                for record in records:
+                    props = dict(record["n"])
+                    return_records.append(props)
+                yield return_records
+                offset += batch_size
+
+    def validate_db_records_by_label(self, node_label: str, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> List[dict]:
+        """Validates all the nodes of a graph database instance based on the specified node label against data model(mdf)
+
+        Args:
+            node_label (str): label of the node to validate
+            driver (GraphDatabase.driver): The database driver used to connect to the graph database.
+            batch_size (int, optional): The number of nodes to fetch per batch. Defaults to 3000.
+            uuid_property (str, optional): The name of the UUID property in the database nodes. Defaults to "guid".
+            uuid_in_model (bool, optional): Indicates whether the UUID property is expected to be present in the data model. Defaults to False.
+
+        Returns:
+            List[dict]: A list of dictionaries representing the flagged nodes (with warnings or errors) based on validation results.
+        """
+        batch_generator = self.fetch_nodes_by_label(driver, node_label, batch_size=batch_size)
+        flagged_nodes = []
+        node_count = 0
+        passed_count = 0
+        for batch in batch_generator:
+            for node_properties in batch:
+                node_count +=1
+                cleaned_properties = self._clean_db_node_properties(node_properties, uuid_property=uuid_property, uuid_in_model=uuid_in_model)
+                # Perform validation against the data model (mdf) here
+                # For now, we just append the cleaned properties as a placeholder
+                if_pass, val_result = self.validate_one_record(node_name=node_label, record=cleaned_properties)
+                if if_pass:
+                    passed_count += 1
+                    if val_result.get("warnings", []):  # if warnings are not empty
+                        flagged_nodes.append({
+                            "label": node_label,
+                            "valid": if_pass,
+                            "data_record": cleaned_properties, # remove timestamps, and guid if applicable
+                            "validation_result": val_result
+                        })
+                    else: # no warning and the if_pass is True. There is no validation messages except pass
+                        pass
+                else: # validation failed for this node
+                    flagged_nodes.append({
+                        "label": node_label,
+                        "valid": if_pass,
+                        "data_record": cleaned_properties, # remove timestamps, and guid if applicable
+                        "validation_result": val_result
+                    })
+        return node_count, passed_count, flagged_nodes
+
 
 # Retain the established local-validation import while callers migrate to LocalValidator.
 Validator = LocalValidator
