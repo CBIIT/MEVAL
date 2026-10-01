@@ -1563,21 +1563,38 @@ class Loader:
             ValueError: If batch_size is less than 1.
             ClientError: If Neo4j query execution fails.
         """
+        label_list = self._list_all_labels()
+        if not label_list:
+            raise ValueError("No labels found in the graph database.")
+
         if batch_size < 1:
             raise ValueError("batch_size must be >= 1")
 
+        # Collect matching nodes per label (indexed lookups), then delete the
+        # deduplicated set in a single DETACH DELETE.
+        match_blocks = [
+            f"""UNWIND $property_values AS pv
+            MATCH (n:{label} {{{property_name}: pv}})
+            RETURN n AS node"""
+            for label in label_list
+        ]
+        union_query = "\nUNION\n".join(match_blocks)
+
         query = f"""
-        UNWIND $property_value AS prop_val
-        MATCH (n)
-        WHERE n.{property_name} = prop_val
-        WITH DISTINCT n
-        DETACH DELETE n
-        RETURN count(n) AS deleted_nodes
+        CALL {{
+        {union_query}
+        }}
+        WITH DISTINCT node
+        DETACH DELETE node
+        RETURN count(node) AS deleted_nodes
         """
         total_deleted = 0
         with self.driver.session() as session:
+            batch = 0
             for property_value_batch in self.chunks(identifier_list, batch_size):
-                result = session.run(query, property_value=property_value_batch)
+                batch += 1
+                print(f"Processing batch {batch}/{(len(identifier_list) + batch_size - 1) // batch_size} with {len(property_value_batch)} property values.")
+                result = session.run(query, property_values=property_value_batch)
                 record = result.single()
                 total_deleted += record["deleted_nodes"] if record else 0
         return total_deleted
