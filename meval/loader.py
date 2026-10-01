@@ -1590,7 +1590,10 @@ class Loader:
         """
         total_deleted = 0
         with self.driver.session() as session:
+            batch = 0
             for property_value_batch in self.chunks(identifier_list, batch_size):
+                batch += 1
+                print(f"Processing batch {batch}/{(len(identifier_list) + batch_size - 1) // batch_size} with {len(property_value_batch)} property values.")
                 result = session.run(query, property_values=property_value_batch)
                 record = result.single()
                 total_deleted += record["deleted_nodes"] if record else 0
