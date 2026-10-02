@@ -2958,7 +2958,9 @@ class DatabaseValidator(LocalValidator):
         label_list = self.list_all_labels(driver=driver)
         db_val_results ={}
         for label in label_list:
-            node_count, passed_count, flagged_nodes = self.validate_nodes_by_label(label, driver, batch_size, uuid_property, uuid_in_model)
+            node_count, passed_count, flagged_nodes = self.validate_db_records_by_label(
+                label, driver, batch_size, uuid_property, uuid_in_model
+            )
             db_val_results[label] = {
                 "node_count": node_count,
                 "passed_count": passed_count,
@@ -3054,7 +3056,7 @@ class DatabaseValidator(LocalValidator):
                                 new_line_to_add.append(newline_to_add)
         val_summary = pd.concat([val_summary, pd.DataFrame(new_line_to_add)], ignore_index=True)
 
-        # group the val_summary and aggregate only the unique input 
+        # group the val_summary and aggregate only the unique input
         grouped = (
             val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
             .agg(lambda s: sorted(set(s.dropna().astype(str))))
