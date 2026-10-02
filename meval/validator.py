@@ -2955,7 +2955,7 @@ class DatabaseValidator(LocalValidator):
             dict: A dictionary containing validation results for all labels, with each label mapping to its flagged nodes.
         """
         # Implement the logic to validate all records in the database
-        label_list = self.list_all_labels()
+        label_list = self.list_all_labels(driver=driver)
         db_val_results ={}
         for label in label_list:
             node_count, passed_count, flagged_nodes = self.validate_nodes_by_label(label, driver, batch_size, uuid_property, uuid_in_model)
