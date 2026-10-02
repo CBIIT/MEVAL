@@ -2,7 +2,6 @@ from bento_mdf import MDFDataValidator, MDFReader, MDF
 from typing import Any, List
 from pathlib import Path, PosixPath
 import csv
-import os
 from neo4j import GraphDatabase
 import pandas as pd
 from uuid import UUID, uuid5
@@ -12,6 +11,8 @@ from collections.abc import Iterator
 from meval.parser import ModelParser
 from itertools import islice
 from collections import defaultdict
+import pandas as pd
+import json
 import re
 
 # for validating record from a submission file against db
@@ -2940,6 +2941,137 @@ class DatabaseValidator(LocalValidator):
                         "validation_result": val_result
                     })
         return node_count, passed_count, flagged_nodes
+
+    def validate_db_records(self, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> dict:
+        """Validates all the records in the database.
+
+        Args:
+            driver (GraphDatabase.driver): The database driver used to connect to the graph database.
+            batch_size (int, optional): The number of nodes to fetch per batch. Defaults to 3000.
+            uuid_property (str, optional): The name of the UUID property in the database nodes. Defaults to "guid".
+            uuid_in_model (bool, optional): Indicates whether the UUID property is expected to be present in the data model. Defaults to False.
+
+        Returns:
+            dict: A dictionary containing validation results for all labels, with each label mapping to its flagged nodes.
+        """
+        # Implement the logic to validate all records in the database
+        label_list = self.list_all_labels()
+        db_val_results ={}
+        for label in label_list:
+            node_count, passed_count, flagged_nodes = self.validate_nodes_by_label(label, driver, batch_size, uuid_property, uuid_in_model)
+            db_val_results[label] = {
+                "node_count": node_count,
+                "passed_count": passed_count,
+                "flagged_nodes": flagged_nodes
+            }
+
+        return db_val_results
+
+    @staticmethod
+    def get_basic_val_matrix(db_validation_results: dict) -> pd.DataFrame:
+        """Generates basic summary matrix from the return of cls.validate_db_records
+
+        Args:
+            db_validation_results (dict): The return of cls.validate_db_records
+
+        Returns:
+            pd.DataFrame: A pandas DataFrame obj that contains basic matrix of db validation results by node type
+        """
+        val_matrix = pd.DataFrame(
+            columns=[
+                "label",
+                "node_count",
+                "passed_count",
+                "failed_counts(with errors)",
+                "flagged_node_counts",
+                "node_with_warnings_but_valid",
+            ]
+        )
+        for key in db_validation_results.keys():
+            key_row = {}
+            key_row["label"] = key
+            key_row["node_count"] = db_validation_results[key]["node_count"]
+            key_row["passed_count"] = db_validation_results[key]["passed_count"]
+            key_row["failed_counts(with errors)"] = (
+                db_validation_results[key]["node_count"]
+                - db_validation_results[key]["passed_count"]
+            )
+            key_row["flagged_node_counts"] = len(db_validation_results[key]["flagged_nodes"])
+            key_row["node_with_warnings_but_valid"] = len([n for n in db_validation_results[key]["flagged_nodes"] if n["valid"]])
+            val_matrix = pd.concat([val_matrix, pd.DataFrame([key_row])], ignore_index=True)
+        return val_matrix
+
+    @staticmethod
+    def val_results_simplified(val_json_filepath: str) -> dict:
+        """Simplifies the validation results from a JSON file.
+
+        Args:
+            val_json_filepath (str): The file path to the JSON file containing validation results.
+
+        Returns:
+            dict: A simplified dictionary of validation results.
+        """
+        # val summary is a DataFrame that will store simplified validation results for each flagged node.
+        val_summary=pd.DataFrame(columns=["node_type", "level", "type", "loc", "input"])
+        new_line_to_add = []
+        with open(val_json_filepath, "r", encoding="utf-8") as f:
+            records = json.load(f)
+            for type, val in records.items():
+                val_flagged_nodes = val.get("flagged_nodes", []) # if no flagged nodes, return en empty list
+                if val_flagged_nodes: # there are flagged nodes
+                    for node in val_flagged_nodes:
+                        node_val = node.get("validation_result", {})
+                        node_val_warnings = node_val.get("warnings", [])
+                        node_val_errors = node_val.get("errors", [])
+                        if node_val_warnings: # if there are warning items
+                            for warning in node_val_warnings:
+                                newline_to_add = {
+                                    "node_type": type,
+                                    "level": "warning",
+                                    "type": warning.get("type"),
+                                    "loc": warning.get("loc")[0] if warning.get("loc") else None,
+                                    "input": warning.get("input")
+                                }
+                                new_line_to_add.append(newline_to_add)
+                        if node_val_errors: # if there are error items
+                            for error in node_val_errors:
+                                if error.get("type") == "missing":
+                                    newline_to_add = {
+                                        "node_type": type,
+                                        "level": "error",
+                                        "type": error.get("type"),
+                                        "loc": error.get("loc")[0] if error.get("loc") else None,
+                                        "input": "", # is prop is missing, no input
+                                    }
+                                else:
+                                    newline_to_add = {
+                                        "node_type": type,
+                                        "level": "error",
+                                        "type": error.get("type"),
+                                        "loc": error.get("loc")[0] if error.get("loc") else None,
+                                        "input": error.get("input")
+                                    }
+                                new_line_to_add.append(newline_to_add)
+        val_summary = pd.concat([val_summary, pd.DataFrame(new_line_to_add)], ignore_index=True)
+
+        # group the val_summary and aggregate only the unique input 
+        grouped = (
+            val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
+            .agg(lambda s: sorted(set(s.dropna().astype(str))))
+            .reset_index()
+            .rename(columns={"input": "unique_inputs"})
+        )
+
+        # add a count of how many unique values and total occurrences
+        grouped["n_unique"] = grouped["unique_inputs"].apply(len)
+        grouped["n_total"] = (
+            val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
+            .size()
+            .values
+        )
+        # turn grouped into dictionary
+        simplified_results = grouped.to_dict(orient="records")
+        return simplified_results
 
 
 # Retain the established local-validation import while callers migrate to LocalValidator.

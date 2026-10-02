@@ -8,6 +8,7 @@ __all__ = [
 	"RemoteValidator",
 	"Loader",
 	"LocalValidator",
+    "DatabaseValidator",
 	"ModelParser",
 	"Validator",
 	"ValidatorUtilities",

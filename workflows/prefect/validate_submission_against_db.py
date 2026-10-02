@@ -10,7 +10,7 @@ from prefect import flow, get_run_logger, pause_flow_run, task
 from prefect.input import RunInput
 from meval.utils import parse_file_url, get_time, folder_dl_s3
 from bento_mdf import MDFReader
-from typing import Literal, TypeVar
+from typing import Literal
 from neo4j import GraphDatabase
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
