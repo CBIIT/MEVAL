@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-from meval import DatabaseValidator
+from meval.validator import DatabaseValidator
 from upsert_workflow import get_secret_task, file_ul
 from prefect import flow, get_run_logger
 from meval.utils import parse_file_url, get_time
