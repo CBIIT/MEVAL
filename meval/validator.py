@@ -3061,11 +3061,11 @@ class DatabaseValidator(LocalValidator):
             val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
             .agg(lambda s: sorted(set(s.dropna().astype(str))))
             .reset_index()
-            .rename(columns={"input": "unique_inputs"})
+            .rename(columns={"input": "violated_inputs_uniq"})
         )
 
         # add a count of how many unique values and total occurrences
-        grouped["n_unique"] = grouped["unique_inputs"].apply(len)
+        grouped["n_unique"] = grouped["violated_inputs_uniq"].apply(len)
         grouped["n_total"] = (
             val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
             .size()
