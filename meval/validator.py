@@ -1,5 +1,5 @@
 from bento_mdf import MDFDataValidator, MDFReader, MDF
-from typing import Any, List
+from typing import Any, Dict, List
 from pathlib import Path, PosixPath
 import csv
 from neo4j import GraphDatabase
@@ -3074,6 +3074,80 @@ class DatabaseValidator(LocalValidator):
         # turn grouped into dictionary
         simplified_results = grouped.to_dict(orient="records")
         return simplified_results
+
+    def validate_edges_many_to_one(
+            self, driver: "GraphDatabase.driver",
+            src_label: str, 
+            dst_label: str, 
+            edge_handle: str, 
+            uuid_property: str = "guid"
+            ) -> list[dict[str, str]]:
+        """
+        Validates that the edges with the given source and destination labels and edge handle conform to a many-to-one relationship.
+
+        Args:
+            src_label (str): The label of the source node.
+            dst_label (str): The label of the destination node.
+            edge_handle (str): The handle of the edge to validate.
+
+        Returns:
+            list[dict[str, str]]: A list of dictionaries describing any validation errors found.
+        """
+        # because this test only report edges from source nodes. We should get the key prop of src node type
+        model_parser = ModelParser(self.mdf)
+        src_key_property = model_parser.get_node_key_prop(src_label)
+        dst_key_property = model_parser.get_node_key_prop(dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        
+        # add basic information to the validation results
+        validation_results = {}
+        validation_results["validation_type"] = "many_to_one"
+        validation_results["edge"] ={
+            "src_label": src_label,
+            "dst_label": dst_label,
+            "edge_handle": edge_handle,
+            "edge_multiplicity": edge_multiplicity
+        }
+
+        query = f"""
+        MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
+        WITH a,
+             count(b) AS degree,
+             collect({{key: b.{dst_key_property}, uuid: b.{uuid_property}}}) AS dsts
+        WHERE degree > 1
+        RETURN a.{src_key_property} AS src_key_prop,
+               a.{uuid_property}    AS src_uuid,
+               dsts,
+               degree
+        ORDER BY degree DESC
+        """
+        with driver.session() as session:
+            result = session.run(query)
+            violated_edges = [dict(record) for record in result]
+        if violated_edges:
+            print(f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing tomore than one {dst_label} data nodes")
+            formatted_violations = []
+            for item in violated_edges:
+                item_dict = {}
+                item_dict[src_key_property] = item["src_key_prop"] # this might be "sample_id": "sample_a"
+                item_dict[uuid_property] = item["src_uuid"]
+                item_dict["number_of_dst"] = item["degree"]
+                # dsts is a list
+                dst_list = []
+                for dst in item["dsts"]:
+                    dst_list.append(
+                        {
+                            dst_key_property: dst["key"], # this might be "participant_id": "participant_b"
+                            uuid_property: dst["uuid"]
+                        }
+                    )
+                item_dict["dst_nodes"] = dst_list
+                formatted_violations.append(item_dict)
+            validation_results["violations"] = formatted_violations
+            return validation_results
+        else:
+            print(f"No {src_label} nodes violated the many_to_one multiplicity towards {dst_label} type nodes.")
+            return []
 
 
 # Retain the established local-validation import while callers migrate to LocalValidator.

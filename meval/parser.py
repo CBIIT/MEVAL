@@ -1,5 +1,5 @@
 from bento_mdf import MDFReader
-from typing import TypeVar
+from typing import Tuple, TypeVar
 
 DataFrame = TypeVar("DataFrame")
 
@@ -288,7 +288,7 @@ class ModelParser:
         """
         parent_nodes = self.get_parent_nodes(node_name)
         return len(parent_nodes) == 0
-    
+
     def if_leaf_node(self, node_name: str) -> bool:
         """Check if a given node is a leaf node (no child nodes)
 
@@ -299,7 +299,7 @@ class ModelParser:
         """        
         child_nodes = self.get_child_nodes(node_name)
         return len(child_nodes) == 0
-    
+
     def get_all_edge_triplets(self) -> list[tuple[str, str, str]]:
         """Get all edge triplets in the model
 
@@ -358,3 +358,47 @@ class ModelParser:
             raise KeyError(
                 f"Edge from '{edge_src}' to '{edge_dst}' not found in the model."
             )
+
+    def get_all_edges(self) -> list[dict[str, str]]:
+        """get a list of dictionaries that describes every edge's src, dst, handle, and multiplicity
+
+        Returns:
+            list[dict[str, str]]: list of dictionaries of edges
+        """
+        all_edges_tuples = [
+            (item.multiplicity, key) for key, item in self.mdf.model.edges.items()
+        ]
+        return_list = []
+        for multiplicity, triplet in all_edges_tuples:
+            edge_dict = {
+                "src": triplet[1],
+                "dst": triplet[2],
+                "handle": triplet[0],
+                "multiplicity": multiplicity,
+            }
+            return_list.append(edge_dict)
+        return return_list
+
+    def get_edges_by_multiplicity(self, multiplicity: str) -> list[Tuple[str, str, str]]:
+        """Returns a list of edge triplets of a given multiplicity.
+
+        Args:
+            multiplicity (str): the multiplicity of the edges to filter by. Can only be one of the ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
+
+        Raises:
+            ValueError: if the multiplicity is not one of the allowed values ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
+        Returns:
+            list[Tuple[str, str, str]]: _description_
+        """
+        allowed_multiplicities = ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
+        if multiplicity not in allowed_multiplicities:
+            raise ValueError(
+                f"Multiplicity must be one of {allowed_multiplicities}, got '{multiplicity}'"
+            )
+        all_edges_tuples = [
+            (item.multiplicity, key) for key, item in self.mdf.model.edges.items()
+        ]
+        filtered_edges = [
+            triplet for edge_multiplicity, triplet in all_edges_tuples if edge_multiplicity == multiplicity
+        ]
+        return filtered_edges
