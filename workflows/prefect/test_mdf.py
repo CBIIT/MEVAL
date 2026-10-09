@@ -24,8 +24,8 @@ def test_mdf_with_edp(
     model_bucket, model_filepath = parse_file_url(s3_uri_of_model_file)
     props_bucket, props_filepath = parse_file_url(s3_uri_of_props_file)
 
-    file_dl(model_bucket, model_filepath, output_s3_bucket_loc)
-    file_dl(props_bucket, props_filepath, output_s3_bucket_loc)
+    file_dl(model_bucket, model_filepath)
+    file_dl(props_bucket, props_filepath)
 
     STS_URL = "https://sts.cancer.gov/v2"
 
