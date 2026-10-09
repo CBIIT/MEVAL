@@ -3149,6 +3149,14 @@ class DatabaseValidator(LocalValidator):
             print(f"No {src_label} nodes violated the many_to_one multiplicity towards {dst_label} type nodes.")
             return []
 
+    def validate_edges_one_to_many(
+        self, driver: "GraphDatabase.driver",
+        src_label: str,
+        dst_label: str,
+        edge_handle: str,
+        uuid_property: str = "guid"
+    ) -> list[dict[str, str]]:
+
 
 # Retain the established local-validation import while callers migrate to LocalValidator.
 Validator = LocalValidator
