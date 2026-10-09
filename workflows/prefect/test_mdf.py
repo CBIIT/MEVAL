@@ -24,17 +24,17 @@ def test_mdf_with_edp(
     model_bucket, model_filepath = parse_file_url(s3_uri_of_model_file)
     props_bucket, props_filepath = parse_file_url(s3_uri_of_props_file)
 
-    file_dl(model_bucket, model_filepath)
-    file_dl(props_bucket, props_filepath)
+    model_file=file_dl(model_bucket, model_filepath)
+    props_file=file_dl(props_bucket, props_filepath)
 
     STS_URL = "https://sts.cancer.gov/v2"
 
     if if_use_edp:
         runner_logger.info("Resolving EDP for the mdf instance")
-        mdf_instance = MDFReader(model_filepath, props_filepath, resolve_edps=if_use_edp, sts_url=STS_URL)
+        mdf_instance = MDFReader(model_file, props_file, resolve_edps=if_use_edp, sts_url=STS_URL)
     else:
         runner_logger.info("Not resolving EDP for the mdf instance")
-        mdf_instance = MDFReader(model_filepath, props_filepath)
+        mdf_instance = MDFReader(model_file, props_file)
 
     val_instance = MDFDataValidator(mdf_instance)
     runner_logger.info("Validation instance created successfully")
