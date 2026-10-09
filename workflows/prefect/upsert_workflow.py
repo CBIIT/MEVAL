@@ -392,6 +392,7 @@ def upsert_files(
     tsv_folder_s3uri: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_field: str = "guid",
     delimiter: str = ";",
     delete_floating_nodes_if_found: bool = False,
@@ -458,6 +459,7 @@ def upsert_files(
         model_file=data_model_yaml,
         props_file=props_yaml,
         handle=commons_acronym,
+        if_resolve_edps=if_resolve_edps,
     )
 
     # create index in memgraph instance if not exist
@@ -604,6 +606,7 @@ def upsert_files_in_order(
     tsv_folder_list_s3uri: list[str],
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_field: str = "guid",
     delimiter: str = ";",
     delete_floating_nodes_if_found: bool = False,
@@ -677,6 +680,7 @@ def upsert_files_in_order(
         model_file=data_model_yaml,
         props_file=props_yaml,
         handle=commons_acronym,
+        if_resolve_edps=if_resolve_edps,
     )
 
     # create index in memgraph instance if not exist

@@ -14,7 +14,7 @@ from workflow.validate_submission import download_model_files
 
 DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci"]
 ValidationItems = Literal["record_check", "linkage_check", "unique_key_check"]
-
+STS_URL: str = "https://sts.cancer.gov/v2"
 
 @flow(name="Validate TSV Files", log_prints=True, flow_run_name="validate_{commons_acronym}_{tag}_" + f"{get_time()}")
 def validate_tsv_files(
@@ -22,6 +22,7 @@ def validate_tsv_files(
     tsv_folder_s3uri: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     delimiter: str = ";",
     validation_items: List[ValidationItems] = [
         "record_check",
@@ -40,7 +41,7 @@ def validate_tsv_files(
         tag (str, optional): An release tag of the commons data model. Defaults to "". If left empty, the workflow will download the model files from the main branch.
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
         validation_items (List[ValidationItems], optional): This pipeline will always perform TSV FORMAT CHECK, you can check and uncheck other validation items.
-    """
+    """    
     flow_logger = get_run_logger()
     file_logger_name = (
         f"MEVAL_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -62,7 +63,10 @@ def validate_tsv_files(
     )
     flow_logger.info(f"Downloaded data model yaml: {data_model_yaml}")
     flow_logger.info(f"Downloaded properties yaml: {props_yaml}")
-    model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
+    if if_resolve_edps:
+        model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=True, sts_url=STS_URL)
+    else:
+        model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
 
     # Download TSV files from S3
     tsv_bucket, tsv_folder = parse_file_url(tsv_folder_s3uri)

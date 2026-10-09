@@ -18,7 +18,7 @@ from workflow.validate_submission import download_model_files
 
 UuidDropDownChoices = Literal["yes", "no"]
 ProjectDropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci"]
-
+STS_URL: str = "https://sts.cancer.gov/v2"
 
 class GenerateUuidInput(RunInput):
     subgraph_value: str
@@ -68,6 +68,7 @@ def validate_submission_against_db(
     uri_secret_key: str,
     commons_acronym: ProjectDropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     does_file_contain_uuid: UuidDropDownChoices = "no",
     uuid_col_name: str = "guid",
     delimiter: str = ";",
@@ -160,7 +161,10 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
     )
     logger.info(f"Downloaded data model yaml: {data_model_yaml}")
     logger.info(f"Downloaded properties yaml: {props_yaml}")
-    mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
+    if if_resolve_edps:
+        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=True, sts_url=STS_URL)
+    else:
+        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
     logger.info("Created MDFReader instance for data model features reading")
     val_instance = RemoteValidator()
     logger.info("Created RemoteValidator instance for validation against db")

@@ -1,13 +1,14 @@
 from bento_mdf import MDFReader
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 DataFrame = TypeVar("DataFrame")
 
 
 class ModelParser:
     """A higher level wrapper of MDFReader class from bento-mdf that offers direct and easy access to model features"""
+    STS_URL = "https://sts.cancer.gov/v2"
 
-    def __init__(self, model_file: str, props_file: str, handle: str|None = None):
+    def __init__(self, model_file: str, props_file: str, handle: str|None = None, if_resolve_edps: Literal[True, False] = False):
         """Create a class of ModelParser
 
         Args:
@@ -17,7 +18,10 @@ class ModelParser:
         """        
         self.model_file = model_file
         self.props_file = props_file
-        self.model = MDFReader(self.model_file, self.props_file, handle=handle).model
+        if if_resolve_edps:
+            self.model = MDFReader(self.model_file, self.props_file, handle=handle, resolve_edps=True, sts_url=self.STS_URL).model
+        else:
+            self.model = MDFReader(self.model_file, self.props_file, handle=handle).model
 
     def get_node_list(self) -> list[str]:
         """Get the list of node names in the model
@@ -288,7 +292,7 @@ class ModelParser:
         """
         parent_nodes = self.get_parent_nodes(node_name)
         return len(parent_nodes) == 0
-    
+
     def if_leaf_node(self, node_name: str) -> bool:
         """Check if a given node is a leaf node (no child nodes)
 
@@ -299,7 +303,7 @@ class ModelParser:
         """        
         child_nodes = self.get_child_nodes(node_name)
         return len(child_nodes) == 0
-    
+
     def get_all_edge_triplets(self) -> list[tuple[str, str, str]]:
         """Get all edge triplets in the model
 
