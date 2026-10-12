@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-
 from fastapi import logger
 from meval import RemoteValidator
 from add_uuid_to_files import add_uuid_to_files
@@ -10,7 +9,7 @@ from prefect import flow, get_run_logger, pause_flow_run, task
 from prefect.input import RunInput
 from meval.utils import parse_file_url, get_time, folder_dl_s3
 from bento_mdf import MDFReader
-from typing import Literal, TypeVar
+from typing import Literal
 from neo4j import GraphDatabase
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
@@ -87,6 +86,7 @@ def validate_submission_against_db(
         uri_secret_key: The key name in the secret that contains the database URI.
         commons_acronym (ProjectDropDownChoices): The acronym of the commons project, e.g., "ccdi", "icdc", "cds", "c3dc".
         tag (str): The tag of the data model to be used for validation.
+        if_resolve_edps (bool, optional): Indicates whether to resolve EDPs in the model parser. Defaults to False.
         does_file_contain_uuid (UuidDropDownChoices, optional): Indicates whether the submission files contain UUIDs. Defaults to "no". If "no", the pipeline will pause to ask for a subgraph value to generate UUIDs for the records in the submission files.
         uuid_col_name (str, optional): The name of the UUID column in the submission files. If no UUID column is present, the pipeline will generate UUIDs for the records in the submission files. Defaults to "guid".
         delimiter (str, optional): The delimiter used in the TSV files. Defaults to ";".
@@ -162,7 +162,7 @@ If you have used MEVAL to generate UUIDs for your submission, please use the sam
     logger.info(f"Downloaded data model yaml: {data_model_yaml}")
     logger.info(f"Downloaded properties yaml: {props_yaml}")
     if if_resolve_edps:
-        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=True, sts_url=STS_URL)
+        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=if_resolve_edps, sts_url=STS_URL)
     else:
         mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
     logger.info("Created MDFReader instance for data model features reading")

@@ -19,7 +19,7 @@ class ModelParser:
         self.model_file = model_file
         self.props_file = props_file
         if if_resolve_edps:
-            self.model = MDFReader(self.model_file, self.props_file, handle=handle, resolve_edps=True, sts_url=self.STS_URL).model
+            self.model = MDFReader(self.model_file, self.props_file, handle=handle, resolve_edps=if_resolve_edps, sts_url=self.STS_URL).model
         else:
             self.model = MDFReader(self.model_file, self.props_file, handle=handle).model
 
