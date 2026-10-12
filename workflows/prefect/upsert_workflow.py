@@ -392,6 +392,7 @@ def upsert_files(
     tsv_folder_s3uri: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_field: str = "guid",
     delimiter: str = ";",
     delete_floating_nodes_if_found: bool = False,
@@ -409,6 +410,7 @@ def upsert_files(
         tsv_folder_s3uri (str): The S3 URI of the folder containing TSV files, e.g., s3://data-bucket/tsv-folder/.
         commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
+        if_resolve_edps (bool, optional): Indicates whether to resolve EDPs in the model parser. Defaults to False.
         uuid_field (str, optional): The field to use as the unique identifier for each data entry. Defaults to "guid".
         delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
@@ -453,12 +455,21 @@ def upsert_files(
     )
     logger.info(f"Downloaded data model yaml: {data_model_yaml}")
     logger.info(f"Downloaded properties yaml: {props_yaml}")
-    # create model parser
-    model_parser = ModelParser(
-        model_file=data_model_yaml,
-        props_file=props_yaml,
-        handle=commons_acronym,
-    )
+    # create model parser instance
+    if if_resolve_edps:
+        logger.info("Resolving EDPs in the model parser.")
+        model_parser = ModelParser(
+            model_file=data_model_yaml,
+            props_file=props_yaml,
+            handle=commons_acronym,
+            if_resolve_edps=if_resolve_edps,
+        )
+    else:
+        model_parser = ModelParser(
+            model_file=data_model_yaml,
+            props_file=props_yaml,
+            handle=commons_acronym
+        )
 
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=uuid_field)
@@ -604,6 +615,7 @@ def upsert_files_in_order(
     tsv_folder_list_s3uri: list[str],
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_field: str = "guid",
     delimiter: str = ";",
     delete_floating_nodes_if_found: bool = False,
@@ -615,14 +627,17 @@ def upsert_files_in_order(
     Upsert data using a list of TSV folders into a graph database. The loading order is determined by the order of tsv folders in the list
 
     Args:
+        db_account_id (str): The AWS account ID where the secret is stored.
         db_creds_secret_name (str): The name/path of the AWS Secrets Manager secret containing the database credentials.
         uri_secret_key (str): The secret key name for the database URI within the secret.
         output_bucket_loc (str): The S3 URI of the output location, e.g., s3://my-bucket/runner/output.
         tsv_folder_list_s3uri (list[str]): A list of S3 URIs of the folders containing TSV files, e.g., ["s3://data-bucket/tsv-folder1/", "s3://data-bucket/tsv-folder2/"].
         commons_acronym (DropDownChoices): The acronym of the data commons model to use. The acceptable values are "ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc".
         tag (str, optional): The tag of the data model to use. Defaults to "" to use master branch.
+        if_resolve_edps (bool, optional): Indicates whether to resolve EDPs in the model parser. Defaults to False.
         uuid_field (str, optional): The field to use as the unique identifier for each data entry. Defaults to "guid".
         delimiter (str, optional): The delimiter used in multi-valued fields. Defaults to ";"
+        delete_floating_nodes_if_found (bool, optional): Indicates whether to delete floating nodes if found during the upsert process. Defaults to False.
         subgraph_col (str, optional): The column indicating subgraph information. Defaults to None.
         username_secret_key (str, optional): The secret key name for the username to access the DB instance within the secret. Defaults to None.
         password_secret_key (str, optional): The secret key name for the password to access the DB instance within the secret. Defaults to None.
@@ -672,12 +687,21 @@ def upsert_files_in_order(
     )
     logger.info(f"Downloaded data model yaml: {data_model_yaml}")
     logger.info(f"Downloaded properties yaml: {props_yaml}")
-    # create model parser
-    model_parser = ModelParser(
-        model_file=data_model_yaml,
-        props_file=props_yaml,
-        handle=commons_acronym,
-    )
+    # create model parser instance
+    if if_resolve_edps:
+        logger.info("Resolving EDPs in the model parser.")
+        model_parser = ModelParser(
+            model_file=data_model_yaml,
+            props_file=props_yaml,
+            handle=commons_acronym,
+            if_resolve_edps=if_resolve_edps,
+        )
+    else:
+        model_parser = ModelParser(
+            model_file=data_model_yaml,
+            props_file=props_yaml,
+            handle=commons_acronym
+        )
 
     # create index in memgraph instance if not exist
     index_in_db = myloader.create_index(model_parser=model_parser, id_field=uuid_field)

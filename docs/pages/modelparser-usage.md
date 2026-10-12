@@ -23,14 +23,16 @@ model_parser = ModelParser(
     model_file="model.yml",
     props_file="model-props.yml",
     handle="your_project",  # optional model/commons acronym
+    if_resolve_edps=False,  # optionally resolve EDP terms
 )
 ```
 
 - `model_file` — path to the MDF model YAML file (nodes/edges).
 - `props_file` — path to the MDF properties YAML file (property definitions).
-- `handle` — optional model name/acronym (e.g. `"ccdi_dcc"`, `"icdc"`).
+- `handle` — optional model name/acronym (e.g. `"ccdi_dcc"`, `"icdc"`). Defaults to `None`
+- `if_resolve_edps` - optional if resolve edp terms. Defaults to `False`. Switch to `True` if your model uses EDP terms to get permissible value (PV) list.
 
-The parsed model is stored on `model_parser.model` (a `bento_mdf.MDFReader.model` model object) and is used internally by all methods below.
+The parsed model is stored on `model_parser.model` (a `bento_mdf.MDFReader.model` model object) and is used internally by all methods below. 
 
 ## Node introspection
 
