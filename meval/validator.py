@@ -1,6 +1,11 @@
 from bento_mdf import MDFDataValidator, MDFReader, MDF
+<<<<<<< HEAD
 from typing import Any, Dict, List
 from pathlib import Path, PosixPath
+=======
+from typing import Any, List
+from pathlib import Path
+>>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61
 import csv
 from neo4j import GraphDatabase
 import pandas as pd
@@ -8,7 +13,6 @@ from uuid import UUID, uuid5
 import hashlib
 from typing import Literal, Tuple
 from collections.abc import Iterator
-from meval.parser import ModelParser
 from itertools import islice
 from collections import defaultdict
 import pandas as pd
@@ -3156,6 +3160,7 @@ class DatabaseValidator(LocalValidator):
         edge_handle: str,
         uuid_property: str = "guid"
     ) -> list[dict[str, str]]:
+        return None
 
 
 # Retain the established local-validation import while callers migrate to LocalValidator.

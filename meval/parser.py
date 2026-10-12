@@ -1,13 +1,18 @@
 from bento_mdf import MDFReader
+<<<<<<< HEAD
 from typing import Tuple, TypeVar
+=======
+from typing import Literal, TypeVar
+>>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61
 
 DataFrame = TypeVar("DataFrame")
 
 
 class ModelParser:
     """A higher level wrapper of MDFReader class from bento-mdf that offers direct and easy access to model features"""
+    STS_URL = "https://sts.cancer.gov/v2"
 
-    def __init__(self, model_file: str, props_file: str, handle: str|None = None):
+    def __init__(self, model_file: str, props_file: str, handle: str|None = None, if_resolve_edps: Literal[True, False] = False):
         """Create a class of ModelParser
 
         Args:
@@ -17,7 +22,10 @@ class ModelParser:
         """        
         self.model_file = model_file
         self.props_file = props_file
-        self.model = MDFReader(self.model_file, self.props_file, handle=handle).model
+        if if_resolve_edps:
+            self.model = MDFReader(self.model_file, self.props_file, handle=handle, resolve_edps=if_resolve_edps, sts_url=self.STS_URL).model
+        else:
+            self.model = MDFReader(self.model_file, self.props_file, handle=handle).model
 
     def get_node_list(self) -> list[str]:
         """Get the list of node names in the model
@@ -358,6 +366,7 @@ class ModelParser:
             raise KeyError(
                 f"Edge from '{edge_src}' to '{edge_dst}' not found in the model."
             )
+<<<<<<< HEAD
 
     def get_all_edges(self) -> list[dict[str, str]]:
         """get a list of dictionaries that describes every edge's src, dst, handle, and multiplicity
@@ -402,3 +411,5 @@ class ModelParser:
             triplet for edge_multiplicity, triplet in all_edges_tuples if edge_multiplicity == multiplicity
         ]
         return filtered_edges
+=======
+>>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61
