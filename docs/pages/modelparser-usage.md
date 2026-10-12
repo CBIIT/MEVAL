@@ -23,7 +23,7 @@ model_parser = ModelParser(
     model_file="model.yml",
     props_file="model-props.yml",
     handle="your_project",  # optional model/commons acronym
-    if_resolve_edps=False # optional if resolve edp terms
+    if_resolve_edps=False,  # optionally resolve EDP terms
 )
 ```
 
