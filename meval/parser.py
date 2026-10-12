@@ -1,9 +1,5 @@
 from bento_mdf import MDFReader
-<<<<<<< HEAD
-from typing import Tuple, TypeVar
-=======
-from typing import Literal, TypeVar
->>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61
+from typing import Tuple, TypeVar, Literal
 
 DataFrame = TypeVar("DataFrame")
 
@@ -366,7 +362,6 @@ class ModelParser:
             raise KeyError(
                 f"Edge from '{edge_src}' to '{edge_dst}' not found in the model."
             )
-<<<<<<< HEAD
 
     def get_all_edges(self) -> list[dict[str, str]]:
         """get a list of dictionaries that describes every edge's src, dst, handle, and multiplicity
@@ -411,5 +406,3 @@ class ModelParser:
             triplet for edge_multiplicity, triplet in all_edges_tuples if edge_multiplicity == multiplicity
         ]
         return filtered_edges
-=======
->>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61

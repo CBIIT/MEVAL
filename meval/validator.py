@@ -1,11 +1,6 @@
 from bento_mdf import MDFDataValidator, MDFReader, MDF
-<<<<<<< HEAD
-from typing import Any, Dict, List
-from pathlib import Path, PosixPath
-=======
 from typing import Any, List
 from pathlib import Path
->>>>>>> f266e1c977617efe85cc349d50f6e21ffc461d61
 import csv
 from neo4j import GraphDatabase
 import pandas as pd
