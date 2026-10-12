@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
 
 DropDownChoices = Literal["ccdi", "icdc", "cds", "c3dc", "ctdc", "ccdi_dcc", "popsci"]
-
+STS_URL: str = "https://sts.cancer.gov/v2"
 
 @flow(
     name="Add UUID to a set of TSV files",
@@ -27,6 +27,7 @@ def add_uuid_to_files(
     subgraph_value: str,
     commons_acronym: DropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_col_name: str = "guid",
     delimiter: str = ";",
 ) -> None:
@@ -52,7 +53,10 @@ def add_uuid_to_files(
     data_model_yaml, props_yaml = download_model_files(
         commons_acronym=commons_acronym, tag=tag
     )
-    model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
+    if if_resolve_edps:
+        model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=True, sts_url=STS_URL)
+    else:
+        model_mdf = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
 
     # output bucket and key prefix for validation results
     output_bucket, output_key_prefix = parse_file_url(output_bucket_loc)

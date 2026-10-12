@@ -1,6 +1,6 @@
 from bento_mdf import MDFDataValidator, MDFReader, MDF
 from typing import Any, List
-from pathlib import Path, PosixPath
+from pathlib import Path
 import csv
 import os
 from neo4j import GraphDatabase
@@ -9,7 +9,6 @@ from uuid import UUID, uuid5
 import hashlib
 from typing import Literal, Tuple
 from collections.abc import Iterator
-from meval.parser import ModelParser
 from itertools import islice
 from collections import defaultdict
 import re

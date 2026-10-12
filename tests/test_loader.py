@@ -284,11 +284,18 @@ class TestLoader(unittest.TestCase):
 
 	def test_delete_nodes_by_prop_value_batches_and_sums_deleted(self) -> None:
 		session = MagicMock()
+		label_result = MagicMock()
+		label_result.__iter__.return_value = iter([{"labels": ["sample"]}])
 
-		def run_side_effect(query, property_value):
-			self.assertIn("WHERE n.guid = prop_val", query)
+		def run_side_effect(query, **kwargs):
+			if "RETURN DISTINCT labels(n)" in query:
+				return label_result
+
+			self.assertIn("MATCH (n:sample {guid: pv})", query)
 			result = MagicMock()
-			result.single.return_value = {"deleted_nodes": len(property_value)}
+			result.single.return_value = {
+				"deleted_nodes": len(kwargs["property_values"])
+			}
 			return result
 
 		session.run.side_effect = run_side_effect
@@ -301,11 +308,11 @@ class TestLoader(unittest.TestCase):
 		)
 
 		self.assertEqual(deleted, 3)
-		self.assertEqual(session.run.call_count, 2)
-		first_call = session.run.call_args_list[0]
-		second_call = session.run.call_args_list[1]
-		self.assertEqual(first_call.kwargs["property_value"], ["g1", "g2"])
-		self.assertEqual(second_call.kwargs["property_value"], ["g3"])
+		self.assertEqual(session.run.call_count, 3)
+		first_delete_call = session.run.call_args_list[1]
+		second_delete_call = session.run.call_args_list[2]
+		self.assertEqual(first_delete_call.kwargs["property_values"], ["g1", "g2"])
+		self.assertEqual(second_delete_call.kwargs["property_values"], ["g3"])
 
 	def test_check_unique_node_returns_pass_for_exactly_one_match(self) -> None:
 		session = MagicMock()

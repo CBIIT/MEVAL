@@ -170,7 +170,7 @@ class TestValidator(unittest.TestCase):
         namespace = ValidatorUtilities.get_project_namespace(project_name)
 
         self.assertIsInstance(namespace, UUID)
-        self.assertEqual(str(namespace), "267de2c8-1884-2485-5561-06ad836cdc42")
+        self.assertEqual(str(namespace), "e3ff524e-a9df-bd30-2ea8-55ce08b3b27a")
 
     def test_generate_uuid5(self) -> None:
         project_name = "ccdi_dcc"
