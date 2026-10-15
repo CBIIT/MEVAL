@@ -1,26 +1,38 @@
+import datetime
 import sys
 import os
 import json
+from typing import Literal
 from meval.validator import DatabaseValidator
 from upsert_workflow import get_secret_task, file_ul
 from prefect import flow, get_run_logger
 from meval.utils import parse_file_url, get_time
+from meval.parser import ModelParser
+from meval.loader import Loader
 from bento_mdf import MDFReader
 from neo4j import GraphDatabase
 from workflows.prefect.validate_submission_against_db import ProjectDropDownChoices
+from workflows.prefect.find_db_floating_nodes import (
+    find_floating_db_nodes_flow,
+    delete_nodes_by_internal_id_flow,
+    find_json_length,
+    extract_internal_id_from_json,
+)
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
 from workflow.validate_submission import download_model_files
 
+STS_URL: str = "https://sts.cancer.gov/v2"
 
 @flow(name="Validate graph database records", log_prints=True)
-def validate_db_records(
+def db_health_check(
     output_bucket_path: str,
     db_account_id: str,
     db_creds_secret_name: str,
     uri_secret_key: str,
     commons_acronym: ProjectDropDownChoices,
     tag: str = "",
+    if_resolve_edps: Literal[True, False] = False,
     uuid_prop_name: str = "guid",
     is_uuid_in_model: bool = True,
     username_secret_key: str | None = None,
@@ -35,15 +47,16 @@ def validate_db_records(
         uri_secret_key: The key name in the secret that contains the database URI.
         commons_acronym (ProjectDropDownChoices): The acronym of the commons project.
         tag (str, optional): A tag to associate with the validation run. Defaults to "".
+        if_resolve_edps (Literal[True, False], optional): Whether to resolve EDPs in the MDF instance. Defaults to False.
         uuid_prop_name (str, optional): The name of the UUID property in the MDF instance. Defaults to "guid".
-        is_uuid_in_model (bool, optional): Whether the UUID is present in the model files. Defaults to True.
+        is_uuid_in_model (bool, optional): Whether the UUID property is present in the model files. Defaults to True.
         username_secret_key (str | None, optional): The key name in the secret that contains the database username. Defaults to None.
         password_secret_key (str | None, optional): The key name in the secret that contains the database password. Defaults to None.
     """
     logger = get_run_logger()
 
     output_bucket, output_key_prefix = parse_file_url(output_bucket_path)
-    output_subfolder = f"validation_db_records_{get_time()}"
+    output_subfolder = f"db_health_checks_{get_time()}"
 
     # download data model files and create MDFReader instance
     data_model_yaml, props_yaml = download_model_files(
@@ -52,7 +65,14 @@ def validate_db_records(
     logger.info(
         f"Downloaded data model, props yaml: {data_model_yaml}, {props_yaml}"
     )
-    mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
+    if if_resolve_edps:
+        logger.info("Resolving EDPs as per the flag if_resolve_edps")
+        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym, resolve_edps=if_resolve_edps, sts_url=STS_URL)
+        parser_instance = ModelParser(data_model_yaml, props_yaml, handle=commons_acronym, if_resolve_edps=if_resolve_edps)
+    else:
+        mdf_instance = MDFReader(data_model_yaml, props_yaml, handle=commons_acronym)
+        parser_instance = ModelParser(data_model_yaml, props_yaml, handle=commons_acronym)
+
     logger.info("Created MDFReader instance for data model features reading")
     val_instance = DatabaseValidator(mdf_instance)
     logger.info("Created DatabaseValidator instance for validation against db")
@@ -80,7 +100,7 @@ def validate_db_records(
         driver = GraphDatabase.driver(uri)
     logger.info("Created a driver instance for db connection")
 
-    # start validating db records
+    # Health check item 1: DB records validation
     val_results = val_instance.validate_db_records(
         driver=driver,
         batch_size=10000,
@@ -114,5 +134,51 @@ def validate_db_records(
         newfile="db_records_validation_summary.json",
     )
     logger.info("Uploaded db_records_validation_summary.json to the output bucket")
+
+    # Health check item 2: edge multiplicity checking
+    edge_mult_results = val_instance.validate_db_edges_multiplicity(
+        driver=driver,
+        model_parser=parser_instance,
+        uuid_property=uuid_prop_name,
+    )
+    logger.info("Completed edge multiplicity validation")
+    if edge_mult_results:
+        logger.warning("Edge multiplicity validation found issues")
+        # write violations to a file
+        edge_mult_results_filename = "edge_multiplicity_validation_results.json"
+        with open(edge_mult_results_filename, "w") as f:
+            json.dump(edge_mult_results, f)
+        logger.info("Saved edge multiplicity validation results to edge_multiplicity_validation_results.json")
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder=output_subfolder,
+            newfile="edge_multiplicity_validation_results.json",
+        )
+        logger.info("Uploaded edge_multiplicity_validation_results.json to the output bucket")
+    else:
+        logger.info("No edge multiplicity violations found")
+
+    # Health check item 3: floating nodes
+    loader_ins = Loader(driver)
+    root_node_label = parser_instance.get_root_node()
+    floating_nodes_filename = f"floating_nodes_wo_path_to_{root_node_label}_{get_time()}.json"
+    find_floating_db_nodes_flow(
+        loader=loader_ins, output_filename=floating_nodes_filename, root_node_label=root_node_label
+    )
+    floating_nodes_length = find_json_length(floating_nodes_filename)
+    if floating_nodes_length == 0:
+        logger.info("No floating nodes found in the database.")
+    else:
+        logger.warning(f"Found {floating_nodes_length} floating nodes (without a path to the root node) in the database.")
+        logger.warning("Uploading the floating nodes info to s3...")
+        file_ul(
+            bucket=output_bucket,
+            output_folder=output_key_prefix,
+            sub_folder=output_subfolder,
+            newfile=floating_nodes_filename,
+        )
+        logger.info("Uploaded floating nodes info to the output bucket.")
+    logger.info("Database health check workflow finished.")
 
     return None

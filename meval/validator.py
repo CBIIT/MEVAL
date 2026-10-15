@@ -3079,7 +3079,6 @@ class DatabaseValidator(LocalValidator):
             model_parser: "ModelParser",
             src_label: str, 
             dst_label: str, 
-            edge_handle: str, 
             uuid_property: str = "guid"
             ) -> List[Dict[str, str]]:
         """
@@ -3098,10 +3097,14 @@ class DatabaseValidator(LocalValidator):
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
         edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
-        
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+
+        # in case the edge multiplicity is not many_to_one, raise an error
+        if edge_multiplicity != "many_to_one":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not many_to_one, found multiplicity: {edge_multiplicity}")
         # add basic information to the validation results
         validation_results = {}
-        validation_results["validation_type"] = "many_to_one"
+        validation_results["edge_validation_type"] = "many_to_one"
         validation_results["edge"] ={
             "src_label": src_label,
             "dst_label": dst_label,
@@ -3125,7 +3128,7 @@ class DatabaseValidator(LocalValidator):
             result = session.run(query)
             violated_edges = [dict(record) for record in result]
         if violated_edges:
-            print(f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing tomore than one {dst_label} data nodes")
+            print(f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing to more than one {dst_label} data nodes")
             formatted_violations = []
             for item in violated_edges:
                 item_dict = {}
@@ -3154,13 +3157,14 @@ class DatabaseValidator(LocalValidator):
         model_parser: "ModelParser",
         src_label: str,
         dst_label: str,
-        edge_handle: str,
         uuid_property: str = "guid"
         ) -> Dict[str, Any]:
         """
         Validates that the edges with the given source and destination labels and edge handle conform to a one-to-many relationship.
         A typical violation can be one dst node pointed to by more than one src nodes of certain type, such as one participant node is found being pointed to by multiple sample nodes when each participant should have only one.
         Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
             src_label (str): The label of the source node.
             dst_label (str): The label of the destination node.
             edge_handle (str): The handle of the edge to validate.
@@ -3171,9 +3175,13 @@ class DatabaseValidator(LocalValidator):
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
         edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+        
+        if edge_multiplicity != "one_to_many":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_many, found multiplicity: {edge_multiplicity}")
         # add basic information to the validation results
         validation_results = {}
-        validation_results["validation_type"] = "one_to_many"
+        validation_results["edge_validation_type"] = "one_to_many"
         validation_results["edge"] = {
             "src_label": src_label,
             "dst_label": dst_label,
@@ -3218,22 +3226,24 @@ class DatabaseValidator(LocalValidator):
                 return validation_results
             else:
                 print(f"No {dst_label} nodes violated the one_to_many multiplicity from {src_label} type nodes.")
-                return validation_results
+                return {}
+    
     def validate_edges_one_to_one(
         self, driver: "GraphDatabase.driver",
         model_parser: "ModelParser",
         src_label: str,
         dst_label: str,
-        edge_handle: str,
         uuid_property: str = "guid"
         ) -> List[Dict[str, str]]:
         """
         Validates that the edges with the given source and destination labels and edge handle conform to a one-to-one relationship.
         A one-to-one relationship is violated in two ways: one src node points to more than one dst node, or one dst node is pointed to by more than one src node. Both sides are checked.
         Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
             src_label (str): The label of the source node.
             dst_label (str): The label of the destination node.
-            edge_handle (str): The handle of the edge to validate.
+            uuid_property (str, optional): The property name for the UUID of the nodes. Defaults to "guid".
         Returns:
             list[dict[str, str]]: A list of dictionaries describing any validation errors found.
         """
@@ -3241,9 +3251,13 @@ class DatabaseValidator(LocalValidator):
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
         edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+
+        if edge_multiplicity != "one_to_one":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_one, found multiplicity: {edge_multiplicity}")
         # add basic information to the validation results
         validation_results = {}
-        validation_results["validation_type"] = "one_to_one"
+        validation_results["edge_validation_type"] = "one_to_one"
         validation_results["edge"] = {
             "src_label": src_label,
             "dst_label": dst_label,
@@ -3331,6 +3345,54 @@ class DatabaseValidator(LocalValidator):
             else:
                 print(f"No one_to_one multiplicity violations found between {src_label} and {dst_label} type nodes.")
                 return {}
+
+    def validate_db_edges_multiplicity(self, driver: "GraphDatabase.driver", model_parser: "ModelParser", uuid_property: str = "guid"):
+        """Checks edges between src label and dst label node types if they complies with multiplicity defined in the data model.
+        For instance, the multiplicity between of_consent_group edge between consent_group and study is many_to_one. This will check
+        if any consent_group type data node is pointing to more than one study type node
+
+        Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
+            uuid_property (str, optional): The property name for the UUID of the nodes. Defaults to "guid".
+        """
+        grouped_edges = model_parser.group_edges_by_multiplicity()
+        multiplicity_keys = list(grouped_edges.keys())
+        unfound_multiplicity = [key for key in multiplicity_keys if key not in ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]]
+        if unfound_multiplicity:
+            raise ValueError(
+                f"Found edges with unfound multiplicities: {unfound_multiplicity}"
+            )
+        if multiplicity_keys == ["many_to_many"]:
+            print("All edges are many_to_many edges. Edges are always valid cardinality wise")
+            return []
+
+        # the structure of val_results will be a list based on edge type
+        # grouped by src, dst, multiplicity
+        # if there are any violations found for an edge type, there will be an item in the val_results
+        val_results = []
+        
+        for multiplicity, edges in grouped_edges.items():
+            if multiplicity == "many_to_many":
+                print("Skipping many_to_many edges as they are always valid cardinality wise.")
+                continue
+            for edge in edges:
+                src = edge["src"]
+                dst = edge["dst"]
+                handle = edge["handle"]
+                print(f"Validating edge {handle} from {src} to {dst} with multiplicity {multiplicity}")
+                if multiplicity == "one_to_one":
+                    edge_val = self.validate_edges_one_to_one(driver, model_parser, src, dst, uuid_property)
+                elif multiplicity == "one_to_many":
+                    edge_val = self.validate_edges_one_to_many(driver, model_parser, src, dst, uuid_property)
+                elif multiplicity == "many_to_one":
+                    edge_val = self.validate_edges_many_to_one(driver, model_parser, src, dst, uuid_property)
+                else:
+                    raise ValueError(f"Unsupported multiplicity: {multiplicity}")
+                if edge_val: # if edge_val is not empty
+                    val_results.append(edge_val)
+        return val_results
+
 
 # Retain the established local-validation import while callers migrate to LocalValidator.
 Validator = LocalValidator

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from bento_mdf import MDFReader
 from typing import Tuple, TypeVar, Literal
 
@@ -406,3 +408,14 @@ class ModelParser:
             triplet for edge_multiplicity, triplet in all_edges_tuples if edge_multiplicity == multiplicity
         ]
         return filtered_edges
+
+    def group_edges_by_multiplicity(self) -> dict[str, list[dict[str, str]]]:
+        """Groups edges by their multiplicity of all edges in the model.
+
+        Returns:
+            dict[str, list[dict[str, str]]]: A dictionary where keys are multiplicities and values are lists of edges with that multiplicity.
+        """
+        grouped = defaultdict(list)
+        for edge in self.get_all_edges():
+            grouped[edge["multiplicity"]].append(edge)
+        return dict(grouped)
