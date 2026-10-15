@@ -372,7 +372,7 @@ class ModelParser:
             list[dict[str, str]]: list of dictionaries of edges
         """
         all_edges_tuples = [
-            (item.multiplicity, key) for key, item in self.mdf.model.edges.items()
+            (item.multiplicity, key) for key, item in self.model.edges.items()
         ]
         return_list = []
         for multiplicity, triplet in all_edges_tuples:
@@ -402,7 +402,7 @@ class ModelParser:
                 f"Multiplicity must be one of {allowed_multiplicities}, got '{multiplicity}'"
             )
         all_edges_tuples = [
-            (item.multiplicity, key) for key, item in self.mdf.model.edges.items()
+            (item.multiplicity, key) for key, item in self.model.edges.items()
         ]
         filtered_edges = [
             triplet for edge_multiplicity, triplet in all_edges_tuples if edge_multiplicity == multiplicity
