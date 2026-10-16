@@ -14,9 +14,7 @@ from neo4j import GraphDatabase
 from workflows.prefect.validate_submission_against_db import ProjectDropDownChoices
 from workflows.prefect.find_db_floating_nodes import (
     find_floating_db_nodes_flow,
-    delete_nodes_by_internal_id_flow,
     find_json_length,
-    extract_internal_id_from_json,
 )
 
 sys.path.insert(0, os.path.abspath("./libs/prefect-toolkit"))
@@ -101,6 +99,7 @@ def db_health_check(
     logger.info("Created a driver instance for db connection")
 
     # Health check item 1: DB records validation
+    logger.info("Starting DB records validation")
     val_results = val_instance.validate_db_records(
         driver=driver,
         batch_size=10000,
@@ -136,6 +135,7 @@ def db_health_check(
     logger.info("Uploaded db_records_validation_summary.json to the output bucket")
 
     # Health check item 2: edge multiplicity checking
+    logger.info("Starting edge multiplicity validation")
     edge_mult_results = val_instance.validate_db_edges_multiplicity(
         driver=driver,
         model_parser=parser_instance,
@@ -160,6 +160,7 @@ def db_health_check(
         logger.info("No edge multiplicity violations found")
 
     # Health check item 3: floating nodes
+    logger.info("Starting finding floating/orphan nodes in DB")
     loader_ins = Loader(driver)
     root_node_label = parser_instance.get_root_node()
     floating_nodes_filename = f"floating_nodes_wo_path_to_{root_node_label}_{get_time()}.json"
