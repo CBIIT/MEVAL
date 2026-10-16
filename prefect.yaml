@@ -251,16 +251,16 @@ deployments:
       work_queue_name: null
       job_variables: {}
 
-  - name: TEST-meval-validate-db-records
+  - name: meval-db-health-check
     version: null
-    tags: ["MEVAL", "validation", "TEST", "Qiong"]
+    tags: ["MEVAL", "validation"]
     description: "Prefect test deployment for validating a submission against the database"
-    entrypoint: workflows/prefect/validate_db_records.py:validate_db_records
+    entrypoint: workflows/prefect/db_health_check.py:db_health_check
     pull:
       - prefect.deployments.steps.git_clone:
           id: main_repo_clone_step
           repository: https://github.com/CBIIT/MEVAL.git
-          branch: CCDIDC-678_validate_DB_records
+          branch: main
           include_submodules: True
       - prefect.deployments.steps.pip_install_requirements:
           requirements_file: requirements_python3.13.txt

@@ -12,7 +12,7 @@ permalink: /modelparser/usage/
 - [Instantiation](#instantiation)
 - [Node introspection](#node-introspection)
 - [Property introspection](#property-introspection)
-- [Node relationships (edges)](#node-relationships-edges)
+- [Model navigation and edge introspection](#model-navigation-and-edge-introspection)
 
 ## Instantiation
 
@@ -69,22 +69,49 @@ model_parser.if_prop_required("participant", "participant_id")  # True
 
 All of the above raise `KeyError` if the node and/or property is not found in the model, and `ValueError` (via `get_prop_attr_dict`, `get_prop_type`, `get_permissible_values`, and the `if_prop_*` methods) if the node exists but does not have the given property.
 
-## Node relationships (edges)
+## Model navigation and edge introspection
 
+### Navigate node relationships
 - `get_parent_nodes(node_name)` → list of parent node names for a node.
 - `get_child_nodes(node_name)` → list of child node names for a node.
 - `get_root_node()` → the single root node name in the model (a node with no parents, typically `study`). Raises `ValueError` if none is found.
 - `if_root_node(node_name)` → whether a node has no parent nodes.
 - `if_leaf_node(node_name)` → whether a node has no child nodes.
-- `get_all_edge_triplets()` → list of all `(handle, edge_src, edge_dst)` triplets in the model.
-- `get_edge_multiplicity(edge_src, edge_dst)` → multiplicity of the edge between two nodes (e.g. `"many_to_one"`, `"one_to_many"`).
-- `get_edge_handle(edge_src, edge_dst)` → the relationship handle/type name between two nodes.
 
 ```python
 model_parser.get_parent_nodes("sample")   # ["participant"]
+model_parser.get_child_nodes("participant")  # ["sample", ...]
 model_parser.get_root_node()              # "study"
+model_parser.if_leaf_node("sample")       # True, if sample has no children
+```
+
+### Inspect edges and multiplicities
+- `get_all_edge_triplets()` → list of all `(handle, edge_src, edge_dst)` triplets in the model.
+- `get_edge_multiplicity(edge_src, edge_dst)` → multiplicity of the edge between two nodes (e.g. `"many_to_one"`, `"one_to_many"`).
+- `get_edge_handle(edge_src, edge_dst)` → the relationship handle/type name between two nodes.
+- `get_all_edges()` → list of dictionaries describing every model edge, with `src`, `dst`, `handle`, and `multiplicity` keys.
+- `get_edges_by_multiplicity(multiplicity)` → list of edge triplets `(handle, edge_src, edge_dst)` for the specified multiplicity. The accepted values are `"one_to_one"`, `"one_to_many"`, `"many_to_one"`, and `"many_to_many"`; any other value raises `ValueError`.
+- `group_edges_by_multiplicity()` → dictionary mapping each multiplicity present in the model to a list of edge dictionaries in the same format as `get_all_edges()`.
+
+```python
+model_parser.get_all_edge_triplets()
+# [("of_participant", "sample", "participant"), ...]
 model_parser.get_edge_handle(edge_src="sample", edge_dst="participant")  # "of_participant"
 model_parser.get_edge_multiplicity(edge_src="sample", edge_dst="participant")  # "many_to_one"
+
+all_edges = model_parser.get_all_edges()
+# [{"src": "sample", "dst": "participant",
+#   "handle": "of_participant", "multiplicity": "many_to_one"}, ...]
+
+many_to_one_edges = model_parser.get_edges_by_multiplicity("many_to_one")
+# [("of_participant", "sample", "participant"), ...]
+
+edges_by_multiplicity = model_parser.group_edges_by_multiplicity()
+# {"many_to_one": [{"src": "sample", "dst": "participant",
+#                   "handle": "of_participant",
+#                   "multiplicity": "many_to_one"}, ...], ...}
 ```
 
 `get_edge_multiplicity` and `get_edge_handle` raise `KeyError` if no edge exists between the given source and destination nodes.
+
+These helpers are useful when applying model rules across all edges, such as checking that database relationships conform to their declared multiplicities.
