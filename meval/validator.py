@@ -1,8 +1,7 @@
 from bento_mdf import MDFDataValidator, MDFReader, MDF
-from typing import Any, List
+from typing import Any, Dict, List, Generator
 from pathlib import Path
 import csv
-import os
 from neo4j import GraphDatabase
 import pandas as pd
 from uuid import UUID, uuid5
@@ -11,6 +10,8 @@ from typing import Literal, Tuple
 from collections.abc import Iterator
 from itertools import islice
 from collections import defaultdict
+import pandas as pd
+import json
 import re
 
 # for validating record from a submission file against db
@@ -2831,6 +2832,566 @@ class RemoteValidator(ValidatorUtilities):
             "failed_row_count": len(failed_row_list),
             "projected_changes_of_passed_rows": projected_changes_of_passed_rows,}
         return passed_row_list, failed_row_list, val_summary, validation_results
+
+class DatabaseValidator(LocalValidator):
+    """Validate records and inspect data integrity of the database.
+
+    Inherits from LocalValidator to leverage local validation capabilities
+    while adding database-specific validation methods.
+    Note: Initialization requires mdf instance because of LocalValidator inheritance.
+    """
+    @classmethod
+    def list_all_labels(cls, driver: "GraphDatabase.driver") -> list:
+        """List all possible labels in the graph database."""
+        with driver.session() as session:
+            result = session.run("MATCH (n) RETURN DISTINCT labels(n) AS labels")
+            label_set = set()
+            for record in result:
+                for label in record["labels"]:
+                    label_set.add(label)
+        return list(label_set)
+
+    @classmethod
+    def _clean_db_node_properties(cls, node_properties: Dict[str, Any], uuid_property: str, uuid_in_model: bool = False) -> Dict[str, Any]:
+        """Cleanup the properties of a node and prepare the record for validation against data model.
+        Data nodes in DB comes with timestamp properties that is not part of the data model. These timestamp properties need to be removed before record validation against data model.
+        Depending on project, uuid properties may or may not be included in the data model. "guid" property is presented in every node type in CCDI-DCC model, while no uuid is found in every node type in GC model
+            - If uuid property is included in the data model, it can be kept.
+            - if uuid is not included in the data model, it should be removed.
+        
+        NOTE: This is different from fetching nodes from the database for validation against DB. The node fetching for validation against DB is for record comparison.
+        The records from DB don't need to be cleaned in the same way for validation against model.
+        Args:
+            node_properties (dict): The properties of the node fetched from the database.
+            uuid_property (str): The name of the UUID property.
+            uuid_in_model (bool, optional): Indicates whether the UUID property is present in the data model. Defaults to False.
+        Returns:
+            dict: The cleaned node properties with timestamp and optionally UUID properties removed.
+        """
+        keys_to_remove = ["created", "updated"]
+        if not uuid_in_model: # uuid not a part of the data model
+            keys_to_remove.append(uuid_property)
+        filtered = {k: v for k, v in node_properties.items() if k not in keys_to_remove}
+        return filtered
+
+    @classmethod
+    def fetch_nodes_by_label(cls, driver: "GraphDatabase.driver", label: str, batch_size:int = 3000) -> Generator[List[Dict], None, None]:
+        """A generator that fetches all nodes with the specified label from the graph database.
+        NOTE: this method returns raw records from the database, which contains timestamp props (not in the data model) and uuid prop (may ot may not be in the data model)
+        """ 
+        with driver.session() as session:
+            offset = 0
+            while True:
+                result = session.run(
+                    f"MATCH (n:{label}) RETURN n SKIP $offset LIMIT $batch_size",
+                    offset=offset,
+                    batch_size=batch_size,
+                )
+                records = list(result)
+                if not records:
+                    break
+                return_records = []
+                for record in records:
+                    props = dict(record["n"])
+                    return_records.append(props)
+                yield return_records
+                offset += batch_size
+
+    def validate_db_records_by_label(self, node_label: str, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> Tuple[int, int,  List[Dict]]:
+        """Validates all the nodes of a graph database instance based on the specified node label against data model(mdf)
+
+        Args:
+            node_label (str): label of the node to validate
+            driver (GraphDatabase.driver): The database driver used to connect to the graph database.
+            batch_size (int, optional): The number of nodes to fetch per batch. Defaults to 3000.
+            uuid_property (str, optional): The name of the UUID property in the database nodes. Defaults to "guid".
+            uuid_in_model (bool, optional): Indicates whether the UUID property is expected to be present in the data model. Defaults to False.
+
+        Returns:
+            Tuple[int, int, List[dict]]: A tuple containing the total number of nodes processed, the number of nodes that passed validation, and a list of dictionaries representing the flagged nodes (with warnings or errors) based on validation results.
+        """
+        batch_generator = self.fetch_nodes_by_label(driver, node_label, batch_size=batch_size)
+        flagged_nodes = []
+        node_count = 0
+        passed_count = 0
+        for batch in batch_generator:
+            for node_properties in batch:
+                node_count +=1
+                cleaned_properties = self._clean_db_node_properties(node_properties, uuid_property=uuid_property, uuid_in_model=uuid_in_model)
+                # Perform validation against the data model (mdf) here
+                # For now, we just append the cleaned properties as a placeholder
+                if_pass, val_result = self.validate_one_record(node_name=node_label, record=cleaned_properties)
+                if if_pass:
+                    passed_count += 1
+                    if val_result.get("warnings", []):  # if warnings are not empty
+                        flagged_nodes.append({
+                            "label": node_label,
+                            "valid": if_pass,
+                            "data_record": cleaned_properties, # remove timestamps, and guid if applicable
+                            "validation_result": val_result
+                        })
+                    else: # no warning and the if_pass is True. There is no validation messages except pass
+                        pass
+                else: # validation failed for this node
+                    flagged_nodes.append({
+                        "label": node_label,
+                        "valid": if_pass,
+                        "data_record": cleaned_properties, # remove timestamps, and guid if applicable
+                        "validation_result": val_result
+                    })
+        return node_count, passed_count, flagged_nodes
+
+    def validate_db_records(self, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> dict:
+        """Validates all the records in the database.
+
+        Args:
+            driver (GraphDatabase.driver): The database driver used to connect to the graph database.
+            batch_size (int, optional): The number of nodes to fetch per batch. Defaults to 3000.
+            uuid_property (str, optional): The name of the UUID property in the database nodes. Defaults to "guid".
+            uuid_in_model (bool, optional): Indicates whether the UUID property is expected to be present in the data model. Defaults to False.
+
+        Returns:
+            dict: A dictionary containing validation results for all labels, with each label mapping to its flagged nodes.
+        """
+        # Implement the logic to validate all records in the database
+        label_list = self.list_all_labels(driver=driver)
+        db_val_results ={}
+        for label in label_list:
+            node_count, passed_count, flagged_nodes = self.validate_db_records_by_label(
+                label, driver, batch_size, uuid_property, uuid_in_model
+            )
+            db_val_results[label] = {
+                "node_count": node_count,
+                "passed_count": passed_count,
+                "flagged_nodes": flagged_nodes
+            }
+
+        return db_val_results
+
+    @staticmethod
+    def get_basic_val_matrix(db_validation_results: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+        """Generates basic summary matrix from the return of cls.validate_db_records
+
+        Args:
+            db_validation_results (dict): The return of cls.validate_db_records
+
+        Returns:
+            pd.DataFrame: A pandas DataFrame obj that contains basic matrix of db validation results by node type
+        """
+        val_matrix = pd.DataFrame(
+            columns=[
+                "label",
+                "node_count",
+                "passed_count",
+                "failed_counts(with errors)",
+                "flagged_node_counts",
+                "node_with_warnings_but_valid",
+            ]
+        )
+        for key in db_validation_results.keys():
+            key_row = {}
+            key_row["label"] = key
+            key_row["node_count"] = db_validation_results[key]["node_count"]
+            key_row["passed_count"] = db_validation_results[key]["passed_count"]
+            key_row["failed_counts(with errors)"] = (
+                db_validation_results[key]["node_count"]
+                - db_validation_results[key]["passed_count"]
+            )
+            key_row["flagged_node_counts"] = len(db_validation_results[key]["flagged_nodes"])
+            key_row["node_with_warnings_but_valid"] = len([n for n in db_validation_results[key]["flagged_nodes"] if n["valid"]])
+            val_matrix = pd.concat([val_matrix, pd.DataFrame([key_row])], ignore_index=True)
+        return val_matrix
+
+    @staticmethod
+    def val_results_simplified(val_json_filepath: str) -> Dict[str, Any]:
+        """Simplifies the validation results from a JSON file.
+
+        Args:
+            val_json_filepath (str): The file path to the JSON file containing validation results.
+
+        Returns:
+            dict: A simplified dictionary of validation results.
+        """
+        # val summary is a DataFrame that will store simplified validation results for each flagged node.
+        val_summary=pd.DataFrame(columns=["node_type", "level", "type", "loc", "input"])
+        new_line_to_add = []
+        with open(val_json_filepath, "r", encoding="utf-8") as f:
+            records = json.load(f)
+            for type, val in records.items():
+                val_flagged_nodes = val.get("flagged_nodes", []) # if no flagged nodes, return en empty list
+                if val_flagged_nodes: # there are flagged nodes
+                    for node in val_flagged_nodes:
+                        node_val = node.get("validation_result", {})
+                        node_val_warnings = node_val.get("warnings", [])
+                        node_val_errors = node_val.get("errors", [])
+                        if node_val_warnings: # if there are warning items
+                            for warning in node_val_warnings:
+                                newline_to_add = {
+                                    "node_type": type,
+                                    "level": "warning",
+                                    "type": warning.get("type"),
+                                    "loc": warning.get("loc")[0] if warning.get("loc") else None,
+                                    "input": warning.get("input")
+                                }
+                                new_line_to_add.append(newline_to_add)
+                        if node_val_errors: # if there are error items
+                            for error in node_val_errors:
+                                if error.get("type") == "missing":
+                                    newline_to_add = {
+                                        "node_type": type,
+                                        "level": "error",
+                                        "type": error.get("type"),
+                                        "loc": error.get("loc")[0] if error.get("loc") else None,
+                                        "input": "", # is prop is missing, no input
+                                    }
+                                else:
+                                    newline_to_add = {
+                                        "node_type": type,
+                                        "level": "error",
+                                        "type": error.get("type"),
+                                        "loc": error.get("loc")[0] if error.get("loc") else None,
+                                        "input": error.get("input")
+                                    }
+                                new_line_to_add.append(newline_to_add)
+        val_summary = pd.concat([val_summary, pd.DataFrame(new_line_to_add)], ignore_index=True)
+
+        # group the val_summary and aggregate only the unique input
+        grouped = (
+            val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
+            .agg(lambda s: sorted(set(s.dropna().astype(str))))
+            .reset_index()
+            .rename(columns={"input": "violated_inputs_uniq"})
+        )
+
+        # add a count of how many unique values and total occurrences
+        grouped["n_unique"] = grouped["violated_inputs_uniq"].apply(len)
+        grouped["n_total"] = (
+            val_summary.groupby(["node_type", "level", "type", "loc"])["input"]
+            .size()
+            .values
+        )
+        # turn grouped into dictionary
+        simplified_results = grouped.to_dict(orient="records")
+        return simplified_results
+
+    def validate_edges_many_to_one(
+            self, driver: "GraphDatabase.driver",
+            model_parser: "ModelParser",
+            src_label: str, 
+            dst_label: str, 
+            uuid_property: str = "guid"
+            ) -> List[Dict[str, str]]:
+        """
+        Validates that the edges with the given source and destination labels and edge handle conform to a many-to-one relationship.
+        A typical violation can be one src node points to more than one dst nodes of certain type, such as one a sample node is found pointing to multiple participant nodes. 
+
+        Args:
+            src_label (str): The label of the source node.
+            dst_label (str): The label of the destination node.
+            edge_handle (str): The handle of the edge to validate.
+
+        Returns:
+            list[dict[str, str]]: A list of dictionaries describing any validation errors found.
+        """
+        # because this test only report edges from source nodes. We should get the key prop of src node type
+        src_key_property = model_parser.get_node_key_prop(src_label)
+        dst_key_property = model_parser.get_node_key_prop(dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+
+        # in case the edge multiplicity is not many_to_one, raise an error
+        if edge_multiplicity != "many_to_one":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not many_to_one, found multiplicity: {edge_multiplicity}")
+        # add basic information to the validation results
+        validation_results = {}
+        validation_results["edge_validation_type"] = "many_to_one"
+        validation_results["edge"] ={
+            "src_label": src_label,
+            "dst_label": dst_label,
+            "edge_handle": edge_handle,
+            "edge_multiplicity": edge_multiplicity
+        }
+
+        query = f"""
+        MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
+        WITH a,
+             count(b) AS degree,
+             collect({{key: b.{dst_key_property}, uuid: b.{uuid_property}}}) AS dsts
+        WHERE degree > 1
+        RETURN a.{src_key_property} AS src_key_prop,
+               a.{uuid_property}    AS src_uuid,
+               dsts,
+               degree
+        ORDER BY degree DESC
+        """
+        with driver.session() as session:
+            result = session.run(query)
+            violated_edges = [dict(record) for record in result]
+        if violated_edges:
+            print(f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing to more than one {dst_label} data nodes")
+            formatted_violations = []
+            for item in violated_edges:
+                item_dict = {}
+                item_dict[src_key_property] = item["src_key_prop"] # this might be "sample_id": "sample_a"
+                item_dict[uuid_property] = item["src_uuid"]
+                item_dict["number_of_dst"] = item["degree"]
+                # dsts is a list
+                dst_list = []
+                for dst in item["dsts"]:
+                    dst_list.append(
+                        {
+                            dst_key_property: dst["key"], # this might be "participant_id": "participant_b"
+                            uuid_property: dst["uuid"]
+                        }
+                    )
+                item_dict["dst_nodes"] = dst_list
+                formatted_violations.append(item_dict)
+            validation_results["violations"] = formatted_violations
+            return validation_results
+        else:
+            print(f"No {src_label} nodes violated the many_to_one multiplicity towards {dst_label} type nodes.")
+            return {}
+
+    def validate_edges_one_to_many(
+        self, driver: "GraphDatabase.driver",
+        model_parser: "ModelParser",
+        src_label: str,
+        dst_label: str,
+        uuid_property: str = "guid"
+        ) -> Dict[str, Any]:
+        """
+        Validates that the edges with the given source and destination labels and edge handle conform to a one-to-many relationship.
+        A typical violation can be one dst node pointed to by more than one src nodes of certain type, such as one participant node is found being pointed to by multiple sample nodes when each participant should have only one.
+        Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
+            src_label (str): The label of the source node.
+            dst_label (str): The label of the destination node.
+            edge_handle (str): The handle of the edge to validate.
+        Returns:
+            dict[str, Any]: A dictionary containing validation results, including any violations found.
+        """
+        # because this test reports dst nodes that are pointed to by multiple srcs, we need the key prop of both node types
+        src_key_property = model_parser.get_node_key_prop(src_label)
+        dst_key_property = model_parser.get_node_key_prop(dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+        
+        if edge_multiplicity != "one_to_many":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_many, found multiplicity: {edge_multiplicity}")
+        # add basic information to the validation results
+        validation_results = {}
+        validation_results["edge_validation_type"] = "one_to_many"
+        validation_results["edge"] = {
+            "src_label": src_label,
+            "dst_label": dst_label,
+            "edge_handle": edge_handle,
+            "edge_multiplicity": edge_multiplicity
+        }
+        query = f"""
+        MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
+        WITH b,
+             count(a) AS degree,
+             collect({{key: a.{src_key_property}, uuid: a.{uuid_property}}}) AS srcs
+        WHERE degree > 1
+        RETURN b.{dst_key_property} AS dst_key_prop,
+               b.{uuid_property}    AS dst_uuid,
+               srcs,
+               degree
+        ORDER BY degree DESC
+        """
+        with driver.session() as session:
+            result = session.run(query)
+            violated_edges = [dict(record) for record in result]
+            if violated_edges:
+                print(f"Found {len(violated_edges)} {dst_label} nodes as destination node violated the one_to_many multiplicity, by being pointed to by more than one {src_label} data nodes")
+                formatted_violations = []
+                for item in violated_edges:
+                    item_dict = {}
+                    item_dict[dst_key_property] = item["dst_key_prop"]  # this might be "participant_id": "participant_a"
+                    item_dict[uuid_property] = item["dst_uuid"]
+                    item_dict["number_of_src"] = item["degree"]
+                    # srcs is a list
+                    src_list = []
+                    for src in item["srcs"]:
+                        src_list.append(
+                            {
+                                src_key_property: src["key"],
+                                uuid_property: src["uuid"]
+                            }
+                        )
+                    item_dict["src_nodes"] = src_list
+                    formatted_violations.append(item_dict)
+                validation_results["violations"] = formatted_violations
+                return validation_results
+            else:
+                print(f"No {dst_label} nodes violated the one_to_many multiplicity from {src_label} type nodes.")
+                return {}
+    
+    def validate_edges_one_to_one(
+        self, driver: "GraphDatabase.driver",
+        model_parser: "ModelParser",
+        src_label: str,
+        dst_label: str,
+        uuid_property: str = "guid"
+        ) -> List[Dict[str, str]]:
+        """
+        Validates that the edges with the given source and destination labels and edge handle conform to a one-to-one relationship.
+        A one-to-one relationship is violated in two ways: one src node points to more than one dst node, or one dst node is pointed to by more than one src node. Both sides are checked.
+        Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
+            src_label (str): The label of the source node.
+            dst_label (str): The label of the destination node.
+            uuid_property (str, optional): The property name for the UUID of the nodes. Defaults to "guid".
+        Returns:
+            list[dict[str, str]]: A list of dictionaries describing any validation errors found.
+        """
+        # one_to_one must be checked from both the src side and the dst side
+        src_key_property = model_parser.get_node_key_prop(src_label)
+        dst_key_property = model_parser.get_node_key_prop(dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
+        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+
+        if edge_multiplicity != "one_to_one":
+            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_one, found multiplicity: {edge_multiplicity}")
+        # add basic information to the validation results
+        validation_results = {}
+        validation_results["edge_validation_type"] = "one_to_one"
+        validation_results["edge"] = {
+            "src_label": src_label,
+            "dst_label": dst_label,
+            "edge_handle": edge_handle,
+            "edge_multiplicity": edge_multiplicity
+        }
+
+        # src side: a src node pointing to more than one dst node
+        src_side_query = f"""
+        MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
+        WITH a,
+             count(b) AS degree,
+             collect({{key: b.{dst_key_property}, uuid: b.{uuid_property}}}) AS dsts
+        WHERE degree > 1
+        RETURN a.{src_key_property} AS src_key_prop,
+               a.{uuid_property}    AS src_uuid,
+               dsts,
+               degree
+        ORDER BY degree DESC
+        """
+
+        # dst side: a dst node pointed to by more than one src node
+        dst_side_query = f"""
+        MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
+        WITH b,
+             count(a) AS degree,
+             collect({{key: a.{src_key_property}, uuid: a.{uuid_property}}}) AS srcs
+        WHERE degree > 1
+        RETURN b.{dst_key_property} AS dst_key_prop,
+               b.{uuid_property}    AS dst_uuid,
+               srcs,
+               degree
+        ORDER BY degree DESC
+        """
+
+        with driver.session() as session:
+            src_violated = [dict(record) for record in session.run(src_side_query)]
+            dst_violated = [dict(record) for record in session.run(dst_side_query)]
+
+            src_side_violations = []
+            dst_side_violations = []
+
+            if src_violated:
+                print(f"Found {len(src_violated)} {src_label} nodes violating the one_to_one multiplicity, by pointing to more than one {dst_label} data nodes")
+                for item in src_violated:
+                    item_dict = {}
+                    item_dict[src_key_property] = item["src_key_prop"]  # this might be "sample_id": "sample_a"
+                    item_dict[uuid_property] = item["src_uuid"]
+                    item_dict["number_of_dst"] = item["degree"]
+                    dst_list = []
+                    for dst in item["dsts"]:
+                        dst_list.append(
+                            {
+                                dst_key_property: dst["key"],  # this might be "participant_id": "participant_b"
+                                uuid_property: dst["uuid"]
+                            }
+                        )
+                    item_dict["dst_nodes"] = dst_list
+                    src_side_violations.append(item_dict)
+
+            if dst_violated:
+                print(f"Found {len(dst_violated)} {dst_label} nodes violating the one_to_one multiplicity, by being pointed to by more than one {src_label} data nodes")
+                for item in dst_violated:
+                    item_dict = {}
+                    item_dict[dst_key_property] = item["dst_key_prop"]  # this might be "participant_id": "participant_a"
+                    item_dict[uuid_property] = item["dst_uuid"]
+                    item_dict["number_of_src"] = item["degree"]
+                    src_list = []
+                    for src in item["srcs"]:
+                        src_list.append(
+                            {
+                                src_key_property: src["key"],  # this might be "sample_id": "sample_b"
+                                uuid_property: src["uuid"]
+                            }
+                        )
+                    item_dict["src_nodes"] = src_list
+                    dst_side_violations.append(item_dict)
+
+            if src_side_violations or dst_side_violations:
+                validation_results["violations"] = {
+                    "src_side_violations": src_side_violations,
+                    "dst_side_violations": dst_side_violations
+                }
+                return validation_results
+            else:
+                print(f"No one_to_one multiplicity violations found between {src_label} and {dst_label} type nodes.")
+                return {}
+
+    def validate_db_edges_multiplicity(self, driver: "GraphDatabase.driver", model_parser: "ModelParser", uuid_property: str = "guid"):
+        """Checks edges between src label and dst label node types if they complies with multiplicity defined in the data model.
+        For instance, the multiplicity between of_consent_group edge between consent_group and study is many_to_one. This will check
+        if any consent_group type data node is pointing to more than one study type node
+
+        Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            model_parser (ModelParser): The model parser containing schema information.
+            uuid_property (str, optional): The property name for the UUID of the nodes. Defaults to "guid".
+        """
+        grouped_edges = model_parser.group_edges_by_multiplicity()
+        multiplicity_keys = list(grouped_edges.keys())
+        unfound_multiplicity = [key for key in multiplicity_keys if key not in ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]]
+        if unfound_multiplicity:
+            raise ValueError(
+                f"Found edges with unfound multiplicities: {unfound_multiplicity}"
+            )
+        if multiplicity_keys == ["many_to_many"]:
+            print("All edges are many_to_many edges. Edges are always valid cardinality wise")
+            return []
+
+        # the structure of val_results will be a list based on edge type
+        # grouped by src, dst, multiplicity
+        # if there are any violations found for an edge type, there will be an item in the val_results
+        val_results = []
+        
+        for multiplicity, edges in grouped_edges.items():
+            if multiplicity == "many_to_many":
+                print("Skipping many_to_many edges as they are always valid cardinality wise.")
+                continue
+            for edge in edges:
+                src = edge["src"]
+                dst = edge["dst"]
+                handle = edge["handle"]
+                print(f"Validating edge {handle} from {src} to {dst} with multiplicity {multiplicity}")
+                if multiplicity == "one_to_one":
+                    edge_val = self.validate_edges_one_to_one(driver, model_parser, src, dst, uuid_property)
+                elif multiplicity == "one_to_many":
+                    edge_val = self.validate_edges_one_to_many(driver, model_parser, src, dst, uuid_property)
+                elif multiplicity == "many_to_one":
+                    edge_val = self.validate_edges_many_to_one(driver, model_parser, src, dst, uuid_property)
+                else:
+                    raise ValueError(f"Unsupported multiplicity: {multiplicity}")
+                if edge_val: # if edge_val is not empty
+                    val_results.append(edge_val)
+        return val_results
 
 
 # Retain the established local-validation import while callers migrate to LocalValidator.

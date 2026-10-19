@@ -5,13 +5,14 @@ permalink: /validator/usage/
 ---
 # Validator Usage
 
-`meval/validator.py` enforces MDF-based data quality checks on submission TSV files. Validation is split across three classes:
+`meval/validator.py` provides MDF-based data quality checks for submission TSV files and records already stored in a graph database. Validation is split across four classes:
 
-- **`ValidatorUtilities`** — shared TSV-reading, record-preparation, and UUID5 utilities used by both validators below. All methods are static/class methods; you generally don't use this class directly, but its methods are inherited by `LocalValidator` and `RemoteValidator`.
+- **`ValidatorUtilities`** — shared TSV-reading, record-preparation, and UUID5 utilities inherited by `LocalValidator` and `RemoteValidator` (and by `DatabaseValidator` through `LocalValidator`). You generally don't use this class directly.
 - **`LocalValidator(ValidatorUtilities)`** — checks a TSV file (or set of files) for internal consistency: file/column format, per-record property validity, cross-file relationship (linkage) validity, and duplicate key entries — without needing a database connection. Instantiated with an `MDFReader`.
 >**ATTENTION**: LocalValidator validates tsv files before uuid creation, meaning linkage columns in file are presented as <parent_node>.<panret_node_key_peop>. such as participant.participant_id. 
 - **`RemoteValidator(ValidatorUtilities)`** — checks a TSV file against an existing graph database to determine whether records/relationships would be created vs. updated, and whether they are valid to load (e.g. relationship targets exist somewhere). All methods are class methods, so no instantiation is required.
 > **ATTENTION**: RemoteValidator uses UUID as the identifier to match record in the database. Users are expected to create UUID for their submission files before they use RemoteValidator for validation against a database.
+- **`DatabaseValidator(LocalValidator)`** — validates records already in the database against the MDF model and checks stored edges against model-defined multiplicities. Instantiated with an `MDFReader` and used with a graph database driver.
 
 
 ## Contents
@@ -19,7 +20,8 @@ permalink: /validator/usage/
 - [Instantiation](#instantiation)
 - [Local validation](#local-validation)
 - [UUID generation](#uuid-generation)
-- [Validation against an existing database](#validation-against-an-existing-database)
+- [Submission validation against an existing database](#submission-validation-against-an-existing-database)
+- [Database integrity validation](#database-integrity-validation)
 - [Notes](#notes)
 
 ## Instantiation
@@ -103,7 +105,7 @@ ValidatorUtilities.add_uuid_to_tsv_file(
 ### `get_project_namespace(project_name)`
 Returns the `uuid.UUID` namespace derived from `md5(project_name)`, used internally by `generate_uuid5`.
 
-## Validation against an existing database
+## Submission validation against an existing database
 
 > **ATTENTION**: Validation submission files against a database can only be performed after UUID creation.
 
@@ -142,8 +144,57 @@ passed, failed, summary, results = RemoteValidator.validate_tsv_in_db(
 - `record_comparison(record_file, record_db, compare_mode)` — a `ValidatorUtilities` method that diffs a file record against its database record, returning `{"added": ..., "removed": ..., "changed": ...}`. Under `"Upsert"` mode, `removed` is always empty since upsert does not delete missing properties; under `"Update"` mode, missing properties are reported as `removed`.
 - `read_tsv_records_id`, `read_tsv_rels_id`, `read_full_records_in_tsv`, `read_record_by_row_in_tsv` — low-level `ValidatorUtilities` generators/readers used internally to stream ids, relationships, and prepared records row-by-row for the DB validation pass.
 
+## Database integrity validation
+
+> **ATTENTION**: `DatabaseValidator` inspects data already stored in the graph database. It is separate from `RemoteValidator`, which validates submission TSV files against the database.
+
+`DatabaseValidator` inherits the local validation methods and requires an `MDFReader` at initialization. Its database methods require a Neo4j/Memgraph `driver`. `validate_db_records` fetches the nodes by label in batches, removes the database timestamp properties (`created` and `updated`), and removes the UUID property before model validation when that UUID is not part of the MDF model.
+
+```python
+from bento_mdf import MDFReader
+from neo4j import GraphDatabase
+from meval.parser import ModelParser
+from meval.validator import DatabaseValidator
+
+mdf = MDFReader("model.yml", "model-props.yml", handle="ccdi_dcc")
+model_parser = ModelParser("model.yml", "model-props.yml", handle="ccdi_dcc")
+validator = DatabaseValidator(mdf)
+
+with GraphDatabase.driver(database_uri, auth=(username, password)) as driver:
+    record_results = validator.validate_db_records(
+        driver=driver,
+        batch_size=3000,
+        uuid_property="guid",
+        uuid_in_model=True,
+    )
+    summary = validator.get_basic_val_matrix(record_results)
+    edge_violations = validator.validate_db_edges_multiplicity(
+        driver=driver,
+        model_parser=model_parser,
+        uuid_property="guid",
+    )
+```
+
+### `validate_db_records(driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
+Validates all nodes returned by the database label query against the MDF model. Returns a dict keyed by node label; each value contains `node_count`, `passed_count`, and `flagged_nodes`. A node is flagged if it has validation errors or warnings. Each flagged-node entry includes its `label`, `valid` status, cleaned `data_record`, and `validation_result`.
+
+Use `uuid_in_model=True` when the UUID property is defined in the MDF; otherwise, the configured `uuid_property` is excluded from the record before validation.
+
+### `validate_db_records_by_label(node_label, driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
+Validates nodes with one label. Returns `(node_count, passed_count, flagged_nodes)`, using the same flagged-node structure as `validate_db_records`.
+
+### `get_basic_val_matrix(db_validation_results)`
+Converts the result of `validate_db_records` into a pandas DataFrame with per-label counts for total nodes, passed nodes, nodes with errors, flagged nodes, and nodes that passed with warnings.
+
+### `val_results_simplified(val_json_filepath)`
+Reads a JSON file containing the result of `validate_db_records` and returns a grouped list of validation findings, including the node type, severity, validation type, property location, unique inputs, and occurrence counts.
+
+### `validate_db_edges_multiplicity(driver, model_parser, uuid_property="guid")`
+Checks every model edge against its declared multiplicity. It reports violations for `one_to_one`, `one_to_many`, and `many_to_one` edges; `many_to_many` edges are skipped because they impose no cardinality restriction. Returns a list of violation summaries, or an empty list when none are found.
+
 ## Notes
 
 - Local validation methods (`validate_tsv_format`, `validate_tsv_records`, `validate_tsv_rels`, `validate_tsv_uniq_entry`, etc.) work on the natural key columns and should run **before** UUID5 generation.
 - DB-validation methods (`validate_tsv_in_db` and its helpers on `RemoteValidator`) work on the `guid` column and should run **after** UUID5 generation (`add_uuid_to_tsv_file`).
+- `DatabaseValidator` validates records already stored in the database against the MDF and checks edge multiplicities; it is not part of the submission TSV UUID-generation workflow.
 - Encoding of TSV files (`utf-8` vs `cp1252`) is auto-detected via `check_encoding`, matching `Loader`'s behavior.

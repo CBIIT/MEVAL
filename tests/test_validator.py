@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 import tempfile
 from uuid import UUID, uuid5
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from bento_mdf import MDFReader
 
@@ -13,7 +13,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from meval.parser import ModelParser
-from meval.validator import RemoteValidator, LocalValidator, ValidatorUtilities
+from meval.validator import (
+    DatabaseValidator,
+    RemoteValidator,
+    LocalValidator,
+    ValidatorUtilities,
+)
 
 class TestValidator(unittest.TestCase):
     MODEL_URL = PROJECT_ROOT / "tests" / "test_files" / "ccdi-dcc-model-test.yml"
@@ -967,5 +972,241 @@ class TestValidator(unittest.TestCase):
             self.assertEqual(missing_link_errors[0]["edge_src"], "participant")
             self.assertEqual(missing_link_errors[0]["edge_column"], "N/A")
             self.assertEqual(missing_link_errors[0]["invalid_value"], "N/A")
+
+
+class TestDatabaseValidator(unittest.TestCase):
+    MODEL_URL = PROJECT_ROOT / "tests" / "test_files" / "ccdi-dcc-model-test.yml"
+    PROPS_URL = PROJECT_ROOT / "tests" / "test_files" / "ccdi-dcc-model-props-test.yml"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            cls.mdf_reader = MDFReader(
+                str(cls.MODEL_URL),
+                str(cls.PROPS_URL),
+                handle="ccdi_dcc",
+            )
+        except Exception as error:
+            raise unittest.SkipTest(
+                f"Could not initialize model from local fixture files: {error}"
+            ) from error
+
+    def setUp(self) -> None:
+        self.validator = DatabaseValidator(self.mdf_reader)
+
+    @staticmethod
+    def _build_driver_with_session(session: MagicMock) -> MagicMock:
+        driver = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+        driver.session.return_value = session_cm
+        return driver
+
+    def test_list_all_labels_returns_unique_labels(self) -> None:
+        session = MagicMock()
+        session.run.return_value = [
+            {"labels": ["participant", "data_node"]},
+            {"labels": ["sample", "data_node"]},
+        ]
+        driver = self._build_driver_with_session(session)
+
+        labels = DatabaseValidator.list_all_labels(driver)
+
+        self.assertCountEqual(labels, ["participant", "sample", "data_node"])
+        session.run.assert_called_once_with(
+            "MATCH (n) RETURN DISTINCT labels(n) AS labels"
+        )
+
+    def test_clean_db_node_properties_removes_timestamps_and_optional_uuid(self) -> None:
+        properties = {
+            "guid": "node-guid",
+            "created": "2025-01-01",
+            "updated": "2025-01-02",
+            "participant_id": "P001",
+        }
+
+        without_model_uuid = DatabaseValidator._clean_db_node_properties(
+            properties, uuid_property="guid"
+        )
+        uuid_in_model = DatabaseValidator._clean_db_node_properties(
+            properties, uuid_property="guid", uuid_in_model=True
+        )
+
+        self.assertEqual(without_model_uuid, {"participant_id": "P001"})
+        self.assertEqual(
+            uuid_in_model,
+            {"guid": "node-guid", "participant_id": "P001"},
+        )
+
+    def test_fetch_nodes_by_label_fetches_batches_until_empty(self) -> None:
+        session = MagicMock()
+        session.run.side_effect = [
+            [{"n": {"guid": "g1"}}, {"n": {"guid": "g2"}}],
+            [{"n": {"guid": "g3"}}],
+            [],
+        ]
+        driver = self._build_driver_with_session(session)
+
+        batches = list(
+            DatabaseValidator.fetch_nodes_by_label(driver, "participant", batch_size=2)
+        )
+
+        self.assertEqual(
+            batches,
+            [[{"guid": "g1"}, {"guid": "g2"}], [{"guid": "g3"}]],
+        )
+        self.assertEqual(session.run.call_count, 3)
+        self.assertEqual(
+            [call.kwargs for call in session.run.call_args_list],
+            [
+                {"offset": 0, "batch_size": 2},
+                {"offset": 2, "batch_size": 2},
+                {"offset": 4, "batch_size": 2},
+            ],
+        )
+
+    def test_validate_db_records_by_label_counts_passes_and_flags(self) -> None:
+        records = [
+            {
+                "guid": "guid-1",
+                "created": "timestamp",
+                "participant_id": "P001",
+            },
+            {
+                "guid": "guid-2",
+                "updated": "timestamp",
+                "participant_id": "P002",
+            },
+        ]
+        with patch.object(
+            DatabaseValidator,
+            "fetch_nodes_by_label",
+            return_value=iter([records]),
+        ), patch.object(
+            self.validator,
+            "validate_one_record",
+            side_effect=[
+                (True, {"warnings": [{"type": "warning"}], "errors": []}),
+                (False, {"warnings": [], "errors": [{"type": "invalid"}]}),
+            ],
+        ) as validate_one_record:
+            node_count, passed_count, flagged_nodes = (
+                self.validator.validate_db_records_by_label(
+                    "participant", MagicMock(), uuid_property="guid"
+                )
+            )
+
+        self.assertEqual((node_count, passed_count), (2, 1))
+        self.assertEqual(len(flagged_nodes), 2)
+        self.assertTrue(flagged_nodes[0]["valid"])
+        self.assertNotIn("guid", flagged_nodes[0]["data_record"])
+        self.assertNotIn("created", flagged_nodes[0]["data_record"])
+        self.assertFalse(flagged_nodes[1]["valid"])
+        self.assertEqual(validate_one_record.call_count, 2)
+
+    def test_validate_db_records_aggregates_results_for_each_label(self) -> None:
+        with patch.object(
+            DatabaseValidator, "list_all_labels", return_value=["participant", "sample"]
+        ), patch.object(
+            self.validator,
+            "validate_db_records_by_label",
+            side_effect=[
+                (3, 2, [{"label": "participant", "valid": False}]),
+                (5, 5, []),
+            ],
+        ) as validate_by_label:
+            results = self.validator.validate_db_records(
+                MagicMock(), batch_size=100, uuid_property="uuid", uuid_in_model=True
+            )
+
+        self.assertEqual(
+            results,
+            {
+                "participant": {
+                    "node_count": 3,
+                    "passed_count": 2,
+                    "flagged_nodes": [{"label": "participant", "valid": False}],
+                },
+                "sample": {
+                    "node_count": 5,
+                    "passed_count": 5,
+                    "flagged_nodes": [],
+                },
+            },
+        )
+        self.assertEqual(validate_by_label.call_count, 2)
+        self.assertEqual(validate_by_label.call_args_list[0].args[0], "participant")
+        self.assertEqual(validate_by_label.call_args_list[1].args[0], "sample")
+        self.assertEqual(validate_by_label.call_args_list[0].args[2:], (100, "uuid", True))
+
+    def test_get_basic_val_matrix_summarizes_node_counts(self) -> None:
+        results = {
+            "participant": {
+                "node_count": 4,
+                "passed_count": 3,
+                "flagged_nodes": [
+                    {"valid": True},
+                    {"valid": False},
+                ],
+            }
+        }
+
+        matrix = DatabaseValidator.get_basic_val_matrix(results)
+
+        self.assertEqual(matrix.loc[0, "label"], "participant")
+        self.assertEqual(matrix.loc[0, "node_count"], 4)
+        self.assertEqual(matrix.loc[0, "passed_count"], 3)
+        self.assertEqual(matrix.loc[0, "failed_counts(with errors)"], 1)
+        self.assertEqual(matrix.loc[0, "flagged_node_counts"], 2)
+        self.assertEqual(matrix.loc[0, "node_with_warnings_but_valid"], 1)
+
+    def test_validate_db_edges_multiplicity_dispatches_supported_edges(self) -> None:
+        grouped_edges = {
+            "many_to_many": [
+                {"src": "a", "dst": "b", "handle": "ab", "multiplicity": "many_to_many"}
+            ],
+            "one_to_one": [
+                {"src": "c", "dst": "d", "handle": "cd", "multiplicity": "one_to_one"}
+            ],
+            "one_to_many": [
+                {"src": "e", "dst": "f", "handle": "ef", "multiplicity": "one_to_many"}
+            ],
+            "many_to_one": [
+                {"src": "g", "dst": "h", "handle": "gh", "multiplicity": "many_to_one"}
+            ],
+        }
+        model_parser = MagicMock()
+        model_parser.group_edges_by_multiplicity.return_value = grouped_edges
+        with patch.object(
+            self.validator, "validate_edges_one_to_one", return_value={"violation": "1"}
+        ) as one_to_one, patch.object(
+            self.validator, "validate_edges_one_to_many", return_value={}
+        ) as one_to_many, patch.object(
+            self.validator, "validate_edges_many_to_one", return_value={"violation": "2"}
+        ) as many_to_one:
+            results = self.validator.validate_db_edges_multiplicity(
+                MagicMock(), model_parser, uuid_property="uuid"
+            )
+
+        self.assertEqual(results, [{"violation": "1"}, {"violation": "2"}])
+        one_to_one.assert_called_once_with(
+            ANY, model_parser, "c", "d", "uuid"
+        )
+        one_to_many.assert_called_once_with(
+            ANY, model_parser, "e", "f", "uuid"
+        )
+        many_to_one.assert_called_once_with(
+            ANY, model_parser, "g", "h", "uuid"
+        )
+
+    def test_validate_db_edges_multiplicity_rejects_unknown_values(self) -> None:
+        model_parser = MagicMock()
+        model_parser.group_edges_by_multiplicity.return_value = {
+            "unknown": [{"src": "a", "dst": "b", "handle": "ab"}]
+        }
+
+        with self.assertRaisesRegex(ValueError, "unfound multiplicities"):
+            self.validator.validate_db_edges_multiplicity(MagicMock(), model_parser)
 if __name__ == "__main__":
     unittest.main()
