@@ -2,7 +2,7 @@ from bento_mdf import MDFDataValidator, MDFReader, MDF
 from typing import Any, Dict, List, Generator
 from pathlib import Path
 import csv
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, ManagedTransaction
 import pandas as pd
 from uuid import UUID, uuid5
 import hashlib
@@ -2840,6 +2840,9 @@ class DatabaseValidator(LocalValidator):
     while adding database-specific validation methods.
     Note: Initialization requires mdf instance because of LocalValidator inheritance.
     """
+    PLACEHOLDER_STR_LIST = ["Not Reported", "Unknown", "Not Applicable"]
+    PLACEHOLDER_NUM_VALUE = -999
+
     @classmethod
     def list_all_labels(cls, driver: "GraphDatabase.driver") -> list:
         """List all possible labels in the graph database."""
@@ -2850,6 +2853,218 @@ class DatabaseValidator(LocalValidator):
                 for label in record["labels"]:
                     label_set.add(label)
         return list(label_set)
+
+    def list_all_enum_properties(self) -> List[Dict[str, Any]]:
+        """List all enum properties in the data model/mdf
+        There are two types of property that can have a value set: 
+            1. value_domain == value set.
+            2. value_domain == list and item_domain == value set.
+        
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each representing an enum property with keys "node", "property", and "type".
+        """
+        # use mdf to extract model feature
+        return_list = []
+        model = self.model
+        model_nodes = [i for i in model.nodes]
+        for node in model_nodes:
+            node_props = [p for p in model.nodes[node].props]
+            for prop in node_props:
+                if model.nodes[node].props[prop].value_domain == "value_set":
+                    return_list.append({
+                        "node": node,
+                        "property": prop,
+                        "type": "Enum",
+                        "value_set": model.nodes[node].props[prop].values
+                    })
+                elif model.nodes[node].props[prop].value_domain == "list" and model.nodes[node].props[prop].item_domain == "value_set":
+                    return_list.append({
+                        "node": node,
+                        "property": prop,
+                        "type": "List[Enum]",
+                        "value_set": model.nodes[node].props[prop].values
+                    })
+                else:
+                    pass
+        return return_list
+
+    @classmethod
+    def enum_props_db_query(
+        cls, tx: ManagedTransaction, node_label: str, prop: str,
+        is_list: bool, placeholders: List[str] = PLACEHOLDER_STR_LIST
+    ) -> Dict[str, Any]:
+        """Evaluate an enum property against placeholder values, counting each separately.
+
+        Args:
+            tx (ManagedTransaction): The Neo4j transaction.
+            node_label (str): Node label to query.
+            prop (str): Property to evaluate.
+            is_list (bool): True if the property is List[Enum], False if scalar Enum.
+            placeholders (List[str]): Placeholder values; each gets its own count.
+        Returns:
+            Dict[str, Any]: {"total", "filled", "placeholders": {value: count, ...}}.
+        """
+        # Build one "sum(CASE ...) AS ph0, ph1, ..." per placeholder, matched case-insensitively.
+        if is_list:
+            match_expr = ("any(v IN n.`{prop}` "
+                          "WHERE toLower(toString(v)) = toLower($ph{i}))")
+        else:
+            match_expr = "toLower(toString(n.`{prop}`)) = toLower($ph{i})"
+
+        ph_clauses = []
+        params = {}
+        for i, ph in enumerate(placeholders):
+            cond = match_expr.format(prop=prop, i=i)
+            ph_clauses.append(f"sum(CASE WHEN {cond} THEN 1 ELSE 0 END) AS ph{i}")
+            params[f"ph{i}"] = ph
+
+        query = f"""
+        MATCH (n:`{node_label}`)
+        RETURN
+            count(n)          AS total,
+            count(n.`{prop}`) AS filled,
+            {", ".join(ph_clauses)}
+        """
+
+        result = tx.run(query, **params).single()
+        return {
+            "total": result["total"],
+            "filled": result["filled"],
+            "placeholders": {ph: result[f"ph{i}"] for i, ph in enumerate(placeholders)},
+        }
+
+    def enum_props_db_evaluation(
+        self,
+        driver: "GraphDatabase.driver",
+        placeholders: List[str] = PLACEHOLDER_STR_LIST,
+    ) -> Dict[str, Any]:
+        """Evaluate an enum property in the database against the provided placeholders.
+        This function only assesses enum property which has a placeholder value in its value set.
+
+        Args:
+            driver ("GraphDatabase.driver"): The Neo4j driver instance.
+            placeholders (List[str]): Placeholder values; each gets its own count.
+
+        Returns:
+            Dict[str, Any]: {"node": str, "property": str, "type": str, "total": int, "filled": int, "placeholders": {value: count, ...}}.
+        """
+        enum_prop_list = self.list_all_enum_properties()
+        with driver.session() as session:
+            result = []
+            for enum_prop in enum_prop_list:
+                enum_prop_node = enum_prop["node"]
+                enum_prop_name = enum_prop["property"]
+                enum_value_set = enum_prop["value_set"]
+                if "List" in enum_prop["type"]:
+                    enum_is_list = True
+                else:
+                    enum_is_list = False
+                if any(item in enum_value_set for item in placeholders): 
+                    # if there is placeholder value found in the value_set
+                    item_dict = {"node": enum_prop_node, "property": enum_prop_name, "type": enum_prop["type"]}
+                    with session.begin_transaction() as tx:
+                        item_query = self.enum_props_db_query(tx, enum_prop_node, enum_prop_name, enum_is_list, placeholders)
+                        item_dict.update(item_query)
+                        result.append(item_dict)
+                else: # no placeholder value found in the value set
+                    pass
+            return result
+        
+    def list_all_num_properties(self) -> List[Dict[str, Any]]:
+        """List all numeric properties in the data model/mdf.
+
+        There are two types of numeric properties:
+            1. value_domain == number or integer.
+            2. value_domain == list and item_domain == number or integer.
+        
+        Returns a list of dictionaries representing numeric properties in the data model.
+        """
+        # use mdf to extract numeric properties
+        num_return_list = []
+        model = self.model
+        model_nodes = [i for i in model.nodes]
+        for node in model_nodes:
+            node_props = [p for p in model.nodes[node].props]
+            for prop in node_props:
+                if model.nodes[node].props[prop].value_domain in ["number", "integer"]:
+                    num_return_list.append({
+                        "node": node,
+                        "property": prop,
+                        "type": model.nodes[node].props[prop].value_domain
+                    })
+                elif model.nodes[node].props[prop].value_domain == "list" and model.nodes[node].props[prop].item_domain in ["number", "integer"]:
+                    num_return_list.append({
+                        "node": node,
+                        "property": prop,
+                        "type": f"List[{model.nodes[node].props[prop].item_domain}]"
+                    })
+        return num_return_list
+
+    @classmethod
+    def numeric_props_db_query(
+        cls, tx: ManagedTransaction, node_label: str, prop: str, sentinel: Any = PLACEHOLDER_NUM_VALUE
+    ) -> Dict[str, Any]:
+        """Evaluate numeric properties in the database against the provided list of numeric properties.
+
+        Args:
+            tx (ManagedTransaction): The Neo4j database transaction.
+            node_label (str): The label of the node to query.
+            prop (str): The property to evaluate.
+            sentinel (Any): The sentinel value to check against.
+
+        Returns:
+            List[Dict[str, Any]]: A list of evaluation results for each numeric property.
+        """
+        query = f"""
+        MATCH (n:{node_label})
+        RETURN
+            count(n) AS total,
+            count(n.{prop}) AS filled,
+            sum(CASE WHEN n.{prop} = $sentinel THEN 1
+                     WHEN n.{prop} = [$sentinel] THEN 1
+                     ELSE 0 END) AS sentinel
+        """
+        result = tx.run(query, sentinel=sentinel).single()
+        evaluation_results = {
+            "total": result["total"],
+            "filled": result["filled"],
+            "sentinel": result["sentinel"]
+        }
+        return evaluation_results
+
+    def numeric_props_db_evaluation(
+            self, driver: "GraphDatabase.driver", sentinel: Any = PLACEHOLDER_NUM_VALUE
+    ) -> Dict[str, Any]:
+        """Evaluate numeric properties in the database for a list of numeric properties.
+
+        This method iterates over the provided list of numeric properties and evaluates each property in the database using the specified sentinel value.
+        The evaluation results are returned as a dictionary keyed by the node label and property name.
+
+        Args:
+            driver (GraphDatabase.driver): The Neo4j database driver.
+            sentinel (Any): The sentinel value to check against. Defaults to PLACEHOLDER_NUM_VALUE.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the evaluation results for each numeric property, keyed by the node label and property name.
+        """
+        numeric_prop_list = self.list_all_num_properties()
+        with driver.session() as session:
+            results = []
+            for item in numeric_prop_list:
+                node_label = item["node"]
+                prop = item["property"]
+                item_dict = {
+                    "node": node_label,
+                    "property": prop
+                }
+                with session.begin_transaction() as tx:
+                    item_dict.update(
+                        self.numeric_props_db_query(
+                            tx, node_label, prop, sentinel
+                        )
+                    )
+                results.append(item_dict)
+        return results
 
     @classmethod
     def _clean_db_node_properties(cls, node_properties: Dict[str, Any], uuid_property: str, uuid_in_model: bool = False) -> Dict[str, Any]:
@@ -3176,7 +3391,7 @@ class DatabaseValidator(LocalValidator):
         dst_key_property = model_parser.get_node_key_prop(dst_label)
         edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
         edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
-        
+
         if edge_multiplicity != "one_to_many":
             raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_many, found multiplicity: {edge_multiplicity}")
         # add basic information to the validation results
@@ -3227,7 +3442,7 @@ class DatabaseValidator(LocalValidator):
             else:
                 print(f"No {dst_label} nodes violated the one_to_many multiplicity from {src_label} type nodes.")
                 return {}
-    
+
     def validate_edges_one_to_one(
         self, driver: "GraphDatabase.driver",
         model_parser: "ModelParser",
@@ -3371,7 +3586,7 @@ class DatabaseValidator(LocalValidator):
         # grouped by src, dst, multiplicity
         # if there are any violations found for an edge type, there will be an item in the val_results
         val_results = []
-        
+
         for multiplicity, edges in grouped_edges.items():
             if multiplicity == "many_to_many":
                 print("Skipping many_to_many edges as they are always valid cardinality wise.")

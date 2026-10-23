@@ -3,9 +3,10 @@ import unittest
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
+from neo4j.exceptions import ClientError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -61,6 +62,55 @@ class TestLoader(unittest.TestCase):
 		def __init__(self, labels: set[str], properties: dict[str, str]) -> None:
 			super().__init__(properties)
 			self.labels = labels
+
+	def test_close_calls_driver_close(self) -> None:
+		driver = MagicMock()
+		loader = Loader(driver=driver)
+
+		self.assertIsNone(loader.close())
+
+		driver.close.assert_called_once_with()
+		driver.session.assert_not_called()
+
+	def test_close_propagates_driver_error(self) -> None:
+		driver = MagicMock()
+		driver.close.side_effect = RuntimeError("Driver close failed")
+		loader = Loader(driver=driver)
+
+		with self.assertRaisesRegex(RuntimeError, "Driver close failed"):
+			loader.close()
+
+		driver.close.assert_called_once_with()
+
+	def test_check_encoding_returns_utf8_for_ascii_and_unicode_files(self) -> None:
+		for content in ("type\tname\nsample\tAlpha\n", "type\tname\nsample\tcaf\u00e9\n"):
+			with self.subTest(content=content):
+				with tempfile.TemporaryDirectory() as tmp_dir:
+					file_path = Path(tmp_dir) / "sample.tsv"
+					file_path.write_text(content, encoding="utf-8")
+
+					self.assertEqual(Loader.check_encoding(str(file_path)), "utf-8")
+
+	def test_check_encoding_returns_cp1252_for_non_utf8_file(self) -> None:
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_path = Path(tmp_dir) / "sample.tsv"
+			file_path.write_text("type\tname\nsample\tcaf\u00e9\n", encoding="cp1252")
+
+			self.assertEqual(Loader.check_encoding(str(file_path)), "cp1252")
+
+	def test_check_encoding_returns_utf8_for_empty_file(self) -> None:
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_path = Path(tmp_dir) / "empty.tsv"
+			file_path.write_text("", encoding="utf-8")
+
+			self.assertEqual(Loader.check_encoding(str(file_path)), "utf-8")
+
+	def test_check_encoding_propagates_missing_file_error(self) -> None:
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			file_path = Path(tmp_dir) / "missing.tsv"
+
+			with self.assertRaises(FileNotFoundError):
+				Loader.check_encoding(str(file_path))
 
 	def test_chunks(self) -> None:
 		data = [1, 2, 3, 4, 5]
@@ -420,6 +470,324 @@ class TestLoader(unittest.TestCase):
 		labels = loader._list_all_labels()
 
 		self.assertCountEqual(labels, ["sample", "participant", "study"])
+
+	def test_list_index_returns_only_label_property_indexes(self) -> None:
+		session = MagicMock()
+		session.run.return_value = [
+			{"index type": "label+property", "label": "sample", "property": ["guid"]},
+			{"index type": "label", "label": "study", "property": []},
+			{"index type": "label+property", "label": "participant", "property": ["id"]},
+		]
+		loader = self._build_loader_with_mock_session(session)
+
+		indexes = loader._list_index()
+
+		self.assertEqual(indexes, [
+			{"label": "sample", "property": "guid"},
+			{"label": "participant", "property": "id"},
+		])
+		session.run.assert_called_once_with("SHOW INDEXES;")
+
+	def test_list_index_uses_fallback_after_client_error(self) -> None:
+		session = MagicMock()
+		session.run.side_effect = [
+			ClientError("SHOW INDEXES is not supported"),
+			[{"index type": "label+property", "label": "sample", "property": ["guid"]}],
+		]
+		loader = self._build_loader_with_mock_session(session)
+
+		indexes = loader._list_index()
+
+		self.assertEqual(indexes, [{"label": "sample", "property": "guid"}])
+		self.assertEqual(session.run.call_args_list, [
+			call("SHOW INDEXES;"),
+			call("SHOW INDEX INFO;"),
+		])
+
+	def test_list_index_returns_empty_list_when_no_indexes_exist(self) -> None:
+		session = MagicMock()
+		session.run.return_value = []
+		loader = self._build_loader_with_mock_session(session)
+
+		self.assertEqual(loader._list_index(), [])
+		session.run.assert_called_once_with("SHOW INDEXES;")
+
+	def test_create_index_creates_only_missing_indexes(self) -> None:
+		session = MagicMock()
+		loader = self._build_loader_with_mock_session(session)
+		model_parser = MagicMock()
+		model_parser.get_node_list.return_value = ["sample", "participant", "study"]
+		existing_indexes = [
+			{"label": "sample", "property": "guid"},
+			{"label": "participant", "property": "id"},
+		]
+		with patch.object(loader, "_list_index", return_value=existing_indexes) as list_index:
+			indexes = loader.create_index(model_parser)
+
+		list_index.assert_called_once_with()
+		model_parser.get_node_list.assert_called_once_with()
+		self.assertEqual(indexes, [
+			{"label": "sample", "property": "guid"},
+			{"label": "participant", "property": "guid"},
+			{"label": "study", "property": "guid"},
+		])
+		self.assertEqual(session.run.call_args_list, [
+			call("CREATE INDEX ON :participant(guid);"),
+			call("CREATE INDEX ON :study(guid);"),
+		])
+
+	def test_create_index_uses_custom_id_field(self) -> None:
+		session = MagicMock()
+		loader = self._build_loader_with_mock_session(session)
+		model_parser = MagicMock()
+		model_parser.get_node_list.return_value = ["sample"]
+		with patch.object(loader, "_list_index", return_value=[]):
+			indexes = loader.create_index(model_parser, id_field="id")
+
+		self.assertEqual(indexes, [{"label": "sample", "property": "id"}])
+		session.run.assert_called_once_with("CREATE INDEX ON :sample(id);")
+
+	def test_create_index_propagates_database_error(self) -> None:
+		session = MagicMock()
+		session.run.side_effect = RuntimeError("Index creation failed")
+		loader = self._build_loader_with_mock_session(session)
+		model_parser = MagicMock()
+		model_parser.get_node_list.return_value = ["sample"]
+		with patch.object(loader, "_list_index", return_value=[]):
+			with self.assertRaisesRegex(RuntimeError, "Index creation failed"):
+				loader.create_index(model_parser)
+
+		session.run.assert_called_once_with("CREATE INDEX ON :sample(guid);")
+
+	def test_drop_index_runs_query_for_each_index(self) -> None:
+		session = MagicMock()
+		loader = self._build_loader_with_mock_session(session)
+
+		result = loader.drop_index([
+			{"label": "sample", "property": "guid"},
+			{"label": "participant", "property": "id"},
+		])
+
+		self.assertIsNone(result)
+		self.assertEqual(session.run.call_args_list, [
+			call("DROP INDEX ON :sample(guid);"),
+			call("DROP INDEX ON :participant(id);"),
+		])
+
+	def test_drop_index_with_empty_list_does_not_run_queries(self) -> None:
+		session = MagicMock()
+		loader = self._build_loader_with_mock_session(session)
+
+		self.assertIsNone(loader.drop_index([]))
+		session.run.assert_not_called()
+
+	def test_drop_index_propagates_database_error(self) -> None:
+		session = MagicMock()
+		session.run.side_effect = RuntimeError("Index removal failed")
+		loader = self._build_loader_with_mock_session(session)
+
+		with self.assertRaisesRegex(RuntimeError, "Index removal failed"):
+			loader.drop_index([{"label": "sample", "property": "guid"}])
+
+		session.run.assert_called_once_with("DROP INDEX ON :sample(guid);")
+
+	def test_drop_all_indexes_calls_list_and_drop_index(self) -> None:
+		loader = self._build_loader_with_mock_session(MagicMock())
+		indexes = [
+			{"label": "sample", "property": "guid"},
+			{"label": "participant", "property": "id"},
+		]
+		with patch.object(loader, "_list_index", return_value=indexes) as list_index, \
+				patch.object(loader, "drop_index") as drop_index:
+			result = loader.drop_all_indexes()
+
+		self.assertIsNone(result)
+		list_index.assert_called_once_with()
+		drop_index.assert_called_once_with(indexes)
+
+	def test_wipe_database_repeats_batches_until_empty_and_sums_counts(self) -> None:
+		session = MagicMock()
+		results = [MagicMock() for _ in range(3)]
+		for result, count in zip(results, [2, 1, 0]):
+			result.single.return_value = {"deleted_count": count}
+		session.run.side_effect = results
+		loader = self._build_loader_with_mock_session(session)
+
+		self.assertEqual(loader.wipe_database(batch_size=2), 3)
+
+		self.assertEqual(session.run.call_count, 3)
+		for query_call in session.run.call_args_list:
+			self.assertEqual(query_call.kwargs, {"batch_size": 2})
+			self.assertIn("WITH n LIMIT $batch_size", query_call.args[0])
+			self.assertIn("DETACH DELETE n", query_call.args[0])
+
+	def test_wipe_database_returns_zero_for_empty_database(self) -> None:
+		session = MagicMock()
+		session.run.return_value.single.return_value = {"deleted_count": 0}
+		loader = self._build_loader_with_mock_session(session)
+
+		self.assertEqual(loader.wipe_database(), 0)
+		session.run.assert_called_once()
+		self.assertEqual(session.run.call_args.kwargs, {"batch_size": 10000})
+
+	def test_wipe_database_propagates_error_after_completed_batch(self) -> None:
+		session = MagicMock()
+		first_result = MagicMock()
+		first_result.single.return_value = {"deleted_count": 2}
+		session.run.side_effect = [first_result, RuntimeError("Wipe failed")]
+		loader = self._build_loader_with_mock_session(session)
+
+		with self.assertRaisesRegex(RuntimeError, "Wipe failed"):
+			loader.wipe_database(batch_size=2)
+
+		self.assertEqual(session.run.call_count, 2)
+
+	def test_wipe_rooted_subgraph_without_nodes_does_not_delete(self) -> None:
+		loader = self._build_loader_with_mock_session(MagicMock())
+		with (
+			patch.object(loader, "_get_rooted_subgraph_nodes_ids", return_value=[]) as get_ids,
+			patch.object(loader, "_detach_nodes_by_ids") as detach,
+			patch.object(loader, "_delete_nodes_by_ids") as delete,
+		):
+			summary = loader.wipe_rooted_subgraph("study", "study_id", "study-1")
+
+		self.assertEqual(summary, {"nodes_deleted": 0, "relationships_detached": 0})
+		get_ids.assert_called_once_with("study", "study_id", "study-1")
+		detach.assert_not_called()
+		delete.assert_not_called()
+
+	def test_wipe_rooted_subgraph_at_or_below_threshold_detaches_before_deleting(self) -> None:
+		for node_ids in ([1], [1, 2]):
+			with self.subTest(node_ids=node_ids):
+				loader = self._build_loader_with_mock_session(MagicMock())
+				operations = MagicMock()
+				with (
+					patch.object(loader, "_get_rooted_subgraph_nodes_ids", return_value=node_ids),
+					patch.object(loader, "_detach_nodes_by_ids", return_value=3) as detach,
+					patch.object(loader, "_delete_nodes_by_ids", return_value=len(node_ids)) as delete,
+				):
+					operations.attach_mock(detach, "detach")
+					operations.attach_mock(delete, "delete")
+					summary = loader.wipe_rooted_subgraph(
+						"study", "study_id", "study-1", chunk_threshold=2
+					)
+
+				self.assertEqual(summary, {
+					"nodes_deleted": len(node_ids),
+					"relationships_detached": 3,
+				})
+				self.assertEqual(operations.mock_calls, [
+					call.detach(node_ids=node_ids),
+					call.delete(node_ids=node_ids),
+				])
+
+	def test_wipe_rooted_subgraph_batches_all_detaches_before_deletions(self) -> None:
+		loader = self._build_loader_with_mock_session(MagicMock())
+		node_ids = list(range(5001))
+		operations = MagicMock()
+		with (
+			patch.object(loader, "_get_rooted_subgraph_nodes_ids", return_value=node_ids) as get_ids,
+			patch.object(loader, "_detach_nodes_by_ids", side_effect=[6000, 2]) as detach,
+			patch.object(loader, "_delete_nodes_by_ids", side_effect=[5000, 1]) as delete,
+		):
+			operations.attach_mock(detach, "detach")
+			operations.attach_mock(delete, "delete")
+			summary = loader.wipe_rooted_subgraph(
+				"study", "dbgap_accession", "phs000001", chunk_threshold=5000
+			)
+
+		get_ids.assert_called_once_with("study", "dbgap_accession", "phs000001")
+		self.assertEqual(summary, {"nodes_deleted": 5001, "relationships_detached": 6002})
+		self.assertEqual(operations.mock_calls, [
+			call.detach(node_ids=node_ids[:5000]),
+			call.detach(node_ids=node_ids[5000:]),
+			call.delete(node_ids=node_ids[:5000]),
+			call.delete(node_ids=node_ids[5000:]),
+		])
+
+	def test_wipe_rooted_subgraph_does_not_delete_nodes_after_detach_error(self) -> None:
+		loader = self._build_loader_with_mock_session(MagicMock())
+		with (
+			patch.object(loader, "_get_rooted_subgraph_nodes_ids", return_value=[1, 2]),
+			patch.object(loader, "_detach_nodes_by_ids", side_effect=RuntimeError("Detach failed")),
+			patch.object(loader, "_delete_nodes_by_ids") as delete,
+		):
+			with self.assertRaisesRegex(RuntimeError, "Detach failed"):
+				loader.wipe_rooted_subgraph("study", "study_id", "study-1")
+
+		delete.assert_not_called()
+
+	def test_get_rooted_subgraph_nodes_ids_passes_study_filter(self) -> None:
+		for record, expected in (
+			({"node_ids": [1, 2, 3]}, [1, 2, 3]),
+			({"node_ids": []}, []),
+			(None, []),
+		):
+			with self.subTest(record=record):
+				session = MagicMock()
+				session.run.return_value.single.return_value = record
+				loader = self._build_loader_with_mock_session(session)
+
+				node_ids = loader._get_rooted_subgraph_nodes_ids(
+					"study", "dbgap_accession", "phs000001"
+				)
+
+				self.assertEqual(node_ids, expected)
+				session.run.assert_called_once()
+				query_call = session.run.call_args
+				self.assertIn(
+					"MATCH (s:study {dbgap_accession: $subgraph_value})",
+					query_call.args[0],
+				)
+				self.assertIn("COLLECT(DISTINCT id(s))", query_call.args[0])
+				self.assertIn("COLLECT(DISTINCT id(n))", query_call.args[0])
+				self.assertEqual(query_call.kwargs, {"subgraph_value": "phs000001"})
+
+	def test_detach_nodes_by_ids_passes_ids_and_returns_relationship_count(self) -> None:
+		for record, expected in (({"deleted_rels": 4}, 4), (None, 0)):
+			with self.subTest(record=record):
+				session = MagicMock()
+				session.run.return_value.single.return_value = record
+				loader = self._build_loader_with_mock_session(session)
+
+				self.assertEqual(loader._detach_nodes_by_ids([1, 2]), expected)
+
+				session.run.assert_called_once()
+				query_call = session.run.call_args
+				self.assertEqual(query_call.kwargs, {"node_ids": [1, 2]})
+				self.assertIn("WITH DISTINCT r", query_call.args[0])
+				self.assertIn("DELETE r", query_call.args[0])
+
+	def test_delete_nodes_by_ids_passes_ids_and_returns_node_count(self) -> None:
+		for record, expected in (({"deleted_nodes": 2}, 2), (None, 0)):
+			with self.subTest(record=record):
+				session = MagicMock()
+				session.run.return_value.single.return_value = record
+				loader = self._build_loader_with_mock_session(session)
+
+				self.assertEqual(loader._delete_nodes_by_ids([1, 2]), expected)
+
+				session.run.assert_called_once()
+				query_call = session.run.call_args
+				self.assertEqual(query_call.kwargs, {"node_ids": [1, 2]})
+				self.assertIn("WITH DISTINCT n", query_call.args[0])
+				self.assertIn("DELETE n", query_call.args[0])
+
+	def test_subgraph_database_helpers_propagate_database_errors(self) -> None:
+		for method_name, args in (
+			("_get_rooted_subgraph_nodes_ids", ("study", "study_id", "study-1")),
+			("_detach_nodes_by_ids", ([1, 2],)),
+			("_delete_nodes_by_ids", ([1, 2],)),
+		):
+			with self.subTest(method=method_name):
+				session = MagicMock()
+				session.run.side_effect = RuntimeError("Database unavailable")
+				loader = self._build_loader_with_mock_session(session)
+
+				with self.assertRaisesRegex(RuntimeError, "Database unavailable"):
+					getattr(loader, method_name)(*args)
+
+				session.run.assert_called_once()
 
 	def test_check_unique_nodes_batch_returns_results_for_each_value(self) -> None:
 		session = MagicMock()

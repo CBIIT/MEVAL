@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 import json
 import tempfile
+from types import SimpleNamespace
 from uuid import UUID, uuid5
 from unittest.mock import ANY, MagicMock, patch
 
@@ -1002,6 +1003,250 @@ class TestDatabaseValidator(unittest.TestCase):
         session_cm.__exit__.return_value = None
         driver.session.return_value = session_cm
         return driver
+
+    def test_list_all_enum_properties_includes_scalar_and_list_enums(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "participant": SimpleNamespace(
+                    props={
+                        "status": SimpleNamespace(
+                            value_domain="value_set",
+                            item_domain=None,
+                            values=["Active", "Unknown"],
+                        ),
+                        "tags": SimpleNamespace(
+                            value_domain="list",
+                            item_domain="value_set",
+                            values=["Known", "Not Reported"],
+                        ),
+                        "age": SimpleNamespace(
+                            value_domain="number",
+                            item_domain=None,
+                            values=None,
+                        ),
+                    }
+                )
+            }
+        )
+
+        enum_properties = self.validator.list_all_enum_properties()
+
+        self.assertEqual(
+            enum_properties,
+            [
+                {
+                    "node": "participant",
+                    "property": "status",
+                    "type": "Enum",
+                    "value_set": ["Active", "Unknown"],
+                },
+                {
+                    "node": "participant",
+                    "property": "tags",
+                    "type": "List[Enum]",
+                    "value_set": ["Known", "Not Reported"],
+                },
+            ],
+        )
+
+    def test_enum_props_db_query_counts_scalar_and_list_placeholders(self) -> None:
+        for is_list, expected_condition in (
+            (False, "toLower(toString(n.`status`)) = toLower($ph0)"),
+            (
+                True,
+                "any(v IN n.`status` WHERE toLower(toString(v)) = toLower($ph0))",
+            ),
+        ):
+            with self.subTest(is_list=is_list):
+                tx = MagicMock()
+                tx.run.return_value.single.return_value = {
+                    "total": 8,
+                    "filled": 6,
+                    "ph0": 2,
+                    "ph1": 1,
+                }
+
+                results = DatabaseValidator.enum_props_db_query(
+                    tx,
+                    "participant",
+                    "status",
+                    is_list,
+                    placeholders=["Unknown", "Not Reported"],
+                )
+
+                self.assertEqual(
+                    results,
+                    {
+                        "total": 8,
+                        "filled": 6,
+                        "placeholders": {"Unknown": 2, "Not Reported": 1},
+                    },
+                )
+                query = tx.run.call_args.args[0]
+                self.assertIn(expected_condition, query)
+                self.assertIn("AS ph0", query)
+                self.assertIn("AS ph1", query)
+                self.assertEqual(
+                    tx.run.call_args.kwargs,
+                    {"ph0": "Unknown", "ph1": "Not Reported"},
+                )
+
+    def test_enum_props_db_evaluation_skips_properties_without_placeholders(self) -> None:
+        session = MagicMock()
+        driver = self._build_driver_with_session(session)
+        enum_properties = [
+            {
+                "node": "participant",
+                "property": "status",
+                "type": "Enum",
+                "value_set": ["Active", "Unknown"],
+            },
+            {
+                "node": "participant",
+                "property": "tags",
+                "type": "List[Enum]",
+                "value_set": ["Known", "Unknown"],
+            },
+            {
+                "node": "study",
+                "property": "phase",
+                "type": "Enum",
+                "value_set": ["Active", "Completed"],
+            },
+        ]
+        query_results = [
+            {"total": 3, "filled": 2, "placeholders": {"Unknown": 1}},
+            {"total": 4, "filled": 3, "placeholders": {"Unknown": 2}},
+        ]
+        with patch.object(
+            self.validator, "list_all_enum_properties", return_value=enum_properties
+        ), patch.object(
+            self.validator,
+            "enum_props_db_query",
+            side_effect=query_results,
+        ) as query:
+            results = self.validator.enum_props_db_evaluation(
+                driver, placeholders=["Unknown"]
+            )
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "node": "participant",
+                    "property": "status",
+                    "type": "Enum",
+                    **query_results[0],
+                },
+                {
+                    "node": "participant",
+                    "property": "tags",
+                    "type": "List[Enum]",
+                    **query_results[1],
+                },
+            ],
+        )
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(query.call_args_list[0].args[1:4], ("participant", "status", False))
+        self.assertEqual(query.call_args_list[1].args[1:4], ("participant", "tags", True))
+        self.assertEqual(session.begin_transaction.call_count, 2)
+
+    def test_list_all_num_properties_includes_scalar_and_list_numbers(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "participant": SimpleNamespace(
+                    props={
+                        "age": SimpleNamespace(
+                            value_domain="number", item_domain=None
+                        ),
+                        "count": SimpleNamespace(
+                            value_domain="integer", item_domain=None
+                        ),
+                        "measurements": SimpleNamespace(
+                            value_domain="list", item_domain="number"
+                        ),
+                        "ranks": SimpleNamespace(
+                            value_domain="list", item_domain="integer"
+                        ),
+                        "tags": SimpleNamespace(
+                            value_domain="list", item_domain="string"
+                        ),
+                    }
+                )
+            }
+        )
+
+        numeric_properties = self.validator.list_all_num_properties()
+
+        self.assertEqual(
+            numeric_properties,
+            [
+                {"node": "participant", "property": "age", "type": "number"},
+                {"node": "participant", "property": "count", "type": "integer"},
+                {
+                    "node": "participant",
+                    "property": "measurements",
+                    "type": "List[number]",
+                },
+                {
+                    "node": "participant",
+                    "property": "ranks",
+                    "type": "List[integer]",
+                },
+            ],
+        )
+
+    def test_numeric_props_db_query_counts_sentinel_values(self) -> None:
+        tx = MagicMock()
+        tx.run.return_value.single.return_value = {
+            "total": 10,
+            "filled": 7,
+            "sentinel": 2,
+        }
+
+        results = DatabaseValidator.numeric_props_db_query(
+            tx, "participant", "age", sentinel=-1
+        )
+
+        self.assertEqual(results, {"total": 10, "filled": 7, "sentinel": 2})
+        query = tx.run.call_args.args[0]
+        self.assertIn("count(n.age) AS filled", query)
+        self.assertIn("n.age = $sentinel", query)
+        self.assertIn("n.age = [$sentinel]", query)
+        self.assertEqual(tx.run.call_args.kwargs, {"sentinel": -1})
+
+    def test_numeric_props_db_evaluation_queries_all_numeric_properties(self) -> None:
+        session = MagicMock()
+        driver = self._build_driver_with_session(session)
+        numeric_properties = [
+            {"node": "participant", "property": "age", "type": "number"},
+            {"node": "study", "property": "year", "type": "integer"},
+        ]
+        query_results = [
+            {"total": 3, "filled": 2, "sentinel": 1},
+            {"total": 2, "filled": 2, "sentinel": 0},
+        ]
+        with patch.object(
+            self.validator, "list_all_num_properties", return_value=numeric_properties
+        ), patch.object(
+            self.validator,
+            "numeric_props_db_query",
+            side_effect=query_results,
+        ) as query:
+            results = self.validator.numeric_props_db_evaluation(driver, sentinel=-1)
+
+        self.assertEqual(
+            results,
+            [
+                {"node": "participant", "property": "age", **query_results[0]},
+                {"node": "study", "property": "year", **query_results[1]},
+            ],
+        )
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(query.call_args_list[0].args[1:3], ("participant", "age"))
+        self.assertEqual(query.call_args_list[1].args[1:3], ("study", "year"))
+        self.assertEqual(query.call_args_list[0].args[3], -1)
+        self.assertEqual(session.begin_transaction.call_count, 2)
 
     def test_list_all_labels_returns_unique_labels(self) -> None:
         session = MagicMock()
