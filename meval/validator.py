@@ -2854,6 +2854,95 @@ class DatabaseValidator(LocalValidator):
                     label_set.add(label)
         return list(label_set)
 
+    def list_all_properties(self) -> List[Dict[str, Any]]:
+        """List all properties in the data model/mdf.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each representing a property with keys "node" and "property".
+        """
+        return_list = []
+        model = self.model
+        model_nodes = [i for i in model.nodes]
+        for node in model_nodes:
+            node_props = [p for p in model.nodes[node].props]
+            for prop in node_props:
+                prop_instance = model.nodes[node].props[prop]
+                prop_type = prop_instance.value_domain
+                if prop_type == "value_set":
+                    prop_type = "Enum"
+                elif prop_type == "list":
+                    prop_item_type = prop_instance.item_domain
+                    if prop_item_type == "value_set":
+                        prop_item_type = "Enum"
+                    prop_type = f"List[{prop_item_type}]"
+                else:
+                    pass
+            for prop in node_props:
+                return_list.append({
+                    "node": node,
+                    "property": prop,
+                    "type": prop_type
+                })
+        return return_list
+
+    @classmethod
+    def prop_db_query(
+        cls, tx: ManagedTransaction, node_label: str, prop: str
+    ) -> Dict[str, Any]:
+        """This function queries a prop in the database, returns the counts of a certain type of node, and the counts of nodes with filled property
+
+        Args:
+            tx (ManagedTransaction): The Neo4j transaction.
+            node_label (str): The label of the node to query.
+            prop (str): The property to query.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the counts of the nodes and the counts of nodes with the specified property filled.
+        """
+        query = f"""
+        MATCH (n:{node_label})
+        RETURN COUNT(n) AS total,
+               COUNT(n.{prop}) AS filled
+        """
+        result = tx.run(query).single()
+        return {
+            "total": result["total"],
+            "filled": result["filled"]
+        }
+
+    def props_db_evaluation(
+            self,
+            driver: "GraphDatabase.driver",
+    ) -> Dict[str, Any]:
+        """This functions looks at all properties of a datamodel, and evaludate their missing percentage
+
+        Args:
+            driver (GraphDatabase.driver): The Neo4j driver instance used to execute database queries.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the evaluation results for all properties, including their missing percentages.
+        """
+        props_dict = self.list_all_properties()
+        return_list = []
+        with driver.session() as session:
+            for item in props_dict:
+                node = item["node"]
+                prop = item["property"]
+                with session.begin_transaction() as tx:
+                    result = self.prop_db_query(tx, node, prop)
+                total = result["total"]
+                filled = result["filled"]
+                missing_percentage = 100 * (total - filled) / total if total > 0 else 0
+                return_list.append({
+                    "node": node,
+                    "property": prop,
+                    "type": item["type"],
+                    "total": total,
+                    "filled": filled,
+                    "missing_percentage": missing_percentage
+                })
+        return return_list
+    
     def list_all_enum_properties(self) -> List[Dict[str, Any]]:
         """List all enum properties in the data model/mdf
         There are two types of property that can have a value set: 
@@ -2889,7 +2978,7 @@ class DatabaseValidator(LocalValidator):
         return return_list
 
     @classmethod
-    def enum_props_db_query(
+    def enum_prop_db_query(
         cls, tx: ManagedTransaction, node_label: str, prop: str,
         is_list: bool, placeholders: List[str] = PLACEHOLDER_STR_LIST
     ) -> Dict[str, Any]:
@@ -2963,7 +3052,7 @@ class DatabaseValidator(LocalValidator):
                     # if there is placeholder value found in the value_set
                     item_dict = {"node": enum_prop_node, "property": enum_prop_name, "type": enum_prop["type"]}
                     with session.begin_transaction() as tx:
-                        item_query = self.enum_props_db_query(tx, enum_prop_node, enum_prop_name, enum_is_list, placeholders)
+                        item_query = self.enum_prop_db_query(tx, enum_prop_node, enum_prop_name, enum_is_list, placeholders)
                         item_dict.update(item_query)
                         result.append(item_dict)
                 else: # no placeholder value found in the value set
