@@ -2877,7 +2877,6 @@ class DatabaseValidator(LocalValidator):
                     prop_type = f"List[{prop_item_type}]"
                 else:
                     pass
-            for prop in node_props:
                 return_list.append({
                     "node": node,
                     "property": prop,

@@ -1004,6 +1004,188 @@ class TestDatabaseValidator(unittest.TestCase):
         driver.session.return_value = session_cm
         return driver
 
+    def test_list_all_properties_preserves_each_property_type(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "participant": SimpleNamespace(
+                    props={
+                        "name": SimpleNamespace(
+                            value_domain="string", item_domain=None
+                        ),
+                        "status": SimpleNamespace(
+                            value_domain="value_set", item_domain=None
+                        ),
+                        "tags": SimpleNamespace(
+                            value_domain="list", item_domain="value_set"
+                        ),
+                        "age": SimpleNamespace(
+                            value_domain="number", item_domain=None
+                        ),
+                    }
+                ),
+                "sample": SimpleNamespace(
+                    props={
+                        "measurements": SimpleNamespace(
+                            value_domain="list", item_domain="integer"
+                        )
+                    }
+                ),
+            }
+        )
+
+        properties = self.validator.list_all_properties()
+
+        self.assertEqual(
+            properties,
+            [
+                {"node": "participant", "property": "name", "type": "string"},
+                {"node": "participant", "property": "status", "type": "Enum"},
+                {
+                    "node": "participant",
+                    "property": "tags",
+                    "type": "List[Enum]",
+                },
+                {"node": "participant", "property": "age", "type": "number"},
+                {
+                    "node": "sample",
+                    "property": "measurements",
+                    "type": "List[integer]",
+                },
+            ],
+        )
+
+    def test_prop_db_query_returns_total_and_filled_counts(self) -> None:
+        tx = MagicMock()
+        tx.run.return_value.single.return_value = {"total": 5, "filled": 3}
+
+        results = DatabaseValidator.prop_db_query(tx, "participant", "age")
+
+        self.assertEqual(results, {"total": 5, "filled": 3})
+        query = tx.run.call_args.args[0]
+        self.assertIn("MATCH (n:participant)", query)
+        self.assertIn("COUNT(n.age) AS filled", query)
+
+    def test_props_db_evaluation_calculates_missing_percentages(self) -> None:
+        session = MagicMock()
+        driver = self._build_driver_with_session(session)
+        properties = [
+            {"node": "participant", "property": "age", "type": "number"},
+            {"node": "sample", "property": "name", "type": "string"},
+        ]
+        with patch.object(
+            self.validator, "list_all_properties", return_value=properties
+        ), patch.object(
+            self.validator,
+            "prop_db_query",
+            side_effect=[
+                {"total": 4, "filled": 3},
+                {"total": 0, "filled": 0},
+            ],
+        ) as query:
+            results = self.validator.props_db_evaluation(driver)
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "node": "participant",
+                    "property": "age",
+                    "type": "number",
+                    "total": 4,
+                    "filled": 3,
+                    "missing_percentage": 25,
+                },
+                {
+                    "node": "sample",
+                    "property": "name",
+                    "type": "string",
+                    "total": 0,
+                    "filled": 0,
+                    "missing_percentage": 0,
+                },
+            ],
+        )
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(session.begin_transaction.call_count, 2)
+
+    def test_val_results_simplified_groups_unique_inputs_and_missing_errors(self) -> None:
+        validation_results = {
+            "participant": {
+                "flagged_nodes": [
+                    {
+                        "validation_result": {
+                            "warnings": [
+                                {
+                                    "type": "enum",
+                                    "loc": ["status"],
+                                    "input": "Unknown",
+                                }
+                            ],
+                            "errors": [
+                                {"type": "missing", "loc": ["age"]},
+                                {
+                                    "type": "value_error",
+                                    "loc": ["age"],
+                                    "input": "invalid",
+                                },
+                            ],
+                        }
+                    },
+                    {
+                        "validation_result": {
+                            "warnings": [
+                                {
+                                    "type": "enum",
+                                    "loc": ["status"],
+                                    "input": "Unknown",
+                                }
+                            ],
+                            "errors": [],
+                        }
+                    },
+                ]
+            },
+            "sample": {"flagged_nodes": []},
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            filepath = Path(tmp_dir) / "validation.json"
+            filepath.write_text(json.dumps(validation_results), encoding="utf-8")
+
+            simplified = DatabaseValidator.val_results_simplified(str(filepath))
+
+        self.assertEqual(
+            simplified,
+            [
+                {
+                    "node_type": "participant",
+                    "level": "error",
+                    "type": "missing",
+                    "loc": "age",
+                    "violated_inputs_uniq": [""],
+                    "n_unique": 1,
+                    "n_total": 1,
+                },
+                {
+                    "node_type": "participant",
+                    "level": "error",
+                    "type": "value_error",
+                    "loc": "age",
+                    "violated_inputs_uniq": ["invalid"],
+                    "n_unique": 1,
+                    "n_total": 1,
+                },
+                {
+                    "node_type": "participant",
+                    "level": "warning",
+                    "type": "enum",
+                    "loc": "status",
+                    "violated_inputs_uniq": ["Unknown"],
+                    "n_unique": 1,
+                    "n_total": 2,
+                },
+            ],
+        )
+
     def test_list_all_enum_properties_includes_scalar_and_list_enums(self) -> None:
         self.validator.model = SimpleNamespace(
             nodes={
@@ -1049,7 +1231,7 @@ class TestDatabaseValidator(unittest.TestCase):
             ],
         )
 
-    def test_enum_props_db_query_counts_scalar_and_list_placeholders(self) -> None:
+    def test_enum_prop_db_query_counts_scalar_and_list_placeholders(self) -> None:
         for is_list, expected_condition in (
             (False, "toLower(toString(n.`status`)) = toLower($ph0)"),
             (
@@ -1066,7 +1248,7 @@ class TestDatabaseValidator(unittest.TestCase):
                     "ph1": 1,
                 }
 
-                results = DatabaseValidator.enum_props_db_query(
+                results = DatabaseValidator.enum_prop_db_query(
                     tx,
                     "participant",
                     "status",
@@ -1122,7 +1304,7 @@ class TestDatabaseValidator(unittest.TestCase):
             self.validator, "list_all_enum_properties", return_value=enum_properties
         ), patch.object(
             self.validator,
-            "enum_props_db_query",
+            "enum_prop_db_query",
             side_effect=query_results,
         ) as query:
             results = self.validator.enum_props_db_evaluation(
@@ -1405,6 +1587,206 @@ class TestDatabaseValidator(unittest.TestCase):
         self.assertEqual(matrix.loc[0, "failed_counts(with errors)"], 1)
         self.assertEqual(matrix.loc[0, "flagged_node_counts"], 2)
         self.assertEqual(matrix.loc[0, "node_with_warnings_but_valid"], 1)
+
+    def test_validate_edges_many_to_one_formats_violations_and_checks_multiplicity(self) -> None:
+        session = MagicMock()
+        session.run.return_value = [
+            {
+                "src_key_prop": "sample-1",
+                "src_uuid": "sample-guid",
+                "dsts": [
+                    {"key": "participant-1", "uuid": "participant-guid-1"},
+                    {"key": "participant-2", "uuid": "participant-guid-2"},
+                ],
+                "degree": 2,
+            }
+        ]
+        driver = self._build_driver_with_session(session)
+        model_parser = MagicMock()
+        model_parser.get_node_key_prop.side_effect = {
+            "sample": "sample_id",
+            "participant": "participant_id",
+        }.__getitem__
+        model_parser.get_edge_multiplicity.return_value = "many_to_one"
+        model_parser.get_edge_handle.return_value = "of_participant"
+
+        results = self.validator.validate_edges_many_to_one(
+            driver, model_parser, "sample", "participant", uuid_property="uuid"
+        )
+
+        self.assertEqual(
+            results,
+            {
+                "edge_validation_type": "many_to_one",
+                "edge": {
+                    "src_label": "sample",
+                    "dst_label": "participant",
+                    "edge_handle": "of_participant",
+                    "edge_multiplicity": "many_to_one",
+                },
+                "violations": [
+                    {
+                        "sample_id": "sample-1",
+                        "uuid": "sample-guid",
+                        "number_of_dst": 2,
+                        "dst_nodes": [
+                            {
+                                "participant_id": "participant-1",
+                                "uuid": "participant-guid-1",
+                            },
+                            {
+                                "participant_id": "participant-2",
+                                "uuid": "participant-guid-2",
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertIn("count(b) AS degree", session.run.call_args.args[0])
+
+        model_parser.get_edge_multiplicity.return_value = "one_to_many"
+        with self.assertRaisesRegex(ValueError, "is not many_to_one"):
+            self.validator.validate_edges_many_to_one(
+                driver, model_parser, "sample", "participant"
+            )
+
+    def test_validate_edges_one_to_many_formats_violations_and_empty_results(self) -> None:
+        session = MagicMock()
+        session.run.return_value = [
+            {
+                "dst_key_prop": "participant-1",
+                "dst_uuid": "participant-guid",
+                "srcs": [{"key": "sample-1", "uuid": "sample-guid"}],
+                "degree": 2,
+            }
+        ]
+        driver = self._build_driver_with_session(session)
+        model_parser = MagicMock()
+        model_parser.get_node_key_prop.side_effect = {
+            "sample": "sample_id",
+            "participant": "participant_id",
+        }.__getitem__
+        model_parser.get_edge_multiplicity.return_value = "one_to_many"
+        model_parser.get_edge_handle.return_value = "of_participant"
+
+        results = self.validator.validate_edges_one_to_many(
+            driver, model_parser, "sample", "participant", uuid_property="uuid"
+        )
+
+        self.assertEqual(
+            results,
+            {
+                "edge_validation_type": "one_to_many",
+                "edge": {
+                    "src_label": "sample",
+                    "dst_label": "participant",
+                    "edge_handle": "of_participant",
+                    "edge_multiplicity": "one_to_many",
+                },
+                "violations": [
+                    {
+                        "participant_id": "participant-1",
+                        "uuid": "participant-guid",
+                        "number_of_src": 2,
+                        "src_nodes": [
+                            {"sample_id": "sample-1", "uuid": "sample-guid"}
+                        ],
+                    }
+                ],
+            },
+        )
+
+        session.run.return_value = []
+        self.assertEqual(
+            self.validator.validate_edges_one_to_many(
+                driver, model_parser, "sample", "participant"
+            ),
+            {},
+        )
+        model_parser.get_edge_multiplicity.return_value = "many_to_one"
+        with self.assertRaisesRegex(ValueError, "is not one_to_many"):
+            self.validator.validate_edges_one_to_many(
+                driver, model_parser, "sample", "participant"
+            )
+
+    def test_validate_edges_one_to_one_reports_violations_on_both_sides(self) -> None:
+        session = MagicMock()
+        session.run.side_effect = [
+            [
+                {
+                    "src_key_prop": "sample-1",
+                    "src_uuid": "sample-guid",
+                    "dsts": [{"key": "participant-1", "uuid": "participant-guid-1"}],
+                    "degree": 2,
+                }
+            ],
+            [
+                {
+                    "dst_key_prop": "participant-2",
+                    "dst_uuid": "participant-guid-2",
+                    "srcs": [{"key": "sample-2", "uuid": "sample-guid-2"}],
+                    "degree": 2,
+                }
+            ],
+        ]
+        driver = self._build_driver_with_session(session)
+        model_parser = MagicMock()
+        model_parser.get_node_key_prop.side_effect = {
+            "sample": "sample_id",
+            "participant": "participant_id",
+        }.__getitem__
+        model_parser.get_edge_multiplicity.return_value = "one_to_one"
+        model_parser.get_edge_handle.return_value = "of_participant"
+
+        results = self.validator.validate_edges_one_to_one(
+            driver, model_parser, "sample", "participant", uuid_property="uuid"
+        )
+
+        self.assertEqual(
+            results,
+            {
+                "edge_validation_type": "one_to_one",
+                "edge": {
+                    "src_label": "sample",
+                    "dst_label": "participant",
+                    "edge_handle": "of_participant",
+                    "edge_multiplicity": "one_to_one",
+                },
+                "violations": {
+                    "src_side_violations": [
+                        {
+                            "sample_id": "sample-1",
+                            "uuid": "sample-guid",
+                            "number_of_dst": 2,
+                            "dst_nodes": [
+                                {
+                                    "participant_id": "participant-1",
+                                    "uuid": "participant-guid-1",
+                                }
+                            ],
+                        }
+                    ],
+                    "dst_side_violations": [
+                        {
+                            "participant_id": "participant-2",
+                            "uuid": "participant-guid-2",
+                            "number_of_src": 2,
+                            "src_nodes": [
+                                {"sample_id": "sample-2", "uuid": "sample-guid-2"}
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(session.run.call_count, 2)
+
+        model_parser.get_edge_multiplicity.return_value = "many_to_one"
+        with self.assertRaisesRegex(ValueError, "is not one_to_one"):
+            self.validator.validate_edges_one_to_one(
+                driver, model_parser, "sample", "participant"
+            )
 
     def test_validate_db_edges_multiplicity_dispatches_supported_edges(self) -> None:
         grouped_edges = {
