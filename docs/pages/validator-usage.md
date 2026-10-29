@@ -12,7 +12,7 @@ permalink: /validator/usage/
 >**ATTENTION**: LocalValidator validates tsv files before uuid creation, meaning linkage columns in file are presented as <parent_node>.<panret_node_key_peop>. such as participant.participant_id. 
 - **`RemoteValidator(ValidatorUtilities)`** — checks a TSV file against an existing graph database to determine whether records/relationships would be created vs. updated, and whether they are valid to load (e.g. relationship targets exist somewhere). All methods are class methods, so no instantiation is required.
 > **ATTENTION**: RemoteValidator uses UUID as the identifier to match record in the database. Users are expected to create UUID for their submission files before they use RemoteValidator for validation against a database.
-- **`DatabaseValidator(LocalValidator)`** — validates records already in the database against the MDF model and checks stored edges against model-defined multiplicities. Instantiated with an `MDFReader` and used with a graph database driver.
+- **`DatabaseValidator(LocalValidator)`** — validates records already in the database against the MDF model, evaluates property completeness and placeholder values, and checks stored edges against model-defined multiplicities. Instantiated with an `MDFReader` and used with a graph database driver.
 
 
 ## Contents
@@ -21,7 +21,7 @@ permalink: /validator/usage/
 - [Local validation](#local-validation)
 - [UUID generation](#uuid-generation)
 - [Submission validation against an existing database](#submission-validation-against-an-existing-database)
-- [Database integrity validation](#database-integrity-validation)
+- [Database integrity validation and evaluation](#database-integrity-validation-and-evaluation)
 - [Notes](#notes)
 
 ## Instantiation
@@ -144,11 +144,17 @@ passed, failed, summary, results = RemoteValidator.validate_tsv_in_db(
 - `record_comparison(record_file, record_db, compare_mode)` — a `ValidatorUtilities` method that diffs a file record against its database record, returning `{"added": ..., "removed": ..., "changed": ...}`. Under `"Upsert"` mode, `removed` is always empty since upsert does not delete missing properties; under `"Update"` mode, missing properties are reported as `removed`.
 - `read_tsv_records_id`, `read_tsv_rels_id`, `read_full_records_in_tsv`, `read_record_by_row_in_tsv` — low-level `ValidatorUtilities` generators/readers used internally to stream ids, relationships, and prepared records row-by-row for the DB validation pass.
 
-## Database integrity validation
+## Database integrity validation and evaluation
 
 > **ATTENTION**: `DatabaseValidator` inspects data already stored in the graph database. It is separate from `RemoteValidator`, which validates submission TSV files against the database.
 
-`DatabaseValidator` inherits the local validation methods and requires an `MDFReader` at initialization. Its database methods require a Neo4j/Memgraph `driver`. `validate_db_records` fetches the nodes by label in batches, removes the database timestamp properties (`created` and `updated`), and removes the UUID property before model validation when that UUID is not part of the MDF model.
+`DatabaseValidator` inherits the local validation methods and requires an `MDFReader` at initialization. Its database methods require a Neo4j/Memgraph `driver`. It supports:
+
+- **Record validation** — validates stored nodes against the MDF model.
+- **Property evaluation** — measures missing property values and counts enum or numeric placeholders.
+- **Edge multiplicity validation** — finds stored relationships that violate model cardinalities.
+
+The database record-validation pass fetches nodes by label in batches, removes the database timestamp properties (`created` and `updated`), and removes the UUID property before model validation when that UUID is not part of the MDF model.
 
 ```python
 from bento_mdf import MDFReader
@@ -161,18 +167,23 @@ model_parser = ModelParser("model.yml", "model-props.yml", handle="ccdi_dcc")
 validator = DatabaseValidator(mdf)
 
 with GraphDatabase.driver(database_uri, auth=(username, password)) as driver:
+    # records and edges validation against data model
     record_results = validator.validate_db_records(
         driver=driver,
         batch_size=3000,
         uuid_property="guid",
         uuid_in_model=True,
     )
-    summary = validator.get_basic_val_matrix(record_results)
+    integrity_val_summary = validator.get_basic_val_matrix(record_results)
     edge_violations = validator.validate_db_edges_multiplicity(
         driver=driver,
         model_parser=model_parser,
         uuid_property="guid",
     )
+    # missing value and placeholder value evaluation
+    property_completeness = validator.props_db_evaluation(driver)
+    enum_placeholders = validator.enum_props_db_evaluation(driver)
+    numeric_placeholders = validator.numeric_props_db_evaluation(driver)
 ```
 
 ### `validate_db_records(driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
@@ -183,18 +194,50 @@ Use `uuid_in_model=True` when the UUID property is defined in the MDF; otherwise
 ### `validate_db_records_by_label(node_label, driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
 Validates nodes with one label. Returns `(node_count, passed_count, flagged_nodes)`, using the same flagged-node structure as `validate_db_records`.
 
+### Property completeness evaluation
+
+`list_all_properties()` enumerates the MDF properties as dictionaries containing `node`, `property`, and `type`. Enum properties are labeled `"Enum"` and list properties are labeled `"List[<item type>]"`.
+
+`prop_db_query(tx, node_label, prop)` queries one property in a transaction and returns `{"total": ..., "filled": ...}`. `props_db_evaluation(driver)` runs this query for every model property and returns a list of results with `node`, `property`, `type`, `total`, `filled`, and `missing_percentage`. A property with no nodes has a missing percentage of `0`.
+
+### Enum placeholder evaluation
+
+`list_all_enum_properties()` returns scalar and list enum properties, including their model `value_set`.
+
+`enum_prop_db_query(tx, node_label, prop, is_list, placeholders=DatabaseValidator.PLACEHOLDER_STR_LIST)` evaluates one enum property. It returns total and filled counts plus a count for each placeholder. Scalar and list enum matches are case-insensitive.
+
+`enum_props_db_evaluation(driver, placeholders=DatabaseValidator.PLACEHOLDER_STR_LIST)` evaluates only enum properties whose model value set contains at least one requested placeholder. The default placeholders are `"Not Reported"`, `"Unknown"`, and `"Not Applicable"`. Each result includes `node`, `property`, `type`, `total`, `filled`, and a `placeholders` mapping.
+
+### Numeric placeholder evaluation
+
+`list_all_num_properties()` returns scalar `number`/`integer` properties and lists of numeric items from the MDF.
+
+`numeric_props_db_query(tx, node_label, prop, sentinel=DatabaseValidator.PLACEHOLDER_NUM_VALUE)` evaluates one numeric property. It returns `total`, `filled`, and the number of records matching the sentinel as a scalar or a one-item list.
+
+`numeric_props_db_evaluation(driver, sentinel=DatabaseValidator.PLACEHOLDER_NUM_VALUE)` evaluates every numeric model property and returns a list with `node`, `property`, `total`, `filled`, and `sentinel`. The default sentinel is `-999`.
+
 ### `get_basic_val_matrix(db_validation_results)`
 Converts the result of `validate_db_records` into a pandas DataFrame with per-label counts for total nodes, passed nodes, nodes with errors, flagged nodes, and nodes that passed with warnings.
 
 ### `val_results_simplified(val_json_filepath)`
-Reads a JSON file containing the result of `validate_db_records` and returns a grouped list of validation findings, including the node type, severity, validation type, property location, unique inputs, and occurrence counts.
+Reads a JSON file containing the result of `validate_db_records` and returns a grouped list of validation findings, including the node type, severity, validation type, property location, unique inputs, and occurrence counts. Missing-value errors have an empty string as their input.
 
 ### `validate_db_edges_multiplicity(driver, model_parser, uuid_property="guid")`
 Checks every model edge against its declared multiplicity. It reports violations for `one_to_one`, `one_to_many`, and `many_to_one` edges; `many_to_many` edges are skipped because they impose no cardinality restriction. Returns a list of violation summaries, or an empty list when none are found.
+
+The individual edge checks can also be called directly:
+
+- `validate_edges_many_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports source nodes pointing to multiple destination nodes.
+- `validate_edges_one_to_many(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports destination nodes pointed to by multiple source nodes.
+- `validate_edges_one_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` checks both directions and reports source-side and destination-side violations.
+
+Each method verifies that the edge has the expected multiplicity in the model and returns an empty dictionary when no violations are found. For `one_to_one`, any violations are grouped under `violations.src_side_violations` and `violations.dst_side_violations`.
+
+`list_all_labels(driver)` lists the distinct labels present in the database. `fetch_nodes_by_label(driver, label, batch_size=3000)` is the batched node-fetching generator used by record validation.
 
 ## Notes
 
 - Local validation methods (`validate_tsv_format`, `validate_tsv_records`, `validate_tsv_rels`, `validate_tsv_uniq_entry`, etc.) work on the natural key columns and should run **before** UUID5 generation.
 - DB-validation methods (`validate_tsv_in_db` and its helpers on `RemoteValidator`) work on the `guid` column and should run **after** UUID5 generation (`add_uuid_to_tsv_file`).
-- `DatabaseValidator` validates records already stored in the database against the MDF and checks edge multiplicities; it is not part of the submission TSV UUID-generation workflow.
+- `DatabaseValidator` validates records and evaluates properties and edges already stored in the database; it is not part of the submission TSV UUID-generation workflow.
 - Encoding of TSV files (`utf-8` vs `cp1252`) is auto-detected via `check_encoding`, matching `Loader`'s behavior.
