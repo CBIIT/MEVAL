@@ -235,6 +235,37 @@ Each method verifies that the edge has the expected multiplicity in the model an
 
 `list_all_labels(driver)` lists the distinct labels present in the database. `fetch_nodes_by_label(driver, label, batch_size=3000)` is the batched node-fetching generator used by record validation.
 
+### Finding groups with distinct property values
+
+These methods group stored nodes and return the distinct values of a target property, along with the number and key values of the nodes in each group. Set `target_property_distinct_value_threshold=2` to find groups with conflicting values; the default threshold of `1` includes groups with at least one distinct value.
+
+#### `find_distinct_value_grp_nodes(driver, node_type, group_property_list, target_property, target_property_distinct_value_threshold=1, skip_null_keys=True)`
+Groups nodes of one type by the listed properties and collects each group's distinct target-property values. `group_property_list` must contain at least one property. When `skip_null_keys=True`, nodes with a null grouping property are excluded. Results include `node_type`, `group_properties`, `target_prop`, `distinct_target_prop_values`, `node_count`, and `node_list`, whose key is the node type's MDF key property.
+
+```python
+conflicting_file_values = validator.find_distinct_value_grp_nodes(
+    driver,
+    node_type="file",
+    group_property_list=["acl"],
+    target_property="authz",
+    target_property_distinct_value_threshold=2,
+)
+```
+
+#### `find_distinct_value_grp_nodes_by_parent(driver, node_type, parent_node_type, target_property, group_property_list=None, target_property_distinct_value_threshold=1, skip_null_keys=True)`
+Groups nodes by their connected parent node and, optionally, by additional properties on the node. The model must define a directed edge from `node_type` to `parent_node_type`; otherwise the method raises `KeyError`. `skip_null_keys=True` excludes nodes with null values in the additional grouping properties. Results include `parent_node` (a mapping using the parent's MDF key property), `group_properties`, `target_prop`, `distinct_target_prop_values`, `node_count`, `node_type`, and `node_list` (keyed by the node type's MDF key property).
+
+```python
+conflicting_survival_values = validator.find_distinct_value_grp_nodes_by_parent(
+    driver,
+    node_type="survival",
+    parent_node_type="participant",
+    target_property="survival_status",
+    group_property_list=["age_at_survival_status"],
+    target_property_distinct_value_threshold=2,
+)
+```
+
 ## Notes
 
 - Local validation methods (`validate_tsv_format`, `validate_tsv_records`, `validate_tsv_rels`, `validate_tsv_uniq_entry`, etc.) work on the natural key columns and should run **before** UUID5 generation.
