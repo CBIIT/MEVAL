@@ -1,3 +1,5 @@
+from unicodedata import name
+
 from bento_mdf import MDFDataValidator, MDFReader, MDF
 from typing import Any, Dict, List, Generator
 from pathlib import Path
@@ -6,7 +8,7 @@ from neo4j import GraphDatabase, ManagedTransaction
 import pandas as pd
 from uuid import UUID, uuid5
 import hashlib
-from typing import Literal, Tuple
+from typing import Literal, Tuple, Optional
 from collections.abc import Iterator
 from itertools import islice
 from collections import defaultdict
@@ -25,6 +27,12 @@ CompareRecordMode = Literal["Update", "Upsert"]
 
 class ValidatorUtilities:
     """Shared TSV, record-normalization, and UUID utilities for validators."""
+
+    @staticmethod
+    def _q(name: str) -> str:
+        """Safely backtick-quote a label / property name for Cypher
+        (these can't be passed as query parameters)."""
+        return "`" + name.replace("`", "``") + "`"
 
     @staticmethod
     def to_number(value: str) -> float | int | str:
@@ -247,7 +255,11 @@ class ValidatorUtilities:
 
         # second write guid for all relationship columns, it excludes linkage columns ends with .<uuid_column>
         # relationship column might need delimiter if it is present
-        rel_col = [col for col in file_df.columns if "." in col and not col.endswith("." + uuid_column)]
+        rel_col = [
+            col
+            for col in file_df.columns
+            if "." in col and not col.endswith("." + uuid_column)
+        ]
         for col in rel_col:
             parent_type = col.split(".")[0]
             new_rel_col = parent_type + "." + uuid_column
@@ -601,7 +613,9 @@ class ValidatorUtilities:
         """
         encoding = Validator.check_encoding(tsv_file_path)
         try:
-            with open(tsv_file_path, mode="r", encoding=encoding, newline="") as tsv_file:
+            with open(
+                tsv_file_path, mode="r", encoding=encoding, newline=""
+            ) as tsv_file:
                 reader = csv.DictReader(tsv_file, delimiter="\t")
                 for row in reader:
                     # capture id_field value before record_prep mutates the dict
@@ -773,6 +787,7 @@ class ValidatorUtilities:
                     else:
                         pass
                 yield row_rel_list
+
 
 class LocalValidator(ValidatorUtilities):
     """Validate submission files against an MDF model without database access."""
@@ -995,11 +1010,11 @@ class LocalValidator(ValidatorUtilities):
             else:  # use the validator_record to validate
                 is_valid, messages = self.validate_one_record(node_name, record)
 
-                if not is_valid: # there is at lease one error message
+                if not is_valid:  # there is at lease one error message
                     validation_results.append(
                         {"row": row_num, "is_valid": is_valid, "messages": messages}
                     )
-                else: # this case applied to record that only has warnings but not errors
+                else:  # this case applied to record that only has warnings but not errors
                     if "warnings" in messages and messages["warnings"] != []:
                         validation_results.append(
                             {"row": row_num, "is_valid": is_valid, "messages": messages}
@@ -1631,6 +1646,7 @@ class LocalValidator(ValidatorUtilities):
                 pass
         return validation_errors
 
+
 class RemoteValidator(ValidatorUtilities):
     """Validate submission files against records and relationships in a graph database."""
 
@@ -2159,7 +2175,9 @@ class RemoteValidator(ValidatorUtilities):
         }
 
     @classmethod
-    def _read_file_parent_nodes_id(cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";") -> set[Tuple[str, str, str]]:
+    def _read_file_parent_nodes_id(
+        cls, file_path: str, id_prop_name: str = "guid", delimiter: str = ";"
+    ) -> set[Tuple[str, str, str]]:
         """
         #############################
         # FOR VALIDATION AGAINST DB #
@@ -2177,7 +2195,11 @@ class RemoteValidator(ValidatorUtilities):
         seen = set()
         with open(file_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter="\t")
-            parent_cols = [id_col for id_col in reader.fieldnames if id_col.endswith(f".{id_prop_name}")]
+            parent_cols = [
+                id_col
+                for id_col in reader.fieldnames
+                if id_col.endswith(f".{id_prop_name}")
+            ]
             if not parent_cols:
                 return seen
             for row in reader:
@@ -2209,7 +2231,7 @@ class RemoteValidator(ValidatorUtilities):
         Raise ValueError: If any (parent_type, id_prop_name, id_prop_value) maps to more
         than one node in the database (indicates duplicate data to fix before
         validation).
-        
+
         Args:
             driver: GraphDatabase driver instance with proper connection to a graph database
             file_path: Path to the TSV file containing id property values
@@ -2219,7 +2241,9 @@ class RemoteValidator(ValidatorUtilities):
             dict[tuple[str, str, str], bool]: A dictionary where keys are tuples of (parent node type, id_prop_name, parent node id property value) and values are booleans indicating existence in the database.
         """
         # Step 1: read the file into unique (parent_type, id_prop_name, id_prop_value) tuples
-        parent_node_ids = cls._read_file_parent_nodes_id(file_path=file_path, id_prop_name=id_prop_name, delimiter=delimiter)
+        parent_node_ids = cls._read_file_parent_nodes_id(
+            file_path=file_path, id_prop_name=id_prop_name, delimiter=delimiter
+        )
         unique_triples = list(parent_node_ids)  # accepts a set or a list
         if not unique_triples:
             return {}
@@ -2241,7 +2265,9 @@ class RemoteValidator(ValidatorUtilities):
                 if not _SAFE_IDENTIFIER.match(parent_type):
                     raise ValueError(f"Unsafe parent type for query: {parent_type!r}")
                 if not _SAFE_IDENTIFIER.match(prop_name):
-                    raise ValueError(f"Unsafe id property name for query: {prop_name!r}")
+                    raise ValueError(
+                        f"Unsafe id property name for query: {prop_name!r}"
+                    )
 
                 # Label and property name are literal text; only the id values are parameters.
                 query = f"""
@@ -2358,7 +2384,7 @@ class RemoteValidator(ValidatorUtilities):
         processed_rows = 0
         progress_interval = 10000
         # This will only include counts of passed rows. Failed rows are not counted here.
-        projected_changes_of_passed_rows={
+        projected_changes_of_passed_rows = {
             "nodes_to_create": 0,
             "nodes_to_update": 0,
             "edges_to_create": 0,
@@ -2370,8 +2396,12 @@ class RemoteValidator(ValidatorUtilities):
                 tsv_file_path=tsv_file_path, id_field=id_prop_name, delimiter=delimiter
             ),
             cls.read_full_records_in_tsv(
-                tsv_file_path=tsv_file_path, mdf_instance=mdf_instance, id_field=id_prop_name, delimiter=delimiter, keep_id_field=True
-            )
+                tsv_file_path=tsv_file_path,
+                mdf_instance=mdf_instance,
+                id_field=id_prop_name,
+                delimiter=delimiter,
+                keep_id_field=True,
+            ),
         )
         # get file type from test file
         with open(tsv_file_path, mode="r", encoding="utf-8", newline="") as tsv_file:
@@ -2397,7 +2427,9 @@ class RemoteValidator(ValidatorUtilities):
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
-        print("Finished checking all records in the tsv file if they exist in the database.")
+        print(
+            "Finished checking all records in the tsv file if they exist in the database."
+        )
         # batch fetching file records in the tsv if the reocrd(via id_prop_name value) already exist in the db
         # if the record doesn't exist, the returned dict will have None for the row number key
         file_records_in_db = cls.get_file_records_in_db(
@@ -2406,7 +2438,9 @@ class RemoteValidator(ValidatorUtilities):
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
-        print("Finished fetching all database records in the tsv file that already exist in the database")
+        print(
+            "Finished fetching all database records in the tsv file that already exist in the database"
+        )
         # batch fetching outgoing edges of the record in the tsv if the record already exist in the db
         # if the record doesn't exist, the returned dict will have None for the row number key
         file_records_outgoing_edges_in_db = cls.get_file_records_outgoing_edges_in_db(
@@ -2415,14 +2449,19 @@ class RemoteValidator(ValidatorUtilities):
             id_prop_name=id_prop_name,
             node_label=file_type,
         )
-        print("Finished fetching all outgoing edges of all record in file if they exist in the database")
+        print(
+            "Finished fetching all outgoing edges of all record in file if they exist in the database"
+        )
         # fetch if parent nodes exist in the db for all parent nodes in a file
         parent_nodes_if_exist_in_db = cls.if_parent_nodes_exist_in_db(
             driver=driver,
             file_path=tsv_file_path,
             id_prop_name=id_prop_name,
-            delimiter=delimiter)
-        print("Finished checking all parent nodes found in the tsv file if they exist in the database")
+            delimiter=delimiter,
+        )
+        print(
+            "Finished checking all parent nodes found in the tsv file if they exist in the database"
+        )
 
         # iterate through each row in the tsv file and validate against db according to the validation mode
         print("Starting to validate each record")
@@ -2494,9 +2533,11 @@ class RemoteValidator(ValidatorUtilities):
                         pass
                 if row_pass:
                     projected_changes_of_passed_rows["nodes_to_create"] += 1
-                    projected_changes_of_passed_rows["edges_to_create"] += len(rels_in_record)
+                    projected_changes_of_passed_rows["edges_to_create"] += len(
+                        rels_in_record
+                    )
                 else:
-                    pass # don't count the failed row in the projected_changes_of_passed_rows
+                    pass  # don't count the failed row in the projected_changes_of_passed_rows
 
             elif validation_mode == "Update":  # Update mode
                 if (
@@ -2574,7 +2615,11 @@ class RemoteValidator(ValidatorUtilities):
                         invalid_edges_hint = []
                         for edge in uniq_edges_in_file:
                             if not parent_nodes_if_exist_in_db.get(
-                                (edge["dst_label"], edge["dst_id_prop"], edge["dst_id_value"])
+                                (
+                                    edge["dst_label"],
+                                    edge["dst_id_prop"],
+                                    edge["dst_id_value"],
+                                )
                             ):
                                 # dst not found in db, give error to the validation_results
                                 # if dst does not exist, submitter should submit dst node to db through upsert or new mode first
@@ -2619,17 +2664,19 @@ class RemoteValidator(ValidatorUtilities):
                 if row_pass:
                     if row_record_in_file != row_record_in_db:
                         projected_changes_of_passed_rows["nodes_to_update"] += 1
-                    if len(uniq_edges_in_file) > 0: # uniq edges in file but not in DB
-                        if len(valid_edges_in_file) > 0: # valid uniq edges in file but not in DB
+                    if len(uniq_edges_in_file) > 0:  # uniq edges in file but not in DB
+                        if (
+                            len(valid_edges_in_file) > 0
+                        ):  # valid uniq edges in file but not in DB
                             projected_changes_of_passed_rows["edges_to_create"] += len(
                                 valid_edges_in_file
                             )
-                    if len(uniq_edges_in_db) > 0: # uniq edges in DB but not in file
+                    if len(uniq_edges_in_db) > 0:  # uniq edges in DB but not in file
                         projected_changes_of_passed_rows["edges_to_delete"] += len(
                             uniq_edges_in_db
                         )
                 else:
-                    pass # don't count the failed row in the projected_changes_of_passed_rows
+                    pass  # don't count the failed row in the projected_changes_of_passed_rows
 
             elif validation_mode == "Upsert":  # Upsert mode
                 # Upsert mode might create ERROR if the dst node of an edge can't be found in db or files
@@ -2713,12 +2760,15 @@ class RemoteValidator(ValidatorUtilities):
                         # if dst can be found in db or in the files, the edge can be established
                         for edge in uniq_edges_in_file:
                             if not parent_nodes_if_exist_in_db.get(
-                                (edge["dst_label"], edge["dst_id_prop"], edge["dst_id_value"])
-                                ):
+                                (
+                                    edge["dst_label"],
+                                    edge["dst_id_prop"],
+                                    edge["dst_id_value"],
+                                )
+                            ):
                                 # dst not found in db, check if dst can be found in the submission files
                                 if not cls.if_node_id_in_tsv_list(
-                                    tsv_id_set=tsv_id_set,
-                                    id_value=edge["dst_id_value"]
+                                    tsv_id_set=tsv_id_set, id_value=edge["dst_id_value"]
                                 ):
                                     # dst not found in db or in the submission files, give error to the validation_results
                                     invalid_edges_hint.append(edge)
@@ -2763,18 +2813,24 @@ class RemoteValidator(ValidatorUtilities):
                     else:
                         pass
                     if row_pass:
-                        if row_record_in_file != row_record_in_db and not all(v == {} for v in record_diff.values()):
+                        if row_record_in_file != row_record_in_db and not all(
+                            v == {} for v in record_diff.values()
+                        ):
                             projected_changes_of_passed_rows["nodes_to_update"] += 1
-                        if len(uniq_edges_in_file) > 0: # uniq edges in file but not in DB
-                            if len(valid_uniq_edges_in_file) > 0: # valid uniq edges in file but not in DB
-                                projected_changes_of_passed_rows["edges_to_create"] += len(
-                                    valid_uniq_edges_in_file
-                                )
+                        if (
+                            len(uniq_edges_in_file) > 0
+                        ):  # uniq edges in file but not in DB
+                            if (
+                                len(valid_uniq_edges_in_file) > 0
+                            ):  # valid uniq edges in file but not in DB
+                                projected_changes_of_passed_rows[
+                                    "edges_to_create"
+                                ] += len(valid_uniq_edges_in_file)
                             else:
-                                pass # no valid uniq edges to be created
+                                pass  # no valid uniq edges to be created
                         else:
-                            pass # no uniq edges in file but not in DB. most likely edges in file are the same with DB
-                    
+                            pass  # no uniq edges in file but not in DB. most likely edges in file are the same with DB
+
                 else:  # if the node doesn't exist in db, it will be created as new node
                     # we only need to make sure the edges are valid
                     invalid_edge_hint = []
@@ -2785,8 +2841,7 @@ class RemoteValidator(ValidatorUtilities):
                         ):
                             # test if dst node exist in the tsv file. The edge is still valid if dst node can be created as new
                             if not cls.if_node_id_in_tsv_list(
-                                tsv_id_set=tsv_id_set,
-                                id_value=rel["dst_id_value"]
+                                tsv_id_set=tsv_id_set, id_value=rel["dst_id_value"]
                             ):
                                 # dst not exist in db or tsv (which means dst won't be created while loading
                                 invalid_edge_hint.append(rel)
@@ -2811,7 +2866,9 @@ class RemoteValidator(ValidatorUtilities):
                         pass
                     if row_pass:
                         projected_changes_of_passed_rows["nodes_to_create"] += 1
-                        projected_changes_of_passed_rows["edges_to_create"] += len(rels_in_record)
+                        projected_changes_of_passed_rows["edges_to_create"] += len(
+                            rels_in_record
+                        )
 
             else:
                 raise ValueError(
@@ -2830,8 +2887,10 @@ class RemoteValidator(ValidatorUtilities):
             "total_rows": processed_rows,
             "passed_row_count": len(passed_row_list),
             "failed_row_count": len(failed_row_list),
-            "projected_changes_of_passed_rows": projected_changes_of_passed_rows,}
+            "projected_changes_of_passed_rows": projected_changes_of_passed_rows,
+        }
         return passed_row_list, failed_row_list, val_summary, validation_results
+
 
 class DatabaseValidator(LocalValidator):
     """Validate records and inspect data integrity of the database.
@@ -2840,6 +2899,7 @@ class DatabaseValidator(LocalValidator):
     while adding database-specific validation methods.
     Note: Initialization requires mdf instance because of LocalValidator inheritance.
     """
+
     PLACEHOLDER_STR_LIST = ["Not Reported", "Unknown", "Not Applicable"]
     PLACEHOLDER_NUM_VALUE = -999
 
@@ -2877,11 +2937,7 @@ class DatabaseValidator(LocalValidator):
                     prop_type = f"List[{prop_item_type}]"
                 else:
                     pass
-                return_list.append({
-                    "node": node,
-                    "property": prop,
-                    "type": prop_type
-                })
+                return_list.append({"node": node, "property": prop, "type": prop_type})
         return return_list
 
     @classmethod
@@ -2904,14 +2960,11 @@ class DatabaseValidator(LocalValidator):
                COUNT(n.{prop}) AS filled
         """
         result = tx.run(query).single()
-        return {
-            "total": result["total"],
-            "filled": result["filled"]
-        }
+        return {"total": result["total"], "filled": result["filled"]}
 
     def props_db_evaluation(
-            self,
-            driver: "GraphDatabase.driver",
+        self,
+        driver: "GraphDatabase.driver",
     ) -> Dict[str, Any]:
         """This functions looks at all properties of a datamodel, and evaludate their missing percentage
 
@@ -2932,22 +2985,24 @@ class DatabaseValidator(LocalValidator):
                 total = result["total"]
                 filled = result["filled"]
                 missing_percentage = 100 * (total - filled) / total if total > 0 else 0
-                return_list.append({
-                    "node": node,
-                    "property": prop,
-                    "type": item["type"],
-                    "total": total,
-                    "filled": filled,
-                    "missing_percentage": missing_percentage
-                })
+                return_list.append(
+                    {
+                        "node": node,
+                        "property": prop,
+                        "type": item["type"],
+                        "total": total,
+                        "filled": filled,
+                        "missing_percentage": missing_percentage,
+                    }
+                )
         return return_list
-    
+
     def list_all_enum_properties(self) -> List[Dict[str, Any]]:
         """List all enum properties in the data model/mdf
-        There are two types of property that can have a value set: 
+        There are two types of property that can have a value set:
             1. value_domain == value set.
             2. value_domain == list and item_domain == value set.
-        
+
         Returns:
             List[Dict[str, Any]]: A list of dictionaries, each representing an enum property with keys "node", "property", and "type".
         """
@@ -2959,27 +3014,38 @@ class DatabaseValidator(LocalValidator):
             node_props = [p for p in model.nodes[node].props]
             for prop in node_props:
                 if model.nodes[node].props[prop].value_domain == "value_set":
-                    return_list.append({
-                        "node": node,
-                        "property": prop,
-                        "type": "Enum",
-                        "value_set": model.nodes[node].props[prop].values
-                    })
-                elif model.nodes[node].props[prop].value_domain == "list" and model.nodes[node].props[prop].item_domain == "value_set":
-                    return_list.append({
-                        "node": node,
-                        "property": prop,
-                        "type": "List[Enum]",
-                        "value_set": model.nodes[node].props[prop].values
-                    })
+                    return_list.append(
+                        {
+                            "node": node,
+                            "property": prop,
+                            "type": "Enum",
+                            "value_set": model.nodes[node].props[prop].values,
+                        }
+                    )
+                elif (
+                    model.nodes[node].props[prop].value_domain == "list"
+                    and model.nodes[node].props[prop].item_domain == "value_set"
+                ):
+                    return_list.append(
+                        {
+                            "node": node,
+                            "property": prop,
+                            "type": "List[Enum]",
+                            "value_set": model.nodes[node].props[prop].values,
+                        }
+                    )
                 else:
                     pass
         return return_list
 
     @classmethod
     def enum_prop_db_query(
-        cls, tx: ManagedTransaction, node_label: str, prop: str,
-        is_list: bool, placeholders: List[str] = PLACEHOLDER_STR_LIST
+        cls,
+        tx: ManagedTransaction,
+        node_label: str,
+        prop: str,
+        is_list: bool,
+        placeholders: List[str] = PLACEHOLDER_STR_LIST,
     ) -> Dict[str, Any]:
         """Evaluate an enum property against placeholder values, counting each separately.
 
@@ -2994,8 +3060,9 @@ class DatabaseValidator(LocalValidator):
         """
         # Build one "sum(CASE ...) AS ph0, ph1, ..." per placeholder, matched case-insensitively.
         if is_list:
-            match_expr = ("any(v IN n.`{prop}` "
-                          "WHERE toLower(toString(v)) = toLower($ph{i}))")
+            match_expr = (
+                "any(v IN n.`{prop}` " "WHERE toLower(toString(v)) = toLower($ph{i}))"
+            )
         else:
             match_expr = "toLower(toString(n.`{prop}`)) = toLower($ph{i})"
 
@@ -3047,24 +3114,34 @@ class DatabaseValidator(LocalValidator):
                     enum_is_list = True
                 else:
                     enum_is_list = False
-                if any(item in enum_value_set for item in placeholders): 
+                if any(item in enum_value_set for item in placeholders):
                     # if there is placeholder value found in the value_set
-                    item_dict = {"node": enum_prop_node, "property": enum_prop_name, "type": enum_prop["type"]}
+                    item_dict = {
+                        "node": enum_prop_node,
+                        "property": enum_prop_name,
+                        "type": enum_prop["type"],
+                    }
                     with session.begin_transaction() as tx:
-                        item_query = self.enum_prop_db_query(tx, enum_prop_node, enum_prop_name, enum_is_list, placeholders)
+                        item_query = self.enum_prop_db_query(
+                            tx,
+                            enum_prop_node,
+                            enum_prop_name,
+                            enum_is_list,
+                            placeholders,
+                        )
                         item_dict.update(item_query)
                         result.append(item_dict)
-                else: # no placeholder value found in the value set
+                else:  # no placeholder value found in the value set
                     pass
             return result
-        
+
     def list_all_num_properties(self) -> List[Dict[str, Any]]:
         """List all numeric properties in the data model/mdf.
 
         There are two types of numeric properties:
             1. value_domain == number or integer.
             2. value_domain == list and item_domain == number or integer.
-        
+
         Returns a list of dictionaries representing numeric properties in the data model.
         """
         # use mdf to extract numeric properties
@@ -3075,22 +3152,37 @@ class DatabaseValidator(LocalValidator):
             node_props = [p for p in model.nodes[node].props]
             for prop in node_props:
                 if model.nodes[node].props[prop].value_domain in ["number", "integer"]:
-                    num_return_list.append({
-                        "node": node,
-                        "property": prop,
-                        "type": model.nodes[node].props[prop].value_domain
-                    })
-                elif model.nodes[node].props[prop].value_domain == "list" and model.nodes[node].props[prop].item_domain in ["number", "integer"]:
-                    num_return_list.append({
-                        "node": node,
-                        "property": prop,
-                        "type": f"List[{model.nodes[node].props[prop].item_domain}]"
-                    })
+                    num_return_list.append(
+                        {
+                            "node": node,
+                            "property": prop,
+                            "type": model.nodes[node].props[prop].value_domain,
+                        }
+                    )
+                elif model.nodes[node].props[
+                    prop
+                ].value_domain == "list" and model.nodes[node].props[
+                    prop
+                ].item_domain in [
+                    "number",
+                    "integer",
+                ]:
+                    num_return_list.append(
+                        {
+                            "node": node,
+                            "property": prop,
+                            "type": f"List[{model.nodes[node].props[prop].item_domain}]",
+                        }
+                    )
         return num_return_list
 
     @classmethod
     def numeric_props_db_query(
-        cls, tx: ManagedTransaction, node_label: str, prop: str, sentinel: Any = PLACEHOLDER_NUM_VALUE
+        cls,
+        tx: ManagedTransaction,
+        node_label: str,
+        prop: str,
+        sentinel: Any = PLACEHOLDER_NUM_VALUE,
     ) -> Dict[str, Any]:
         """Evaluate numeric properties in the database against the provided list of numeric properties.
 
@@ -3116,12 +3208,12 @@ class DatabaseValidator(LocalValidator):
         evaluation_results = {
             "total": result["total"],
             "filled": result["filled"],
-            "sentinel": result["sentinel"]
+            "sentinel": result["sentinel"],
         }
         return evaluation_results
 
     def numeric_props_db_evaluation(
-            self, driver: "GraphDatabase.driver", sentinel: Any = PLACEHOLDER_NUM_VALUE
+        self, driver: "GraphDatabase.driver", sentinel: Any = PLACEHOLDER_NUM_VALUE
     ) -> Dict[str, Any]:
         """Evaluate numeric properties in the database for a list of numeric properties.
 
@@ -3141,27 +3233,27 @@ class DatabaseValidator(LocalValidator):
             for item in numeric_prop_list:
                 node_label = item["node"]
                 prop = item["property"]
-                item_dict = {
-                    "node": node_label,
-                    "property": prop
-                }
+                item_dict = {"node": node_label, "property": prop}
                 with session.begin_transaction() as tx:
                     item_dict.update(
-                        self.numeric_props_db_query(
-                            tx, node_label, prop, sentinel
-                        )
+                        self.numeric_props_db_query(tx, node_label, prop, sentinel)
                     )
                 results.append(item_dict)
         return results
 
     @classmethod
-    def _clean_db_node_properties(cls, node_properties: Dict[str, Any], uuid_property: str, uuid_in_model: bool = False) -> Dict[str, Any]:
+    def _clean_db_node_properties(
+        cls,
+        node_properties: Dict[str, Any],
+        uuid_property: str,
+        uuid_in_model: bool = False,
+    ) -> Dict[str, Any]:
         """Cleanup the properties of a node and prepare the record for validation against data model.
         Data nodes in DB comes with timestamp properties that is not part of the data model. These timestamp properties need to be removed before record validation against data model.
         Depending on project, uuid properties may or may not be included in the data model. "guid" property is presented in every node type in CCDI-DCC model, while no uuid is found in every node type in GC model
             - If uuid property is included in the data model, it can be kept.
             - if uuid is not included in the data model, it should be removed.
-        
+
         NOTE: This is different from fetching nodes from the database for validation against DB. The node fetching for validation against DB is for record comparison.
         The records from DB don't need to be cleaned in the same way for validation against model.
         Args:
@@ -3172,16 +3264,18 @@ class DatabaseValidator(LocalValidator):
             dict: The cleaned node properties with timestamp and optionally UUID properties removed.
         """
         keys_to_remove = ["created", "updated"]
-        if not uuid_in_model: # uuid not a part of the data model
+        if not uuid_in_model:  # uuid not a part of the data model
             keys_to_remove.append(uuid_property)
         filtered = {k: v for k, v in node_properties.items() if k not in keys_to_remove}
         return filtered
 
     @classmethod
-    def fetch_nodes_by_label(cls, driver: "GraphDatabase.driver", label: str, batch_size:int = 3000) -> Generator[List[Dict], None, None]:
+    def fetch_nodes_by_label(
+        cls, driver: "GraphDatabase.driver", label: str, batch_size: int = 3000
+    ) -> Generator[List[Dict], None, None]:
         """A generator that fetches all nodes with the specified label from the graph database.
         NOTE: this method returns raw records from the database, which contains timestamp props (not in the data model) and uuid prop (may ot may not be in the data model)
-        """ 
+        """
         with driver.session() as session:
             offset = 0
             while True:
@@ -3200,7 +3294,14 @@ class DatabaseValidator(LocalValidator):
                 yield return_records
                 offset += batch_size
 
-    def validate_db_records_by_label(self, node_label: str, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> Tuple[int, int,  List[Dict]]:
+    def validate_db_records_by_label(
+        self,
+        node_label: str,
+        driver: "GraphDatabase.driver",
+        batch_size: int = 3000,
+        uuid_property: str = "guid",
+        uuid_in_model: bool = False,
+    ) -> Tuple[int, int, List[Dict]]:
         """Validates all the nodes of a graph database instance based on the specified node label against data model(mdf)
 
         Args:
@@ -3213,38 +3314,56 @@ class DatabaseValidator(LocalValidator):
         Returns:
             Tuple[int, int, List[dict]]: A tuple containing the total number of nodes processed, the number of nodes that passed validation, and a list of dictionaries representing the flagged nodes (with warnings or errors) based on validation results.
         """
-        batch_generator = self.fetch_nodes_by_label(driver, node_label, batch_size=batch_size)
+        batch_generator = self.fetch_nodes_by_label(
+            driver, node_label, batch_size=batch_size
+        )
         flagged_nodes = []
         node_count = 0
         passed_count = 0
         for batch in batch_generator:
             for node_properties in batch:
-                node_count +=1
-                cleaned_properties = self._clean_db_node_properties(node_properties, uuid_property=uuid_property, uuid_in_model=uuid_in_model)
+                node_count += 1
+                cleaned_properties = self._clean_db_node_properties(
+                    node_properties,
+                    uuid_property=uuid_property,
+                    uuid_in_model=uuid_in_model,
+                )
                 # Perform validation against the data model (mdf) here
                 # For now, we just append the cleaned properties as a placeholder
-                if_pass, val_result = self.validate_one_record(node_name=node_label, record=cleaned_properties)
+                if_pass, val_result = self.validate_one_record(
+                    node_name=node_label, record=cleaned_properties
+                )
                 if if_pass:
                     passed_count += 1
                     if val_result.get("warnings", []):  # if warnings are not empty
-                        flagged_nodes.append({
+                        flagged_nodes.append(
+                            {
+                                "label": node_label,
+                                "valid": if_pass,
+                                "data_record": cleaned_properties,  # remove timestamps, and guid if applicable
+                                "validation_result": val_result,
+                            }
+                        )
+                    else:  # no warning and the if_pass is True. There is no validation messages except pass
+                        pass
+                else:  # validation failed for this node
+                    flagged_nodes.append(
+                        {
                             "label": node_label,
                             "valid": if_pass,
-                            "data_record": cleaned_properties, # remove timestamps, and guid if applicable
-                            "validation_result": val_result
-                        })
-                    else: # no warning and the if_pass is True. There is no validation messages except pass
-                        pass
-                else: # validation failed for this node
-                    flagged_nodes.append({
-                        "label": node_label,
-                        "valid": if_pass,
-                        "data_record": cleaned_properties, # remove timestamps, and guid if applicable
-                        "validation_result": val_result
-                    })
+                            "data_record": cleaned_properties,  # remove timestamps, and guid if applicable
+                            "validation_result": val_result,
+                        }
+                    )
         return node_count, passed_count, flagged_nodes
 
-    def validate_db_records(self, driver: "GraphDatabase.driver", batch_size: int = 3000, uuid_property: str = "guid", uuid_in_model: bool = False) -> dict:
+    def validate_db_records(
+        self,
+        driver: "GraphDatabase.driver",
+        batch_size: int = 3000,
+        uuid_property: str = "guid",
+        uuid_in_model: bool = False,
+    ) -> dict:
         """Validates all the records in the database.
 
         Args:
@@ -3258,7 +3377,7 @@ class DatabaseValidator(LocalValidator):
         """
         # Implement the logic to validate all records in the database
         label_list = self.list_all_labels(driver=driver)
-        db_val_results ={}
+        db_val_results = {}
         for label in label_list:
             node_count, passed_count, flagged_nodes = self.validate_db_records_by_label(
                 label, driver, batch_size, uuid_property, uuid_in_model
@@ -3266,13 +3385,15 @@ class DatabaseValidator(LocalValidator):
             db_val_results[label] = {
                 "node_count": node_count,
                 "passed_count": passed_count,
-                "flagged_nodes": flagged_nodes
+                "flagged_nodes": flagged_nodes,
             }
 
         return db_val_results
 
     @staticmethod
-    def get_basic_val_matrix(db_validation_results: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+    def get_basic_val_matrix(
+        db_validation_results: Dict[str, Dict[str, Any]],
+    ) -> pd.DataFrame:
         """Generates basic summary matrix from the return of cls.validate_db_records
 
         Args:
@@ -3300,9 +3421,15 @@ class DatabaseValidator(LocalValidator):
                 db_validation_results[key]["node_count"]
                 - db_validation_results[key]["passed_count"]
             )
-            key_row["flagged_node_counts"] = len(db_validation_results[key]["flagged_nodes"])
-            key_row["node_with_warnings_but_valid"] = len([n for n in db_validation_results[key]["flagged_nodes"] if n["valid"]])
-            val_matrix = pd.concat([val_matrix, pd.DataFrame([key_row])], ignore_index=True)
+            key_row["flagged_node_counts"] = len(
+                db_validation_results[key]["flagged_nodes"]
+            )
+            key_row["node_with_warnings_but_valid"] = len(
+                [n for n in db_validation_results[key]["flagged_nodes"] if n["valid"]]
+            )
+            val_matrix = pd.concat(
+                [val_matrix, pd.DataFrame([key_row])], ignore_index=True
+            )
         return val_matrix
 
     @staticmethod
@@ -3316,47 +3443,65 @@ class DatabaseValidator(LocalValidator):
             dict: A simplified dictionary of validation results.
         """
         # val summary is a DataFrame that will store simplified validation results for each flagged node.
-        val_summary=pd.DataFrame(columns=["node_type", "level", "type", "loc", "input"])
+        val_summary = pd.DataFrame(
+            columns=["node_type", "level", "type", "loc", "input"]
+        )
         new_line_to_add = []
         with open(val_json_filepath, "r", encoding="utf-8") as f:
             records = json.load(f)
             for type, val in records.items():
-                val_flagged_nodes = val.get("flagged_nodes", []) # if no flagged nodes, return en empty list
-                if val_flagged_nodes: # there are flagged nodes
+                val_flagged_nodes = val.get(
+                    "flagged_nodes", []
+                )  # if no flagged nodes, return en empty list
+                if val_flagged_nodes:  # there are flagged nodes
                     for node in val_flagged_nodes:
                         node_val = node.get("validation_result", {})
                         node_val_warnings = node_val.get("warnings", [])
                         node_val_errors = node_val.get("errors", [])
-                        if node_val_warnings: # if there are warning items
+                        if node_val_warnings:  # if there are warning items
                             for warning in node_val_warnings:
                                 newline_to_add = {
                                     "node_type": type,
                                     "level": "warning",
                                     "type": warning.get("type"),
-                                    "loc": warning.get("loc")[0] if warning.get("loc") else None,
-                                    "input": warning.get("input")
+                                    "loc": (
+                                        warning.get("loc")[0]
+                                        if warning.get("loc")
+                                        else None
+                                    ),
+                                    "input": warning.get("input"),
                                 }
                                 new_line_to_add.append(newline_to_add)
-                        if node_val_errors: # if there are error items
+                        if node_val_errors:  # if there are error items
                             for error in node_val_errors:
                                 if error.get("type") == "missing":
                                     newline_to_add = {
                                         "node_type": type,
                                         "level": "error",
                                         "type": error.get("type"),
-                                        "loc": error.get("loc")[0] if error.get("loc") else None,
-                                        "input": "", # is prop is missing, no input
+                                        "loc": (
+                                            error.get("loc")[0]
+                                            if error.get("loc")
+                                            else None
+                                        ),
+                                        "input": "",  # is prop is missing, no input
                                     }
                                 else:
                                     newline_to_add = {
                                         "node_type": type,
                                         "level": "error",
                                         "type": error.get("type"),
-                                        "loc": error.get("loc")[0] if error.get("loc") else None,
-                                        "input": error.get("input")
+                                        "loc": (
+                                            error.get("loc")[0]
+                                            if error.get("loc")
+                                            else None
+                                        ),
+                                        "input": error.get("input"),
                                     }
                                 new_line_to_add.append(newline_to_add)
-        val_summary = pd.concat([val_summary, pd.DataFrame(new_line_to_add)], ignore_index=True)
+        val_summary = pd.concat(
+            [val_summary, pd.DataFrame(new_line_to_add)], ignore_index=True
+        )
 
         # group the val_summary and aggregate only the unique input
         grouped = (
@@ -3378,15 +3523,16 @@ class DatabaseValidator(LocalValidator):
         return simplified_results
 
     def validate_edges_many_to_one(
-            self, driver: "GraphDatabase.driver",
-            model_parser: "ModelParser",
-            src_label: str, 
-            dst_label: str, 
-            uuid_property: str = "guid"
-            ) -> List[Dict[str, str]]:
+        self,
+        driver: "GraphDatabase.driver",
+        model_parser: "ModelParser",
+        src_label: str,
+        dst_label: str,
+        uuid_property: str = "guid",
+    ) -> List[Dict[str, str]]:
         """
         Validates that the edges with the given source and destination labels and edge handle conform to a many-to-one relationship.
-        A typical violation can be one src node points to more than one dst nodes of certain type, such as one a sample node is found pointing to multiple participant nodes. 
+        A typical violation can be one src node points to more than one dst nodes of certain type, such as one a sample node is found pointing to multiple participant nodes.
 
         Args:
             src_label (str): The label of the source node.
@@ -3399,20 +3545,26 @@ class DatabaseValidator(LocalValidator):
         # because this test only report edges from source nodes. We should get the key prop of src node type
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
-        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
-        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(
+            edge_src=src_label, edge_dst=dst_label
+        )
+        edge_handle = model_parser.get_edge_handle(
+            edge_src=src_label, edge_dst=dst_label
+        )
 
         # in case the edge multiplicity is not many_to_one, raise an error
         if edge_multiplicity != "many_to_one":
-            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not many_to_one, found multiplicity: {edge_multiplicity}")
+            raise ValueError(
+                f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not many_to_one, found multiplicity: {edge_multiplicity}"
+            )
         # add basic information to the validation results
         validation_results = {}
         validation_results["edge_validation_type"] = "many_to_one"
-        validation_results["edge"] ={
+        validation_results["edge"] = {
             "src_label": src_label,
             "dst_label": dst_label,
             "edge_handle": edge_handle,
-            "edge_multiplicity": edge_multiplicity
+            "edge_multiplicity": edge_multiplicity,
         }
 
         query = f"""
@@ -3431,11 +3583,15 @@ class DatabaseValidator(LocalValidator):
             result = session.run(query)
             violated_edges = [dict(record) for record in result]
         if violated_edges:
-            print(f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing to more than one {dst_label} data nodes")
+            print(
+                f"Found {len(violated_edges)} {src_label} nodes as source node violated the many_to_one multiplicity, by having edges pointing to more than one {dst_label} data nodes"
+            )
             formatted_violations = []
             for item in violated_edges:
                 item_dict = {}
-                item_dict[src_key_property] = item["src_key_prop"] # this might be "sample_id": "sample_a"
+                item_dict[src_key_property] = item[
+                    "src_key_prop"
+                ]  # this might be "sample_id": "sample_a"
                 item_dict[uuid_property] = item["src_uuid"]
                 item_dict["number_of_dst"] = item["degree"]
                 # dsts is a list
@@ -3443,8 +3599,10 @@ class DatabaseValidator(LocalValidator):
                 for dst in item["dsts"]:
                     dst_list.append(
                         {
-                            dst_key_property: dst["key"], # this might be "participant_id": "participant_b"
-                            uuid_property: dst["uuid"]
+                            dst_key_property: dst[
+                                "key"
+                            ],  # this might be "participant_id": "participant_b"
+                            uuid_property: dst["uuid"],
                         }
                     )
                 item_dict["dst_nodes"] = dst_list
@@ -3452,16 +3610,19 @@ class DatabaseValidator(LocalValidator):
             validation_results["violations"] = formatted_violations
             return validation_results
         else:
-            print(f"No {src_label} nodes violated the many_to_one multiplicity towards {dst_label} type nodes.")
+            print(
+                f"No {src_label} nodes violated the many_to_one multiplicity towards {dst_label} type nodes."
+            )
             return {}
 
     def validate_edges_one_to_many(
-        self, driver: "GraphDatabase.driver",
+        self,
+        driver: "GraphDatabase.driver",
         model_parser: "ModelParser",
         src_label: str,
         dst_label: str,
-        uuid_property: str = "guid"
-        ) -> Dict[str, Any]:
+        uuid_property: str = "guid",
+    ) -> Dict[str, Any]:
         """
         Validates that the edges with the given source and destination labels and edge handle conform to a one-to-many relationship.
         A typical violation can be one dst node pointed to by more than one src nodes of certain type, such as one participant node is found being pointed to by multiple sample nodes when each participant should have only one.
@@ -3477,11 +3638,17 @@ class DatabaseValidator(LocalValidator):
         # because this test reports dst nodes that are pointed to by multiple srcs, we need the key prop of both node types
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
-        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
-        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(
+            edge_src=src_label, edge_dst=dst_label
+        )
+        edge_handle = model_parser.get_edge_handle(
+            edge_src=src_label, edge_dst=dst_label
+        )
 
         if edge_multiplicity != "one_to_many":
-            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_many, found multiplicity: {edge_multiplicity}")
+            raise ValueError(
+                f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_many, found multiplicity: {edge_multiplicity}"
+            )
         # add basic information to the validation results
         validation_results = {}
         validation_results["edge_validation_type"] = "one_to_many"
@@ -3489,7 +3656,7 @@ class DatabaseValidator(LocalValidator):
             "src_label": src_label,
             "dst_label": dst_label,
             "edge_handle": edge_handle,
-            "edge_multiplicity": edge_multiplicity
+            "edge_multiplicity": edge_multiplicity,
         }
         query = f"""
         MATCH (a:{src_label})-[:{edge_handle}]->(b:{dst_label})
@@ -3507,37 +3674,41 @@ class DatabaseValidator(LocalValidator):
             result = session.run(query)
             violated_edges = [dict(record) for record in result]
             if violated_edges:
-                print(f"Found {len(violated_edges)} {dst_label} nodes as destination node violated the one_to_many multiplicity, by being pointed to by more than one {src_label} data nodes")
+                print(
+                    f"Found {len(violated_edges)} {dst_label} nodes as destination node violated the one_to_many multiplicity, by being pointed to by more than one {src_label} data nodes"
+                )
                 formatted_violations = []
                 for item in violated_edges:
                     item_dict = {}
-                    item_dict[dst_key_property] = item["dst_key_prop"]  # this might be "participant_id": "participant_a"
+                    item_dict[dst_key_property] = item[
+                        "dst_key_prop"
+                    ]  # this might be "participant_id": "participant_a"
                     item_dict[uuid_property] = item["dst_uuid"]
                     item_dict["number_of_src"] = item["degree"]
                     # srcs is a list
                     src_list = []
                     for src in item["srcs"]:
                         src_list.append(
-                            {
-                                src_key_property: src["key"],
-                                uuid_property: src["uuid"]
-                            }
+                            {src_key_property: src["key"], uuid_property: src["uuid"]}
                         )
                     item_dict["src_nodes"] = src_list
                     formatted_violations.append(item_dict)
                 validation_results["violations"] = formatted_violations
                 return validation_results
             else:
-                print(f"No {dst_label} nodes violated the one_to_many multiplicity from {src_label} type nodes.")
+                print(
+                    f"No {dst_label} nodes violated the one_to_many multiplicity from {src_label} type nodes."
+                )
                 return {}
 
     def validate_edges_one_to_one(
-        self, driver: "GraphDatabase.driver",
+        self,
+        driver: "GraphDatabase.driver",
         model_parser: "ModelParser",
         src_label: str,
         dst_label: str,
-        uuid_property: str = "guid"
-        ) -> List[Dict[str, str]]:
+        uuid_property: str = "guid",
+    ) -> List[Dict[str, str]]:
         """
         Validates that the edges with the given source and destination labels and edge handle conform to a one-to-one relationship.
         A one-to-one relationship is violated in two ways: one src node points to more than one dst node, or one dst node is pointed to by more than one src node. Both sides are checked.
@@ -3553,11 +3724,17 @@ class DatabaseValidator(LocalValidator):
         # one_to_one must be checked from both the src side and the dst side
         src_key_property = model_parser.get_node_key_prop(src_label)
         dst_key_property = model_parser.get_node_key_prop(dst_label)
-        edge_multiplicity = model_parser.get_edge_multiplicity(edge_src=src_label, edge_dst=dst_label)
-        edge_handle = model_parser.get_edge_handle(edge_src=src_label, edge_dst=dst_label)
+        edge_multiplicity = model_parser.get_edge_multiplicity(
+            edge_src=src_label, edge_dst=dst_label
+        )
+        edge_handle = model_parser.get_edge_handle(
+            edge_src=src_label, edge_dst=dst_label
+        )
 
         if edge_multiplicity != "one_to_one":
-            raise ValueError(f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_one, found multiplicity: {edge_multiplicity}")
+            raise ValueError(
+                f"Edge {edge_handle} between src type {src_label} and dst type {dst_label} is not one_to_one, found multiplicity: {edge_multiplicity}"
+            )
         # add basic information to the validation results
         validation_results = {}
         validation_results["edge_validation_type"] = "one_to_one"
@@ -3565,7 +3742,7 @@ class DatabaseValidator(LocalValidator):
             "src_label": src_label,
             "dst_label": dst_label,
             "edge_handle": edge_handle,
-            "edge_multiplicity": edge_multiplicity
+            "edge_multiplicity": edge_multiplicity,
         }
 
         # src side: a src node pointing to more than one dst node
@@ -3604,36 +3781,48 @@ class DatabaseValidator(LocalValidator):
             dst_side_violations = []
 
             if src_violated:
-                print(f"Found {len(src_violated)} {src_label} nodes violating the one_to_one multiplicity, by pointing to more than one {dst_label} data nodes")
+                print(
+                    f"Found {len(src_violated)} {src_label} nodes violating the one_to_one multiplicity, by pointing to more than one {dst_label} data nodes"
+                )
                 for item in src_violated:
                     item_dict = {}
-                    item_dict[src_key_property] = item["src_key_prop"]  # this might be "sample_id": "sample_a"
+                    item_dict[src_key_property] = item[
+                        "src_key_prop"
+                    ]  # this might be "sample_id": "sample_a"
                     item_dict[uuid_property] = item["src_uuid"]
                     item_dict["number_of_dst"] = item["degree"]
                     dst_list = []
                     for dst in item["dsts"]:
                         dst_list.append(
                             {
-                                dst_key_property: dst["key"],  # this might be "participant_id": "participant_b"
-                                uuid_property: dst["uuid"]
+                                dst_key_property: dst[
+                                    "key"
+                                ],  # this might be "participant_id": "participant_b"
+                                uuid_property: dst["uuid"],
                             }
                         )
                     item_dict["dst_nodes"] = dst_list
                     src_side_violations.append(item_dict)
 
             if dst_violated:
-                print(f"Found {len(dst_violated)} {dst_label} nodes violating the one_to_one multiplicity, by being pointed to by more than one {src_label} data nodes")
+                print(
+                    f"Found {len(dst_violated)} {dst_label} nodes violating the one_to_one multiplicity, by being pointed to by more than one {src_label} data nodes"
+                )
                 for item in dst_violated:
                     item_dict = {}
-                    item_dict[dst_key_property] = item["dst_key_prop"]  # this might be "participant_id": "participant_a"
+                    item_dict[dst_key_property] = item[
+                        "dst_key_prop"
+                    ]  # this might be "participant_id": "participant_a"
                     item_dict[uuid_property] = item["dst_uuid"]
                     item_dict["number_of_src"] = item["degree"]
                     src_list = []
                     for src in item["srcs"]:
                         src_list.append(
                             {
-                                src_key_property: src["key"],  # this might be "sample_id": "sample_b"
-                                uuid_property: src["uuid"]
+                                src_key_property: src[
+                                    "key"
+                                ],  # this might be "sample_id": "sample_b"
+                                uuid_property: src["uuid"],
                             }
                         )
                     item_dict["src_nodes"] = src_list
@@ -3642,14 +3831,21 @@ class DatabaseValidator(LocalValidator):
             if src_side_violations or dst_side_violations:
                 validation_results["violations"] = {
                     "src_side_violations": src_side_violations,
-                    "dst_side_violations": dst_side_violations
+                    "dst_side_violations": dst_side_violations,
                 }
                 return validation_results
             else:
-                print(f"No one_to_one multiplicity violations found between {src_label} and {dst_label} type nodes.")
+                print(
+                    f"No one_to_one multiplicity violations found between {src_label} and {dst_label} type nodes."
+                )
                 return {}
 
-    def validate_db_edges_multiplicity(self, driver: "GraphDatabase.driver", model_parser: "ModelParser", uuid_property: str = "guid"):
+    def validate_db_edges_multiplicity(
+        self,
+        driver: "GraphDatabase.driver",
+        model_parser: "ModelParser",
+        uuid_property: str = "guid",
+    ):
         """Checks edges between src label and dst label node types if they complies with multiplicity defined in the data model.
         For instance, the multiplicity between of_consent_group edge between consent_group and study is many_to_one. This will check
         if any consent_group type data node is pointing to more than one study type node
@@ -3661,13 +3857,19 @@ class DatabaseValidator(LocalValidator):
         """
         grouped_edges = model_parser.group_edges_by_multiplicity()
         multiplicity_keys = list(grouped_edges.keys())
-        unfound_multiplicity = [key for key in multiplicity_keys if key not in ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]]
+        unfound_multiplicity = [
+            key
+            for key in multiplicity_keys
+            if key not in ["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
+        ]
         if unfound_multiplicity:
             raise ValueError(
                 f"Found edges with unfound multiplicities: {unfound_multiplicity}"
             )
         if multiplicity_keys == ["many_to_many"]:
-            print("All edges are many_to_many edges. Edges are always valid cardinality wise")
+            print(
+                "All edges are many_to_many edges. Edges are always valid cardinality wise"
+            )
             return []
 
         # the structure of val_results will be a list based on edge type
@@ -3677,24 +3879,204 @@ class DatabaseValidator(LocalValidator):
 
         for multiplicity, edges in grouped_edges.items():
             if multiplicity == "many_to_many":
-                print("Skipping many_to_many edges as they are always valid cardinality wise.")
+                print(
+                    "Skipping many_to_many edges as they are always valid cardinality wise."
+                )
                 continue
             for edge in edges:
                 src = edge["src"]
                 dst = edge["dst"]
                 handle = edge["handle"]
-                print(f"Validating edge {handle} from {src} to {dst} with multiplicity {multiplicity}")
+                print(
+                    f"Validating edge {handle} from {src} to {dst} with multiplicity {multiplicity}"
+                )
                 if multiplicity == "one_to_one":
-                    edge_val = self.validate_edges_one_to_one(driver, model_parser, src, dst, uuid_property)
+                    edge_val = self.validate_edges_one_to_one(
+                        driver, model_parser, src, dst, uuid_property
+                    )
                 elif multiplicity == "one_to_many":
-                    edge_val = self.validate_edges_one_to_many(driver, model_parser, src, dst, uuid_property)
+                    edge_val = self.validate_edges_one_to_many(
+                        driver, model_parser, src, dst, uuid_property
+                    )
                 elif multiplicity == "many_to_one":
-                    edge_val = self.validate_edges_many_to_one(driver, model_parser, src, dst, uuid_property)
+                    edge_val = self.validate_edges_many_to_one(
+                        driver, model_parser, src, dst, uuid_property
+                    )
                 else:
                     raise ValueError(f"Unsupported multiplicity: {multiplicity}")
-                if edge_val: # if edge_val is not empty
+                if edge_val:  # if edge_val is not empty
                     val_results.append(edge_val)
         return val_results
+
+    def find_distinct_value_grp_nodes(
+        self,
+        driver: "GraphDatabase.driver",
+        node_type: str,
+        group_property_list: List[str],
+        target_property: str,
+        target_property_distinct_value_threshold: int = 1,
+        skip_null_keys: bool = True,
+
+    ) -> List[dict]:
+        """Find nodes that have conflicting values for a target property within groups defined by group properties.
+        This test can be used for testing value pairings between properties. 
+        For example, acl(e.g., ["phs003519.c1"]) and authz (e.g.,["/programs/phs003519.c1"]) value of file type nodes are always pairing together, one acl value won't be pairing more than 1 authz value
+
+        Args:
+            driver (GraphDatabase.driver): The Neo4j driver instance.
+            node_type (str): The label of the nodes to check.
+            group_property_list (List[str]): The list of properties to group by.
+            target_property (str): The property to check for conflicting values.
+            skip_null_keys (bool, optional): Whether to skip groups with null key properties. Defaults to True. When set to False, groups with null key properties will be grouped together.
+            target_property_distinct_value_threshold (int, optional): The minimum number of distinct values for the target property to consider a group as conflicting. Defaults to 1, meaning the return will print groups with at least one distinct value for the target property.
+
+        Returns:
+            list[dict]: A list of dictionaries representing conflicting groups.
+        """
+        node_type_key = self.model.nodes[node_type].get_key_prop().handle
+        if not group_property_list:
+            raise ValueError("group_property_list must contain at least one property")
+
+        key_exprs = ", ".join(
+            f"n.{self._q(p)} AS {self._q(p)}"
+            for p in group_property_list
+        )
+        where = ""
+        if skip_null_keys:
+            where = "WHERE " + " AND ".join(
+                f"n.{self._q(p)} IS NOT NULL" for p in group_property_list
+            )
+
+        group_cols = ", ".join(p for p in group_property_list)
+
+        # ids_expr = ", collect(elementId(n)) AS node_ids"
+        ids_expr = f", collect(n.{node_type_key}) AS {node_type_key}_list"
+        query = f"""
+            MATCH (n:{self._q(node_type)})
+            {where}
+            WITH {key_exprs},
+                 collect(DISTINCT n.{self._q(target_property)}) AS distinct_target_prop_values,
+                 count(n) AS node_count
+                 {ids_expr}
+            WHERE size(distinct_target_prop_values) >= {target_property_distinct_value_threshold}
+            RETURN {group_cols},
+                   $target_property AS target_prop,
+                   distinct_target_prop_values,
+                   node_count,
+                   {node_type_key}_list
+            ORDER BY node_count DESC
+        """
+        with driver.session() as session:
+            query_return = [record.data() for record in session.run(query, target_property=target_property)]
+
+        for record in query_return:
+            record["node_type"] = node_type
+            group_properties = {p: record[p] for p in group_property_list}
+            record["group_properties"] = group_properties
+            for p in group_property_list:
+                del record[p]
+            record["node_list"] = {node_type_key: record[f"{node_type_key}_list"]}
+            del record[f"{node_type_key}_list"]
+
+        return query_return
+
+    def find_distinct_value_grp_nodes_by_parent(
+        self,
+        driver: "GraphDatabase.driver",
+        node_type: str,
+        parent_node_type: str,
+        target_property: str,
+        group_property_list: Optional[List[str]] = None,
+        target_property_distinct_value_threshold: Optional[int] = 1,
+        skip_null_keys: bool = True,
+    ) -> list[dict]:
+        """Find nodes of a type that, grouped by the parent node they point to (and optionally
+        by additional properties), have more than one distinct value for a target property.
+
+        Example: survival nodes pointing to the same participant node and sharing the same
+        age_at_survival_status should not have more than one distinct survival_status value (such as Dead and Alive).
+
+        Args:
+            driver (GraphDatabase.driver): 
+            node_type (str): Type of the node to find.
+            parent_node_type (str): Type of the parent node the target nodes point to.
+            target_property (str): Property of the target node to check for distinct values.
+            group_property_list (list[str], optional): list of properties to further group by in addition to the parent node.
+            target_property_distinct_value_threshold (int, optional): Minimum number of distinct values required for the target property. Defaults to 1.
+            skip_null_keys (bool, optional): Whether to skip nodes with null values for the grouping keys. Defaults to True.
+
+        Returns:
+            list[dict]: List of dictionaries containing the grouped nodes and their distinct target property values.
+        """
+        all_edges_dict = self.model.edges
+        all_edges = list(all_edges_dict.keys())
+        if_found = False
+        for triplet in all_edges:
+            if triplet[1] == node_type and triplet[2] == parent_node_type:
+                if_found = True
+                edge_handle = self.model.edges[triplet].handle
+                break
+            else:
+                continue
+        if not if_found:
+            raise KeyError(
+                f"Edge from '{node_type}' to '{parent_node_type}' not found in the model. Please check your model definition."
+            )
+        group_property_list = group_property_list or []
+        node_type_key = self.model.nodes[node_type].get_key_prop().handle
+        parent_key = self.model.nodes[parent_node_type].get_key_prop().handle
+        parent_alias = "parent_node"
+        list_alias = f"{node_type_key}_list"
+        rel = "[:" + edge_handle + "]"
+        match = (
+            f"MATCH (n:{node_type})-{rel}->"
+            f"(p:{parent_node_type})"
+        )
+
+        where = ""
+        if skip_null_keys and group_property_list:
+            where = "WHERE " + " AND ".join(
+                f"n.{p} IS NOT NULL" for p in group_property_list
+            )
+
+        key_exprs = ", ".join(
+            [f"p.{parent_key} AS {parent_alias}"]
+            + [f"n.{p} AS {p}" for p in group_property_list]
+        )
+        return_cols = ", ".join(
+            [parent_alias] + group_property_list
+        )
+
+        query = f"""
+            {match}
+            {where}
+            WITH {key_exprs},
+                 collect(DISTINCT n.{self._q(target_property)}) AS distinct_target_prop_values,
+                 count(n) AS node_count,
+                 collect(n.{node_type_key}) AS {list_alias}
+            WHERE size(distinct_target_prop_values) >= {int(target_property_distinct_value_threshold)}
+            RETURN {return_cols},
+                   $target_property AS target_prop,
+                   distinct_target_prop_values,
+                   node_count,
+                   {list_alias}
+            ORDER BY node_count DESC
+        """
+        with driver.session() as session:
+            query_return = [
+                record.data()
+                for record in session.run(query, target_property=target_property)
+            ]
+        for record in query_return:
+            record["node_type"] = node_type
+            record[parent_alias] = {parent_key: record[parent_alias]}
+            record["node_list"] = {node_type_key: record[list_alias]}
+            group_properties = {p: record[p] for p in group_property_list}
+            record["group_properties"] = group_properties
+            for p in group_property_list:
+                del record[p]
+            del record[list_alias]
+        return query_return
 
 
 # Retain the established local-validation import while callers migrate to LocalValidator.

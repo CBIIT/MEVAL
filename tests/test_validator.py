@@ -1835,5 +1835,152 @@ class TestDatabaseValidator(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unfound multiplicities"):
             self.validator.validate_db_edges_multiplicity(MagicMock(), model_parser)
+
+    def test_find_distinct_value_grp_nodes_groups_results_and_filters_null_keys(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "file": SimpleNamespace(
+                    get_key_prop=MagicMock(
+                        return_value=SimpleNamespace(handle="file_id")
+                    )
+                )
+            }
+        )
+        session = MagicMock()
+        record = MagicMock()
+        record.data.return_value = {
+            "acl": "phs000001.c1",
+            "target_prop": "authz",
+            "distinct_target_prop_values": [
+                "/programs/phs000001.c1",
+                "/programs/phs000002.c1",
+            ],
+            "node_count": 2,
+            "file_id_list": ["file-1", "file-2"],
+        }
+        session.run.return_value = [record]
+        driver = self._build_driver_with_session(session)
+
+        results = self.validator.find_distinct_value_grp_nodes(
+            driver,
+            "file",
+            ["acl"],
+            "authz",
+            target_property_distinct_value_threshold=2,
+        )
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "target_prop": "authz",
+                    "distinct_target_prop_values": [
+                        "/programs/phs000001.c1",
+                        "/programs/phs000002.c1",
+                    ],
+                    "node_count": 2,
+                    "node_type": "file",
+                    "group_properties": {"acl": "phs000001.c1"},
+                    "node_list": {"file_id": ["file-1", "file-2"]},
+                }
+            ],
+        )
+        query = session.run.call_args.args[0]
+        self.assertIn("WHERE n.`acl` IS NOT NULL", query)
+        self.assertIn("size(distinct_target_prop_values) >= 2", query)
+        self.assertEqual(
+            session.run.call_args.kwargs, {"target_property": "authz"}
+        )
+
+    def test_find_distinct_value_grp_nodes_requires_group_properties(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "file": SimpleNamespace(
+                    get_key_prop=MagicMock(
+                        return_value=SimpleNamespace(handle="file_id")
+                    )
+                )
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "group_property_list must contain"):
+            self.validator.find_distinct_value_grp_nodes(
+                MagicMock(), "file", [], "authz"
+            )
+
+    def test_find_distinct_value_grp_nodes_by_parent_groups_results(self) -> None:
+        self.validator.model = SimpleNamespace(
+            nodes={
+                "survival": SimpleNamespace(
+                    get_key_prop=MagicMock(
+                        return_value=SimpleNamespace(handle="survival_id")
+                    )
+                ),
+                "participant": SimpleNamespace(
+                    get_key_prop=MagicMock(
+                        return_value=SimpleNamespace(handle="participant_id")
+                    )
+                ),
+            },
+            edges={
+                ("rel", "survival", "participant"): SimpleNamespace(
+                    handle="of_participant"
+                )
+            },
+        )
+        session = MagicMock()
+        record = MagicMock()
+        record.data.return_value = {
+            "parent_node": "participant-1",
+            "age_at_status": 10,
+            "target_prop": "survival_status",
+            "distinct_target_prop_values": ["Alive", "Deceased"],
+            "node_count": 2,
+            "survival_id_list": ["survival-1", "survival-2"],
+        }
+        session.run.return_value = [record]
+        driver = self._build_driver_with_session(session)
+
+        results = self.validator.find_distinct_value_grp_nodes_by_parent(
+            driver,
+            "survival",
+            "participant",
+            "survival_status",
+            group_property_list=["age_at_status"],
+            target_property_distinct_value_threshold=2,
+        )
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "parent_node": {"participant_id": "participant-1"},
+                    "target_prop": "survival_status",
+                    "distinct_target_prop_values": ["Alive", "Deceased"],
+                    "node_count": 2,
+                    "node_type": "survival",
+                    "node_list": {"survival_id": ["survival-1", "survival-2"]},
+                    "group_properties": {"age_at_status": 10},
+                }
+            ],
+        )
+        query = session.run.call_args.args[0]
+        self.assertIn(
+            "MATCH (n:survival)-[:of_participant]->(p:participant)", query
+        )
+        self.assertIn("WHERE n.age_at_status IS NOT NULL", query)
+        self.assertIn("size(distinct_target_prop_values) >= 2", query)
+        self.assertEqual(
+            session.run.call_args.kwargs, {"target_property": "survival_status"}
+        )
+
+    def test_find_distinct_value_grp_nodes_by_parent_requires_model_edge(self) -> None:
+        self.validator.model = SimpleNamespace(edges={})
+
+        with self.assertRaisesRegex(KeyError, "Edge from 'survival' to 'participant'"):
+            self.validator.find_distinct_value_grp_nodes_by_parent(
+                MagicMock(), "survival", "participant", "survival_status"
+            )
+
 if __name__ == "__main__":
     unittest.main()
