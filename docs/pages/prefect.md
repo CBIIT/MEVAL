@@ -17,6 +17,7 @@ Any flows that require a database connection will retrieve credentials from AWS 
   - [`add_uuid_to_files.py` — Add UUID to a set of TSV files](#add_uuid_to_filespy--add-uuid-to-a-set-of-tsv-files)
   - [`upsert_workflow.py` — Dataloading Upsert Workflow](#upsert_workflowpy--dataloading-upsert-workflow)
   - [`validate_submission_against_db.py` — Validate submission files against database](#validate_submission_against_dbpy--validate-submission-files-against-database)
+  - [`db_health_check.py` — Database Health Check](#db_health_checkpy--database-health-check)
   - [`find_db_floating_nodes.py` — Find/delete floating (orphan) nodes](#find_db_floating_nodespy--finddelete-floating-orphan-nodes)
   - [`precision_deletion_guid.py` — Precision Deletion Nodes](#precision_deletion_guidpy--precision-deletion-nodes)
   - [`delete_database_study_subgraph.py` — Delete Database Study Subgraph Flow](#delete_database_study_subgraphpy--delete-database-study-subgraph-flow)
@@ -58,6 +59,9 @@ Contains the two main data-loading flows:
 
 ### `validate_submission_against_db.py` — Validate submission files against database
 Runs **database** validation (`Validator.validate_tsv_in_db`) against an existing graph database for a given `validation_mode` (`"New"`, `"Update"`, or `"Upsert"`), reporting whether records/relationships would validly load and projecting the resulting node/edge changes. If the submission files don't already have a `guid` column (`does_file_contain_uuid="no"`), the flow pauses to collect a `subgraph_value` and runs `add_uuid_to_files` first.
+
+### `db_health_check.py` — Database Health Check
+The `meval-db-health-check` deployment runs the `db_health_check` flow to inspect the graph database against the selected MDF model. It validates database records, checks edge multiplicity, and finds floating nodes without a path to the model's root node. Validation summaries and any detected edge multiplicity or floating-node issues are uploaded to the configured `output_bucket_path`.
 
 ### `find_db_floating_nodes.py` — Find/delete floating (orphan) nodes
 Two small helper flows built on `Loader`:
