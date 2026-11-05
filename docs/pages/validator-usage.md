@@ -9,7 +9,7 @@ permalink: /validator/usage/
 
 - **`ValidatorUtilities`** — shared TSV-reading, record-preparation, and UUID5 utilities inherited by `LocalValidator` and `RemoteValidator` (and by `DatabaseValidator` through `LocalValidator`). You generally don't use this class directly.
 - **`LocalValidator(ValidatorUtilities)`** — checks a TSV file (or set of files) for internal consistency: file/column format, per-record property validity, cross-file relationship (linkage) validity, and duplicate key entries — without needing a database connection. Instantiated with an `MDFReader`.
->**ATTENTION**: LocalValidator validates tsv files before uuid creation, meaning linkage columns in file are presented as <parent_node>.<panret_node_key_peop>. such as participant.participant_id. 
+>**ATTENTION**: LocalValidator validates tsv files BEFORE uuid creation, meaning linkage columns in file are presented as \<parent_node\>.\<panret_node_key_peop\>, such as participant.participant_id. 
 - **`RemoteValidator(ValidatorUtilities)`** — checks a TSV file against an existing graph database to determine whether records/relationships would be created vs. updated, and whether they are valid to load (e.g. relationship targets exist somewhere). All methods are class methods, so no instantiation is required.
 > **ATTENTION**: RemoteValidator uses UUID as the identifier to match record in the database. Users are expected to create UUID for their submission files before they use RemoteValidator for validation against a database.
 - **`DatabaseValidator(LocalValidator)`** — validates records already in the database against the MDF model, evaluates property completeness and placeholder values, and checks stored edges against model-defined multiplicities. Instantiated with an `MDFReader` and used with a graph database driver.
@@ -146,15 +146,15 @@ passed, failed, summary, results = RemoteValidator.validate_tsv_in_db(
 
 ## Database integrity validation and evaluation
 
-> **ATTENTION**: `DatabaseValidator` inspects data already stored in the graph database. It is separate from `RemoteValidator`, which validates submission TSV files against the database.
+> **ATTENTION**: `DatabaseValidator` inspects data already stored in the graph database. It is separate from `RemoteValidator`, which validates submission TSV files ready to be loaded against the database.
 
 `DatabaseValidator` inherits the local validation methods and requires an `MDFReader` at initialization. Its database methods require a Neo4j/Memgraph `driver`. It supports:
 
-- **Record validation** — validates stored nodes against the MDF model.
-- **Property evaluation** — measures missing property values and counts enum or numeric placeholders.
+- **Record validation** — validates stored nodes against the MDF model. The database record-validation pass fetches nodes by label in batches, removes the database timestamp properties (`created` and `updated`), and removes the UUID property before model validation when that UUID is not part of the MDF model.
 - **Edge multiplicity validation** — finds stored relationships that violate model cardinalities.
+- **Missing property evaluation** — measures missing property values and counts enum or numeric placeholders.
+- **Conflicting property value check** - checks if a target property has one consistent value within a group. A common use case is testing if a participant has different survival status at one time point.
 
-The database record-validation pass fetches nodes by label in batches, removes the database timestamp properties (`created` and `updated`), and removes the UUID property before model validation when that UUID is not part of the MDF model.
 
 ```python
 from bento_mdf import MDFReader
@@ -184,21 +184,53 @@ with GraphDatabase.driver(database_uri, auth=(username, password)) as driver:
     property_completeness = validator.props_db_evaluation(driver)
     enum_placeholders = validator.enum_props_db_evaluation(driver)
     numeric_placeholders = validator.numeric_props_db_evaluation(driver)
+    # conflicting property values identification
+    conflict_survival_status = validator.find_distinct_value_grp_nodes_by_parent(
+        driver=driver, node_type="survival",
+        parent_node_type="participant",
+        target_property="last_known_survival_status",
+        group_property_list=["age_at_last_known_survival_status"],
+        target_property_distinct_value_threshold=2
+    )
 ```
 
-### `validate_db_records(driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
+### Database health status check
+
+`list_all_labels(driver)` lists the distinct labels present in the database. `fetch_nodes_by_label(driver, label, batch_size=3000)` is the batched node-fetching generator used by record validation.
+
+`validate_db_records(driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
 Validates all nodes returned by the database label query against the MDF model. Returns a dict keyed by node label; each value contains `node_count`, `passed_count`, and `flagged_nodes`. A node is flagged if it has validation errors or warnings. Each flagged-node entry includes its `label`, `valid` status, cleaned `data_record`, and `validation_result`.
 
 Use `uuid_in_model=True` when the UUID property is defined in the MDF; otherwise, the configured `uuid_property` is excluded from the record before validation.
 
-### `validate_db_records_by_label(node_label, driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
+`validate_db_records_by_label(node_label, driver, batch_size=3000, uuid_property="guid", uuid_in_model=False)`
 Validates nodes with one label. Returns `(node_count, passed_count, flagged_nodes)`, using the same flagged-node structure as `validate_db_records`.
+
+`get_basic_val_matrix(db_validation_results)`
+Converts the result of `validate_db_records` into a pandas DataFrame with per-label counts for total nodes, passed nodes, nodes with errors, flagged nodes, and nodes that passed with warnings.
+
+`val_results_simplified(val_json_filepath)`
+Reads a JSON file containing the result of `validate_db_records` and returns a grouped list of validation findings, including the node type, severity, validation type, property location, unique inputs, and occurrence counts. Missing-value errors have an empty string as their input.
+
+`validate_db_edges_multiplicity(driver, model_parser, uuid_property="guid")`
+Checks every model edge against its declared multiplicity. It reports violations for `one_to_one`, `one_to_many`, and `many_to_one` edges; `many_to_many` edges are skipped because they impose no cardinality restriction. Returns a list of violation summaries, or an empty list when none are found.
+
+The individual edge checks can also be called directly:
+
+- `validate_edges_many_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports source nodes pointing to multiple destination nodes.
+- `validate_edges_one_to_many(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports destination nodes pointed to by multiple source nodes.
+- `validate_edges_one_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` checks both directions and reports source-side and destination-side violations.
+
+Each method verifies that the edge has the expected multiplicity in the model and returns an empty dictionary when no violations are found. For `one_to_one`, any violations are grouped under `violations.src_side_violations` and `violations.dst_side_violations`.
+
 
 ### Property completeness evaluation
 
 `list_all_properties()` enumerates the MDF properties as dictionaries containing `node`, `property`, and `type`. Enum properties are labeled `"Enum"` and list properties are labeled `"List[<item type>]"`.
 
-`prop_db_query(tx, node_label, prop)` queries one property in a transaction and returns `{"total": ..., "filled": ...}`. `props_db_evaluation(driver)` runs this query for every model property and returns a list of results with `node`, `property`, `type`, `total`, `filled`, and `missing_percentage`. A property with no nodes has a missing percentage of `0`.
+`prop_db_query(tx, node_label, prop)` queries one property in a transaction and returns `{"total": ..., "filled": ...}`. 
+
+`props_db_evaluation(driver)` runs this query for every model property and returns a list of results with `node`, `property`, `type`, `total`, `filled`, and `missing_percentage`. A property with no nodes has a missing percentage of `0`.
 
 ### Enum placeholder evaluation
 
@@ -216,24 +248,6 @@ Validates nodes with one label. Returns `(node_count, passed_count, flagged_node
 
 `numeric_props_db_evaluation(driver, sentinel=DatabaseValidator.PLACEHOLDER_NUM_VALUE)` evaluates every numeric model property and returns a list with `node`, `property`, `total`, `filled`, and `sentinel`. The default sentinel is `-999`.
 
-### `get_basic_val_matrix(db_validation_results)`
-Converts the result of `validate_db_records` into a pandas DataFrame with per-label counts for total nodes, passed nodes, nodes with errors, flagged nodes, and nodes that passed with warnings.
-
-### `val_results_simplified(val_json_filepath)`
-Reads a JSON file containing the result of `validate_db_records` and returns a grouped list of validation findings, including the node type, severity, validation type, property location, unique inputs, and occurrence counts. Missing-value errors have an empty string as their input.
-
-### `validate_db_edges_multiplicity(driver, model_parser, uuid_property="guid")`
-Checks every model edge against its declared multiplicity. It reports violations for `one_to_one`, `one_to_many`, and `many_to_one` edges; `many_to_many` edges are skipped because they impose no cardinality restriction. Returns a list of violation summaries, or an empty list when none are found.
-
-The individual edge checks can also be called directly:
-
-- `validate_edges_many_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports source nodes pointing to multiple destination nodes.
-- `validate_edges_one_to_many(driver, model_parser, src_label, dst_label, uuid_property="guid")` reports destination nodes pointed to by multiple source nodes.
-- `validate_edges_one_to_one(driver, model_parser, src_label, dst_label, uuid_property="guid")` checks both directions and reports source-side and destination-side violations.
-
-Each method verifies that the edge has the expected multiplicity in the model and returns an empty dictionary when no violations are found. For `one_to_one`, any violations are grouped under `violations.src_side_violations` and `violations.dst_side_violations`.
-
-`list_all_labels(driver)` lists the distinct labels present in the database. `fetch_nodes_by_label(driver, label, batch_size=3000)` is the batched node-fetching generator used by record validation.
 
 ### Finding groups with distinct property values
 
